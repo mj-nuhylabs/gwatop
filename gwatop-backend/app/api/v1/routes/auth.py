@@ -55,7 +55,7 @@ async def social_login(body: SocialLoginRequest, db: AsyncSession = Depends(get_
     if body.provider != "google":
         raise HTTPException(400, detail={"error": "unsupported_provider", "message": "Google 로그인만 지원합니다."})
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
         resp = await client.get(
             "https://oauth2.googleapis.com/tokeninfo",
             params={"id_token": body.id_token},
