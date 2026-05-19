@@ -14,7 +14,6 @@ import SwiftUI
 struct GwaTopLoginView: View {
     @State private var email: String = ""
     @State private var password: String = ""
-    @State private var showSignUpSheet: Bool = false
     @State private var showMockSuccessAlert: Bool = false
     @State private var alertMessage: String = ""
     @State private var isPasswordVisible: Bool = false
@@ -41,14 +40,7 @@ struct GwaTopLoginView: View {
                 }
             }
             .navigationBarHidden(true)
-            .sheet(isPresented: $showSignUpSheet) {
-                SignUpView { name, email in
-                    alertMessage = "\(name)님, 회원가입 UI 테스트가 완료되었습니다.\n가입 이메일: \(email)"
-                    showMockSuccessAlert = true
-                }
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
-            }
+
             .alert("GwaTop", isPresented: $showMockSuccessAlert) {
                 Button("확인", role: .cancel) { }
             } message: {
@@ -192,13 +184,22 @@ struct GwaTopLoginView: View {
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(GwaTopTheme.textSecondary)
 
-                Button {
-                    showSignUpSheet = true
-                } label: {
-                    Text("회원가입")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(GwaTopTheme.primary)
-                }
+                NavigationLink(
+                    destination: GwaTopSignUpView()
+                ){
+                    Text(
+                        "회원가입"
+                    )
+                    .font(
+                        .system(
+                            size: 14,
+                            weight: .bold
+                        )
+                    )
+                    .foregroundStyle(
+                        GwaTopTheme.primary
+                    )
+                    }
             }
             .padding(.top, 2)
         }
@@ -239,143 +240,6 @@ struct GwaTopLoginView: View {
     private func handleGoogleLogin() {
         alertMessage = "Google 로그인 UI 테스트가 완료되었습니다.\n아직 Google SDK는 연결하지 않은 Mock 상태입니다."
         showMockSuccessAlert = true
-    }
-}
-
-// MARK: - 회원가입 화면
-struct SignUpView: View {
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var name: String = ""
-    @State private var email: String = ""
-    @State private var password: String = ""
-    @State private var confirmPassword: String = ""
-    @State private var isPasswordVisible: Bool = false
-    @State private var isConfirmPasswordVisible: Bool = false
-    @State private var errorMessage: String? = nil
-
-    let onSignUpComplete: (String, String) -> Void
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                Color(red: 0.96, green: 0.97, blue: 1.0)
-                    .ignoresSafeArea()
-
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 22) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("회원가입")
-                                .font(.system(size: 32, weight: .heavy, design: .rounded))
-                                .foregroundStyle(GwaTopTheme.textPrimary)
-
-                            Text("GwaTop에서 사용할 계정을 만들어 주세요. 지금은 백엔드 없이 UI 검증만 진행합니다.")
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundStyle(GwaTopTheme.textSecondary)
-                                .lineSpacing(4)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 18)
-
-                        VStack(spacing: 14) {
-                            GwaTopTextField(
-                                title: "이름",
-                                placeholder: "홍길동",
-                                text: $name,
-                                iconName: "person.fill",
-                                keyboardType: .default
-                            )
-
-                            GwaTopTextField(
-                                title: "이메일",
-                                placeholder: "example@gwatop.com",
-                                text: $email,
-                                iconName: "envelope.fill",
-                                keyboardType: .emailAddress
-                            )
-
-                            GwaTopPasswordField(
-                                title: "비밀번호",
-                                placeholder: "6자 이상 입력하세요",
-                                text: $password,
-                                isVisible: $isPasswordVisible
-                            )
-
-                            GwaTopPasswordField(
-                                title: "비밀번호 확인",
-                                placeholder: "비밀번호를 한 번 더 입력하세요",
-                                text: $confirmPassword,
-                                isVisible: $isConfirmPasswordVisible
-                            )
-                        }
-
-                        if let errorMessage {
-                            Text(errorMessage)
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(.red)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-
-                        Button {
-                            handleSignUp()
-                        } label: {
-                            Text("회원가입하기")
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundStyle(.white)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 56)
-                                .background(GwaTopTheme.primary)
-                                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                        }
-                        .padding(.top, 4)
-
-                        Button {
-                            dismiss()
-                        } label: {
-                            Text("이미 계정이 있어요")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundStyle(GwaTopTheme.primary)
-                        }
-                    }
-                    .padding(22)
-                }
-            }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("닫기") {
-                        dismiss()
-                    }
-                    .fontWeight(.bold)
-                }
-            }
-        }
-    }
-
-    private func handleSignUp() {
-        errorMessage = nil
-
-        guard name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
-            errorMessage = "이름을 입력해 주세요."
-            return
-        }
-
-        guard email.contains("@") else {
-            errorMessage = "올바른 이메일을 입력해 주세요."
-            return
-        }
-
-        guard password.count >= 6 else {
-            errorMessage = "비밀번호는 최소 6자 이상이어야 합니다."
-            return
-        }
-
-        guard password == confirmPassword else {
-            errorMessage = "비밀번호와 비밀번호 확인이 일치하지 않습니다."
-            return
-        }
-
-        onSignUpComplete(name, email)
-        dismiss()
     }
 }
 
