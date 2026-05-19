@@ -57,7 +57,7 @@ actor AuthService {
             throw AuthError.serverError("서버 주소가 올바르지 않습니다.")
         }
 
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: url, timeoutInterval: 15)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(
@@ -67,17 +67,30 @@ actor AuthService {
         let (data, response) = try await URLSession.shared.data(for: request)
 
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            struct ErrorEnvelope: Decodable {
-                struct Detail: Decodable { let message: String? }
-                let detail: Detail?
-            }
-            if let env = try? JSONDecoder().decode(ErrorEnvelope.self, from: data),
-               let msg = env.detail?.message {
-                throw AuthError.serverError(msg)
-            }
-            throw AuthError.serverError("로그인에 실패했습니다.")
+            let msg = parseErrorMessage(from: data) ?? "로그인에 실패했습니다."
+            throw AuthError.serverError(msg)
         }
 
-        return try JSONDecoder().decode(AuthResponse.self, from: data)
+        do {
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            return try decoder.decode(AuthResponse.self, from: data)
+        } catch {
+            throw AuthError.serverError("서버 응답을 처리할 수 없습니다.")
+        }
+    }
+
+    private func parseErrorMessage(from data: Data) -> String? {
+        // {"detail": {"message": "..."}}  또는  {"detail": "..."}
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let detail = json["detail"] as? [String: Any],
+               let message = detail["message"] as? String {
+                return message
+            }
+            if let detail = json["detail"] as? String {
+                return detail
+            }
+        }
+        return nil
     }
 }

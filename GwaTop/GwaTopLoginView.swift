@@ -239,10 +239,9 @@ struct GwaTopLoginView: View {
             return
         }
 
-        isLoading = true
-
-        Task {
-            defer { Task { @MainActor in isLoading = false } }
+        Task { @MainActor in
+            isLoading = true
+            defer { isLoading = false }
 
             do {
                 let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: rootVC)
@@ -264,18 +263,14 @@ struct GwaTopLoginView: View {
                     loginProvider: "google"
                 )
 
-                await MainActor.run {
-                    accessToken  = authResponse.accessToken
-                    refreshToken = authResponse.refreshToken
-                    onLoginSuccess(signedInUser)
-                }
+                accessToken  = authResponse.accessToken
+                refreshToken = authResponse.refreshToken
+                onLoginSuccess(signedInUser)
 
             } catch let error as GIDSignInError where error.code == .canceled {
                 // 사용자가 직접 취소한 경우 — 에러 표시 안 함
             } catch {
-                await MainActor.run {
-                    errorMessage = error.localizedDescription
-                }
+                errorMessage = error.localizedDescription
             }
         }
     }
