@@ -1,6 +1,6 @@
 fastapi
 uvicorn[standard]
-sqlalchemy
+sqlalchemy[asyncio]
 alembic
 asyncpg
 psycopg2-binary
@@ -11,3 +11,4 @@ celery[redis]
 httpx
 pydantic[email]
 pydantic-settings
+greenlet
