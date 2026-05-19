@@ -1,0 +1,610 @@
+import SwiftUI
+
+// MARK: - GwaTop 홈 화면
+// Google 로그인 후 전달받은 사용자 정보를 홈 화면과 설정 화면에서 사용합니다.
+
+struct GwaTopHomeRootView: View {
+    let user: GwaTopSignedInUser
+    var onLogout: (() -> Void)? = nil
+
+    @State private var selectedTab: GwaTopTab = .home
+
+    var body: some View {
+        TabView(selection: $selectedTab) {
+            GwaTopHomeView(user: user)
+                .tabItem {
+                    Image(systemName: "house.fill")
+                    Text("홈")
+                }
+                .tag(GwaTopTab.home)
+
+            GwaTopPlaceholderTabView(
+                title: "과제",
+                subtitle: "과제 목록과 마감일 관리는 다음 단계에서 연결합니다.",
+                iconName: "checklist.checked"
+            )
+            .tabItem {
+                Image(systemName: "checklist")
+                Text("과제")
+            }
+            .tag(GwaTopTab.tasks)
+
+            GwaTopPlaceholderTabView(
+                title: "AI 플래너",
+                subtitle: "학습 패턴 분석과 추천 기능은 추후 백엔드 연결 후 구현합니다.",
+                iconName: "sparkles"
+            )
+            .tabItem {
+                Image(systemName: "sparkles")
+                Text("AI")
+            }
+            .tag(GwaTopTab.ai)
+
+            GwaTopPlaceholderTabView(
+                title: "캘린더",
+                subtitle: "시험, 과제, 수업 일정을 월간 캘린더로 보여줄 예정입니다.",
+                iconName: "calendar"
+            )
+            .tabItem {
+                Image(systemName: "calendar")
+                Text("캘린더")
+            }
+            .tag(GwaTopTab.calendar)
+
+            GwaTopSettingsView(user: user, onLogout: onLogout)
+                .tabItem {
+                    Image(systemName: "gearshape.fill")
+                    Text("설정")
+                }
+                .tag(GwaTopTab.settings)
+        }
+        .tint(GwaTopHomeTheme.primary)
+    }
+}
+
+struct GwaTopHomeView: View {
+    let user: GwaTopSignedInUser
+
+    private let tasks: [GwaTopTodayTask] = GwaTopTodayTask.mockData
+    private let subjects: [GwaTopSubject] = GwaTopSubject.mockData
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                GwaTopHomeTheme.background
+                    .ignoresSafeArea()
+
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 22) {
+                        topGreetingSection
+                            .padding(.top, 18)
+
+                        todaySummarySection
+                        aiRecommendationCard
+                        todayTaskSection
+                        subjectProgressSection
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 30)
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        // 추후 알림 화면으로 연결
+                    } label: {
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: "bell.fill")
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                                .frame(width: 42, height: 42)
+                                .background(.white)
+                                .clipShape(Circle())
+                                .shadow(color: .black.opacity(0.06), radius: 10, x: 0, y: 6)
+
+                            Circle()
+                                .fill(.red)
+                                .frame(width: 9, height: 9)
+                                .offset(x: -5, y: 6)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var topGreetingSection: some View {
+        HStack(alignment: .center, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(currentDateText)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+
+                Text("안녕하세요, \(user.firstDisplayName)님")
+                    .font(.system(size: 28, weight: .heavy, design: .rounded))
+                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
+
+                Text(user.email.isEmpty ? "오늘도 학점을 향해 한 걸음 더 가볼까요?" : user.email)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            GwaTopUserAvatar(user: user)
+        }
+    }
+
+    private var todaySummarySection: some View {
+        VStack(spacing: 16) {
+            HStack {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("오늘의 학습 현황")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(.white)
+
+                    Text("과제 2개 완료 · 집중 시간 1시간 40분")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.82))
+                }
+
+                Spacer()
+
+                ZStack {
+                    Circle()
+                        .stroke(.white.opacity(0.22), lineWidth: 8)
+                        .frame(width: 70, height: 70)
+
+                    Circle()
+                        .trim(from: 0, to: 0.68)
+                        .stroke(.white, style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                        .frame(width: 70, height: 70)
+                        .rotationEffect(.degrees(-90))
+
+                    Text("68%")
+                        .font(.system(size: 15, weight: .heavy))
+                        .foregroundStyle(.white)
+                }
+            }
+
+            HStack(spacing: 10) {
+                GwaTopStatCard(title: "남은 과제", value: "3", unit: "개")
+                GwaTopStatCard(title: "이번 주 시험", value: "1", unit: "개")
+                GwaTopStatCard(title: "평균 진행률", value: "72", unit: "%")
+            }
+        }
+        .padding(20)
+        .background(GwaTopHomeTheme.primaryGradient)
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .shadow(color: GwaTopHomeTheme.primary.opacity(0.22), radius: 18, x: 0, y: 12)
+    }
+
+    private var aiRecommendationCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(GwaTopHomeTheme.primary.opacity(0.12))
+                        .frame(width: 44, height: 44)
+
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundStyle(GwaTopHomeTheme.primary)
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("AI 추천 학습")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
+
+                    Text("\(user.firstDisplayName)님에게 맞춘 다음 행동")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                }
+
+                Spacer()
+            }
+
+            Text("데이터베이스 과제 마감이 가까워요. 오늘은 SQL 정규화 개념을 30분 복습하고, ERD 초안을 먼저 완성하는 것을 추천합니다.")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                .lineSpacing(4)
+
+            Button {
+                // 추후 AI 플래너 화면으로 이동
+            } label: {
+                HStack {
+                    Text("추천 계획 확인하기")
+                        .font(.system(size: 14, weight: .bold))
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 13, weight: .bold))
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 48)
+                .background(GwaTopHomeTheme.primary)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+        }
+        .padding(18)
+        .background(.white)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .shadow(color: .black.opacity(0.06), radius: 16, x: 0, y: 8)
+    }
+
+    private var todayTaskSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            sectionHeader(title: "오늘 할 일", subtitle: "마감이 가까운 순서로 정리했어요")
+
+            VStack(spacing: 10) {
+                ForEach(tasks) { task in
+                    GwaTopTodayTaskRow(task: task)
+                }
+            }
+        }
+    }
+
+    private var subjectProgressSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            sectionHeader(title: "내 과목", subtitle: "이번 학기 과목별 진행률")
+
+            VStack(spacing: 12) {
+                ForEach(subjects) { subject in
+                    GwaTopSubjectProgressCard(subject: subject)
+                }
+            }
+        }
+    }
+
+    private func sectionHeader(title: String, subtitle: String) -> some View {
+        HStack(alignment: .bottom) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 21, weight: .bold))
+                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
+
+                Text(subtitle)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+            }
+
+            Spacer()
+
+            Button("전체보기") {
+                // 추후 목록 화면으로 이동
+            }
+            .font(.system(size: 13, weight: .bold))
+            .foregroundStyle(GwaTopHomeTheme.primary)
+        }
+    }
+
+    private var currentDateText: String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ko_KR")
+        formatter.dateFormat = "M월 d일 EEEE"
+        return formatter.string(from: Date())
+    }
+}
+
+struct GwaTopSettingsView: View {
+    let user: GwaTopSignedInUser
+    var onLogout: (() -> Void)?
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                GwaTopHomeTheme.background
+                    .ignoresSafeArea()
+
+                VStack(spacing: 20) {
+                    GwaTopUserAvatar(user: user, size: 76)
+                        .padding(.top, 28)
+
+                    VStack(spacing: 8) {
+                        Text(user.displayName)
+                            .font(.system(size: 25, weight: .heavy, design: .rounded))
+                            .foregroundStyle(GwaTopHomeTheme.textPrimary)
+
+                        Text(user.email)
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(GwaTopHomeTheme.textSecondary)
+
+                        Text("로그인 방식: \(user.loginProvider)")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(GwaTopHomeTheme.primary)
+                            .padding(.top, 2)
+                    }
+
+                    VStack(spacing: 12) {
+                        GwaTopSettingsRow(iconName: "person.fill", title: "프로필 정보", value: user.displayName)
+                        GwaTopSettingsRow(iconName: "envelope.fill", title: "이메일", value: user.email)
+                        GwaTopSettingsRow(iconName: "key.fill", title: "인증 제공자", value: user.loginProvider)
+                    }
+                    .padding(.top, 12)
+
+                    Button {
+                        onLogout?()
+                    } label: {
+                        Text("로그아웃")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 54)
+                            .background(Color.red)
+                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    }
+                    .padding(.top, 10)
+
+                    Spacer()
+                }
+                .padding(.horizontal, 22)
+            }
+            .navigationTitle("설정")
+        }
+    }
+}
+
+struct GwaTopSettingsRow: View {
+    let iconName: String
+    let title: String
+    let value: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: iconName)
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(GwaTopHomeTheme.primary)
+                .frame(width: 36, height: 36)
+                .background(GwaTopHomeTheme.primary.opacity(0.10))
+                .clipShape(Circle())
+
+            Text(title)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(GwaTopHomeTheme.textPrimary)
+
+            Spacer()
+
+            Text(value.isEmpty ? "-" : value)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                .lineLimit(1)
+        }
+        .padding(14)
+        .background(.white)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+}
+
+struct GwaTopUserAvatar: View {
+    let user: GwaTopSignedInUser
+    var size: CGFloat = 58
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(GwaTopHomeTheme.primary.opacity(0.13))
+                .frame(width: size, height: size)
+
+            Text(user.initials)
+                .font(.system(size: size * 0.31, weight: .heavy, design: .rounded))
+                .foregroundStyle(GwaTopHomeTheme.primary)
+        }
+    }
+}
+
+struct GwaTopStatCard: View {
+    let title: String
+    let value: String
+    let unit: String
+
+    var body: some View {
+        VStack(spacing: 5) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.76))
+
+            HStack(alignment: .firstTextBaseline, spacing: 2) {
+                Text(value)
+                    .font(.system(size: 20, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white)
+
+                Text(unit)
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.86))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 13)
+        .background(.white.opacity(0.14))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+}
+
+struct GwaTopTodayTaskRow: View {
+    let task: GwaTopTodayTask
+
+    var body: some View {
+        HStack(spacing: 13) {
+            ZStack {
+                Circle()
+                    .fill(task.isDone ? GwaTopHomeTheme.success.opacity(0.14) : task.color.opacity(0.13))
+                    .frame(width: 44, height: 44)
+
+                Image(systemName: task.isDone ? "checkmark" : task.iconName)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(task.isDone ? GwaTopHomeTheme.success : task.color)
+            }
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(task.title)
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                    .strikethrough(task.isDone, color: GwaTopHomeTheme.textSecondary)
+
+                Text("\(task.subject) · \(task.dueText)")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+            }
+
+            Spacer()
+
+            Text(task.priorityText)
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(task.color)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 6)
+                .background(task.color.opacity(0.10))
+                .clipShape(Capsule())
+        }
+        .padding(14)
+        .background(.white)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .shadow(color: .black.opacity(0.04), radius: 10, x: 0, y: 5)
+    }
+}
+
+struct GwaTopSubjectProgressCard: View {
+    let subject: GwaTopSubject
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(subject.color.opacity(0.13))
+                        .frame(width: 48, height: 48)
+
+                    Image(systemName: subject.iconName)
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundStyle(subject.color)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(subject.name)
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
+
+                    Text("다음 일정: \(subject.nextSchedule)")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                }
+
+                Spacer()
+
+                Text("\(Int(subject.progress * 100))%")
+                    .font(.system(size: 15, weight: .heavy, design: .rounded))
+                    .foregroundStyle(subject.color)
+            }
+
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(GwaTopHomeTheme.line)
+
+                    Capsule()
+                        .fill(subject.color)
+                        .frame(width: max(0, proxy.size.width * subject.progress))
+                }
+            }
+            .frame(height: 8)
+        }
+        .padding(16)
+        .background(.white)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .shadow(color: .black.opacity(0.04), radius: 12, x: 0, y: 6)
+    }
+}
+
+struct GwaTopPlaceholderTabView: View {
+    let title: String
+    let subtitle: String
+    let iconName: String
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                GwaTopHomeTheme.background
+                    .ignoresSafeArea()
+
+                VStack(spacing: 14) {
+                    Image(systemName: iconName)
+                        .font(.system(size: 44, weight: .bold))
+                        .foregroundStyle(GwaTopHomeTheme.primary)
+
+                    Text(title)
+                        .font(.system(size: 28, weight: .heavy, design: .rounded))
+                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
+
+                    Text(subtitle)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(4)
+                        .padding(.horizontal, 34)
+                }
+            }
+        }
+    }
+}
+
+enum GwaTopTab {
+    case home
+    case tasks
+    case ai
+    case calendar
+    case settings
+}
+
+struct GwaTopTodayTask: Identifiable {
+    let id = UUID()
+    let title: String
+    let subject: String
+    let dueText: String
+    let priorityText: String
+    let iconName: String
+    let color: Color
+    let isDone: Bool
+
+    static let mockData: [GwaTopTodayTask] = [
+        GwaTopTodayTask(title: "데이터베이스 과제 ERD 초안", subject: "데이터베이스", dueText: "오늘 23:59", priorityText: "긴급", iconName: "exclamationmark", color: .red, isDone: false),
+        GwaTopTodayTask(title: "자료구조 3주차 복습", subject: "자료구조", dueText: "오늘 18:00", priorityText: "중요", iconName: "book.fill", color: .orange, isDone: false),
+        GwaTopTodayTask(title: "캡스톤 회의록 정리", subject: "캡스톤", dueText: "완료", priorityText: "완료", iconName: "checkmark", color: .green, isDone: true)
+    ]
+}
+
+struct GwaTopSubject: Identifiable {
+    let id = UUID()
+    let name: String
+    let progress: CGFloat
+    let nextSchedule: String
+    let iconName: String
+    let color: Color
+
+    static let mockData: [GwaTopSubject] = [
+        GwaTopSubject(name: "데이터베이스", progress: 0.72, nextSchedule: "과제 마감 D-1", iconName: "server.rack", color: .blue),
+        GwaTopSubject(name: "자료구조", progress: 0.58, nextSchedule: "퀴즈 D-3", iconName: "point.3.connected.trianglepath.dotted", color: .purple),
+        GwaTopSubject(name: "캡스톤디자인", progress: 0.41, nextSchedule: "회의 내일", iconName: "lightbulb.fill", color: .orange)
+    ]
+}
+
+struct GwaTopHomeTheme {
+    static let primary = Color(red: 0.25, green: 0.38, blue: 0.95)
+    static let secondary = Color(red: 0.43, green: 0.68, blue: 1.00)
+    static let success = Color(red: 0.11, green: 0.68, blue: 0.39)
+    static let background = Color(red: 0.96, green: 0.97, blue: 1.0)
+    static let textPrimary = Color(red: 0.10, green: 0.12, blue: 0.20)
+    static let textSecondary = Color(red: 0.45, green: 0.48, blue: 0.58)
+    static let line = Color(red: 0.88, green: 0.90, blue: 0.95)
+
+    static let primaryGradient = LinearGradient(
+        colors: [primary, secondary],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+    )
+}
+
+#Preview {
+    GwaTopHomeRootView(user: .guest)
+}
