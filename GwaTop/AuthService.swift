@@ -50,7 +50,7 @@ enum AuthError: LocalizedError {
 actor AuthService {
     static let shared = AuthService()
 
-    private let baseURL = "http://localhost:8000"
+    private let baseURL = "http://100.55.22.248:8000"
 
     func googleLogin(idToken: String) async throws -> AuthResponse {
         guard let url = URL(string: "\(baseURL)/v1/auth/social") else {
