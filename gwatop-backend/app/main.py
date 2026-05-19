@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+import app.models  # noqa: F401 — register all ORM models before first query
 from app.api.v1.routes.auth import router as auth_router
 from app.api.v1.routes.semesters import router as semesters_router
 from app.api.v1.routes.courses import router as courses_router

@@ -12,3 +12,4 @@ httpx
 pydantic[email]
 pydantic-settings
 greenlet
+boto3
