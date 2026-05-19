@@ -9,6 +9,8 @@ import SwiftUI
 import GoogleSignIn
 
 struct GwaTopLoginView: View {
+    var onLoginSuccess: (GwaTopSignedInUser) -> Void = { _ in }
+
     @AppStorage("accessToken")  private var accessToken:  String = ""
     @AppStorage("refreshToken") private var refreshToken: String = ""
 
@@ -244,16 +246,25 @@ struct GwaTopLoginView: View {
 
             do {
                 let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: rootVC)
-                guard let idToken = result.user.idToken?.tokenString else {
-                    throw AuthError.noIdToken
-                }
-
-                let auth = try await AuthService.shared.googleLogin(idToken: idToken)
-
+                
+                let profile = result.user.profile
+                
+                let signedInUser = GwaTopSignedInUser(
+                    id: profile?.email ?? result.user.userID ?? UUID().uuidString,
+                    displayName: profile?.name ?? profile?.email ?? "GwaTop 사용자",
+                    email: profile?.email ?? "",
+                    givenName: profile?.givenName,
+                    familyName: profile?.familyName,
+                    profileImageURL: profile?.imageURL(withDimension: 240)?.absoluteString,
+                    loginProvider: "google"
+                )
+                
                 await MainActor.run {
-                    accessToken  = auth.accessToken
-                    refreshToken = auth.refreshToken
+                    accessToken = "mock-google-access-token"
+                    refreshToken = "mock-google-refresh-token"
+                    onLoginSuccess(signedInUser)
                 }
+
             } catch let error as GIDSignInError where error.code == .canceled {
                 // 사용자가 직접 취소한 경우 — 에러 표시 안 함
             } catch {

@@ -8,13 +8,12 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>GIDCLIENT</string>
+			<string>GIDC</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>com.googleusercontent.apps.166115611136-d42e728kfojf7resv9um0fcpgeffo8lp</string>
 			</array>
 		</dict>
-		<dict/>
 	</array>
 	<key>GIDClientID</key>
 	<string>166115611136-d42e728kfojf7resv9um0fcpgeffo8lp.apps.googleusercontent.com</string>

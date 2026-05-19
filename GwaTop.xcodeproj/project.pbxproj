@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		2CD991D92FBC583B00C9A6BA /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 2CD991D82FBC583B00C9A6BA /* GoogleSignIn */; };
+		2CD991DB2FBC583B00C9A6BA /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 2CD991DA2FBC583B00C9A6BA /* GoogleSignInSwift */; };
 		2D2F078F2FBB2D0E008E28A5 /* Kingfisher in Frameworks */ = {isa = PBXBuildFile; productRef = 2D2F078E2FBB2D0E008E28A5 /* Kingfisher */; };
 /* End PBXBuildFile section */
 
@@ -14,9 +16,22 @@
 		2D2F07782FBB2B32008E28A5 /* GwaTop.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GwaTop.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		2C99FB972FBC59A100EB1B3B /* Exceptions for "GwaTop" folder in "GwaTop" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 2D2F07772FBB2B32008E28A5 /* GwaTop */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		2D2F077A2FBB2B32008E28A5 /* GwaTop */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				2C99FB972FBC59A100EB1B3B /* Exceptions for "GwaTop" folder in "GwaTop" target */,
+			);
 			path = GwaTop;
 			sourceTree = "<group>";
 		};
@@ -27,7 +42,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2CD991DB2FBC583B00C9A6BA /* GoogleSignInSwift in Frameworks */,
 				2D2F078F2FBB2D0E008E28A5 /* Kingfisher in Frameworks */,
+				2CD991D92FBC583B00C9A6BA /* GoogleSignIn in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -71,6 +88,8 @@
 			name = GwaTop;
 			packageProductDependencies = (
 				2D2F078E2FBB2D0E008E28A5 /* Kingfisher */,
+				2CD991D82FBC583B00C9A6BA /* GoogleSignIn */,
+				2CD991DA2FBC583B00C9A6BA /* GoogleSignInSwift */,
 			);
 			productName = GwaTop;
 			productReference = 2D2F07782FBB2B32008E28A5 /* GwaTop.app */;
@@ -102,6 +121,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				2D2F078D2FBB2D0E008E28A5 /* XCRemoteSwiftPackageReference "Kingfisher" */,
+				2CD991D72FBC583B00C9A6BA /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 2D2F07792FBB2B32008E28A5 /* Products */;
@@ -259,6 +279,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = GwaTop/Info.plist;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -301,6 +322,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = GwaTop/Info.plist;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -356,6 +378,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		2CD991D72FBC583B00C9A6BA /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.1.0;
+			};
+		};
 		2D2F078D2FBB2D0E008E28A5 /* XCRemoteSwiftPackageReference "Kingfisher" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/onevcat/Kingfisher";
@@ -367,6 +397,16 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		2CD991D82FBC583B00C9A6BA /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2CD991D72FBC583B00C9A6BA /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
+		2CD991DA2FBC583B00C9A6BA /* GoogleSignInSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2CD991D72FBC583B00C9A6BA /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignInSwift;
+		};
 		2D2F078E2FBB2D0E008E28A5 /* Kingfisher */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 2D2F078D2FBB2D0E008E28A5 /* XCRemoteSwiftPackageReference "Kingfisher" */;
