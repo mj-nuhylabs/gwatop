@@ -1,0 +1,271 @@
+//
+//  GwaTopSignUpView.swift
+//  GwaTop
+//
+//  Created by hyunwoo on 5/19/26.
+//
+
+import SwiftUI
+
+// MARK: - GwaTop 독립형 회원가입 화면
+// 이 파일은 기존 GwaTopLoginView.swift와 함께 사용하는 것을 기준으로 만들었습니다.
+// 기존 파일에 있는 GwaTopTheme, GwaTopTextField, GwaTopPasswordField를 그대로 재사용합니다.
+// 백엔드는 아직 연결하지 않고, 입력 검증과 Mock 성공 팝업만 동작합니다.
+
+struct GwaTopSignUpView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var name: String = ""
+    @State private var email: String = ""
+    @State private var password: String = ""
+    @State private var confirmPassword: String = ""
+    @State private var schoolName: String = ""
+
+    @State private var isPasswordVisible: Bool = false
+    @State private var isConfirmPasswordVisible: Bool = false
+    @State private var errorMessage: String? = nil
+    @State private var showSuccessAlert: Bool = false
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                GwaTopTheme.backgroundGradient
+                    .ignoresSafeArea()
+
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 24) {
+                        headerSection
+                            .padding(.top, 24)
+
+                        signUpCardSection
+
+                        policyText
+                            .padding(.bottom, 28)
+                    }
+                    .padding(.horizontal, 22)
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 14, weight: .bold))
+                            Text("로그인")
+                                .font(.system(size: 15, weight: .bold))
+                        }
+                        .foregroundStyle(.white)
+                    }
+                }
+            }
+            .alert("회원가입 완료", isPresented: $showSuccessAlert) {
+                Button("확인") {
+                    dismiss()
+                }
+            } message: {
+                Text("\(name)님, 회원가입 UI 테스트가 완료되었습니다.\n백엔드가 연결되면 이 화면에서 회원가입 API를 호출하면 됩니다.")
+            }
+        }
+    }
+
+    // MARK: - 상단 영역
+
+    private var headerSection: some View {
+        VStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(.white.opacity(0.18))
+                    .frame(width: 88, height: 88)
+
+                Circle()
+                    .fill(.white)
+                    .frame(width: 70, height: 70)
+                    .shadow(color: .black.opacity(0.08), radius: 18, x: 0, y: 10)
+
+                Image(systemName: "person.badge.plus.fill")
+                    .font(.system(size: 30, weight: .bold))
+                    .foregroundStyle(GwaTopTheme.primary)
+            }
+
+            VStack(spacing: 8) {
+                Text("계정 만들기")
+                    .font(.system(size: 34, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white)
+
+                Text("GwaTop에서 학기와 과목을 정리하고\nAI 학습 플래너를 시작해보세요.")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.88))
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(4)
+            }
+        }
+    }
+
+    // MARK: - 회원가입 카드 영역
+
+    private var signUpCardSection: some View {
+        VStack(spacing: 18) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("회원가입 정보")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(GwaTopTheme.textPrimary)
+
+                Text("처음에는 최소 정보만 받고, 학기와 과목은 다음 온보딩 단계에서 설정합니다.")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(GwaTopTheme.textSecondary)
+                    .lineSpacing(3)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(spacing: 14) {
+                GwaTopTextField(
+                    title: "이름",
+                    placeholder: "홍길동",
+                    text: $name,
+                    iconName: "person.fill",
+                    keyboardType: .default
+                )
+
+                GwaTopTextField(
+                    title: "이메일",
+                    placeholder: "example@gwatop.com",
+                    text: $email,
+                    iconName: "envelope.fill",
+                    keyboardType: .emailAddress
+                )
+
+                GwaTopTextField(
+                    title: "학교 이름",
+                    placeholder: "예: 한국대학교",
+                    text: $schoolName,
+                    iconName: "building.columns.fill",
+                    keyboardType: .default
+                )
+
+                GwaTopPasswordField(
+                    title: "비밀번호",
+                    placeholder: "6자 이상 입력하세요",
+                    text: $password,
+                    isVisible: $isPasswordVisible
+                )
+
+                GwaTopPasswordField(
+                    title: "비밀번호 확인",
+                    placeholder: "비밀번호를 한 번 더 입력하세요",
+                    text: $confirmPassword,
+                    isVisible: $isConfirmPasswordVisible
+                )
+            }
+
+            if let errorMessage {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.red)
+
+                    Text(errorMessage)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.red)
+                        .lineSpacing(3)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 2)
+            }
+
+            Button {
+                handleSignUp()
+            } label: {
+                Text("회원가입하기")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 56)
+                    .background(GwaTopTheme.primary)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .shadow(color: GwaTopTheme.primary.opacity(0.28), radius: 12, x: 0, y: 8)
+            }
+            .disabled(isButtonDisabled)
+            .opacity(isButtonDisabled ? 0.55 : 1.0)
+            .padding(.top, 4)
+
+            Button {
+                dismiss()
+            } label: {
+                HStack(spacing: 4) {
+                    Text("이미 계정이 있나요?")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(GwaTopTheme.textSecondary)
+
+                    Text("로그인하기")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(GwaTopTheme.primary)
+                }
+            }
+        }
+        .padding(22)
+        .background(.white)
+        .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+        .shadow(color: .black.opacity(0.12), radius: 24, x: 0, y: 16)
+    }
+
+    private var policyText: some View {
+        Text("회원가입을 진행하면 GwaTop의 이용약관과 개인정보처리방침에 동의한 것으로 간주됩니다.")
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(.white.opacity(0.72))
+            .multilineTextAlignment(.center)
+            .lineSpacing(3)
+            .padding(.horizontal, 8)
+    }
+
+    private var isButtonDisabled: Bool {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        schoolName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        password.isEmpty ||
+        confirmPassword.isEmpty
+    }
+
+    // MARK: - Mock 회원가입 검증
+
+    private func handleSignUp() {
+        errorMessage = nil
+
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedSchoolName = schoolName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard trimmedName.count >= 2 else {
+            errorMessage = "이름은 2자 이상 입력해 주세요."
+            return
+        }
+
+        guard trimmedEmail.contains("@") && trimmedEmail.contains(".") else {
+            errorMessage = "올바른 이메일 형식으로 입력해 주세요."
+            return
+        }
+
+        guard trimmedSchoolName.isEmpty == false else {
+            errorMessage = "학교 이름을 입력해 주세요."
+            return
+        }
+
+        guard password.count >= 6 else {
+            errorMessage = "비밀번호는 최소 6자 이상이어야 합니다."
+            return
+        }
+
+        guard password == confirmPassword else {
+            errorMessage = "비밀번호와 비밀번호 확인이 일치하지 않습니다."
+            return
+        }
+
+        showSuccessAlert = true
+    }
+}
+
+#Preview {
+    GwaTopSignUpView()
+}
