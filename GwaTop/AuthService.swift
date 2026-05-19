@@ -72,11 +72,10 @@ actor AuthService {
         }
 
         do {
-            let decoder = JSONDecoder()
-            decoder.keyDecodingStrategy = .convertFromSnakeCase
-            return try decoder.decode(AuthResponse.self, from: data)
+            return try JSONDecoder().decode(AuthResponse.self, from: data)
         } catch {
-            throw AuthError.serverError("서버 응답을 처리할 수 없습니다.")
+            let raw = String(data: data, encoding: .utf8) ?? "(no data)"
+            throw AuthError.serverError("파싱 오류: \(raw)")
         }
     }
 
