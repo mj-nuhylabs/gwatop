@@ -1,0 +1,733 @@
+openapi: 3.0.3
+info:
+  title: GwaTop API
+  description: AI-powered academic scheduler for university students
+  version: 1.0.0
+servers:
+  - url: https://api.gwatop.com/v1
+    description: Production
+  - url: http://localhost:8000/v1
+    description: Local Development
+
+security:
+  - BearerAuth: []
+
+# ─────────────────────────────────────────
+# PATHS
+# ─────────────────────────────────────────
+paths:
+
+  # ── AUTH ────────────────────────────────
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: 이메일 회원가입
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, name]
+              properties:
+                email:    { type: string, format: email, example: "mj@gwatop.com" }
+                password: { type: string, minLength: 8, example: "password123" }
+                name:     { type: string, example: "김민준" }
+      responses:
+        "201":
+          description: 회원가입 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthResponse" }
+        "409":
+          description: 이미 존재하는 이메일
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: 이메일 로그인
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:    { type: string, format: email }
+                password: { type: string }
+      responses:
+        "200":
+          description: 로그인 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthResponse" }
+        "401":
+          description: 인증 실패
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /auth/social:
+    post:
+      tags: [Auth]
+      summary: Apple / Google 소셜 로그인
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider, id_token]
+              properties:
+                provider:  { type: string, enum: [apple, google] }
+                id_token:  { type: string }
+      responses:
+        "200":
+          description: 소셜 로그인 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthResponse" }
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Access Token 재발급
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: { type: string }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:  { type: string }
+                  expires_in:    { type: integer, example: 3600 }
+
+  # ── SEMESTERS ───────────────────────────
+  /semesters:
+    get:
+      tags: [Semesters]
+      summary: 학기 목록 조회
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  semesters:
+                    type: array
+                    items: { $ref: "#/components/schemas/Semester" }
+
+    post:
+      tags: [Semesters]
+      summary: 학기 생성
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SemesterCreate" }
+      responses:
+        "201":
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Semester" }
+
+  /semesters/{semester_id}:
+    parameters:
+      - { name: semester_id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Semesters]
+      summary: 학기 단건 조회
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Semester" }
+    patch:
+      tags: [Semesters]
+      summary: 학기 수정
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SemesterCreate" }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Semester" }
+    delete:
+      tags: [Semesters]
+      summary: 학기 삭제
+      responses:
+        "204": { description: 삭제 성공 }
+
+  # ── COURSES ─────────────────────────────
+  /semesters/{semester_id}/courses:
+    parameters:
+      - { name: semester_id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Courses]
+      summary: 과목 목록 조회
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  courses:
+                    type: array
+                    items: { $ref: "#/components/schemas/Course" }
+    post:
+      tags: [Courses]
+      summary: 과목 생성
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CourseCreate" }
+      responses:
+        "201":
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Course" }
+
+  /courses/{course_id}:
+    parameters:
+      - { name: course_id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Courses]
+      summary: 과목 단건 조회
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Course" }
+    patch:
+      tags: [Courses]
+      summary: 과목 수정
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CourseCreate" }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Course" }
+    delete:
+      tags: [Courses]
+      summary: 과목 삭제
+      responses:
+        "204": { description: 삭제 성공 }
+
+  # ── FILES ───────────────────────────────
+  /files/upload-url:
+    post:
+      tags: [Files]
+      summary: S3 Presigned Upload URL 발급
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [course_id, filename, content_type]
+              properties:
+                course_id:    { type: string, format: uuid }
+                filename:     { type: string, example: "week3_lecture.pdf" }
+                content_type: { type: string, example: "application/pdf" }
+                file_type:
+                  type: string
+                  enum: [syllabus, lecture_material, assignment, other]
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  upload_url: { type: string, format: uri, description: "S3 Presigned PUT URL" }
+                  file_id:    { type: string, format: uuid }
+                  expires_in: { type: integer, example: 300 }
+
+  /files/{file_id}/complete:
+    post:
+      tags: [Files]
+      summary: 업로드 완료 신고 (Celery 태스크 트리거)
+      parameters:
+        - { name: file_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "202":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  file_id:  { type: string, format: uuid }
+                  status:   { type: string, enum: [processing], example: "processing" }
+                  task_id:  { type: string }
+
+  /files/{file_id}:
+    parameters:
+      - { name: file_id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Files]
+      summary: 파일 상태 및 메타데이터 조회
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/File" }
+    delete:
+      tags: [Files]
+      summary: 파일 삭제
+      responses:
+        "204": { description: 삭제 성공 }
+
+  /courses/{course_id}/files:
+    parameters:
+      - { name: course_id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Files]
+      summary: 과목별 파일 목록 조회
+      parameters:
+        - { name: week, in: query, schema: { type: integer }, description: "주차 필터 (1~16)" }
+        - { name: file_type, in: query, schema: { type: string } }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  files:
+                    type: array
+                    items: { $ref: "#/components/schemas/File" }
+
+  # ── SCHEDULES ───────────────────────────
+  /schedules:
+    get:
+      tags: [Schedules]
+      summary: 일정 목록 조회
+      parameters:
+        - { name: semester_id, in: query, schema: { type: string, format: uuid } }
+        - { name: course_id, in: query, schema: { type: string, format: uuid } }
+        - { name: start_date, in: query, schema: { type: string, format: date }, example: "2026-09-01" }
+        - { name: end_date, in: query, schema: { type: string, format: date }, example: "2026-12-31" }
+        - { name: type, in: query, schema: { type: string, enum: [exam, assignment, lecture, event] } }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schedules:
+                    type: array
+                    items: { $ref: "#/components/schemas/Schedule" }
+    post:
+      tags: [Schedules]
+      summary: 일정 수동 생성
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScheduleCreate" }
+      responses:
+        "201":
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Schedule" }
+
+  /schedules/{schedule_id}:
+    parameters:
+      - { name: schedule_id, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [Schedules]
+      summary: 일정 수정
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScheduleCreate" }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Schedule" }
+    delete:
+      tags: [Schedules]
+      summary: 일정 삭제
+      responses:
+        "204": { description: 삭제 성공 }
+
+  # ── TODOS ───────────────────────────────
+  /todos:
+    get:
+      tags: [Todos]
+      summary: 할 일 목록 조회
+      parameters:
+        - { name: week_start, in: query, schema: { type: string, format: date }, description: "주 시작일 (월요일)" }
+        - { name: is_done, in: query, schema: { type: boolean } }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  todos:
+                    type: array
+                    items: { $ref: "#/components/schemas/Todo" }
+
+  /todos/{todo_id}/complete:
+    parameters:
+      - { name: todo_id, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [Todos]
+      summary: 할 일 완료 토글
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Todo" }
+
+  # ── AI CONTENTS ─────────────────────────
+  /ai/contents/{file_id}/summary:
+    parameters:
+      - { name: file_id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [AI Contents]
+      summary: AI 요약 노트 조회
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AISummary" }
+        "202":
+          description: 아직 생성 중
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [processing] }
+
+  /ai/contents/{file_id}/quiz:
+    parameters:
+      - { name: file_id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [AI Contents]
+      summary: AI 예상 문제 조회
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIQuiz" }
+
+  /ai/contents/{file_id}/flashcards:
+    parameters:
+      - { name: file_id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [AI Contents]
+      summary: 플래시카드 조회
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  flashcards:
+                    type: array
+                    items: { $ref: "#/components/schemas/Flashcard" }
+
+  /ai/contents/{file_id}/regenerate:
+    parameters:
+      - { name: file_id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [AI Contents]
+      summary: AI 콘텐츠 재생성 요청
+      responses:
+        "202":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task_id: { type: string }
+                  status:  { type: string, enum: [queued] }
+
+  # ── DASHBOARD ───────────────────────────
+  /dashboard:
+    get:
+      tags: [Dashboard]
+      summary: 홈 대시보드 데이터 (단일 API)
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Dashboard" }
+
+  # ── DEVICES (APNs) ──────────────────────
+  /devices:
+    post:
+      tags: [Devices]
+      summary: APNs 디바이스 토큰 등록
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [device_token, platform]
+              properties:
+                device_token: { type: string }
+                platform:     { type: string, enum: [ios] }
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  device_id: { type: string, format: uuid }
+
+# ─────────────────────────────────────────
+# COMPONENTS
+# ─────────────────────────────────────────
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+
+    Error:
+      type: object
+      properties:
+        error:   { type: string, example: "invalid_credentials" }
+        message: { type: string, example: "이메일 또는 비밀번호가 올바르지 않습니다." }
+
+    AuthResponse:
+      type: object
+      properties:
+        access_token:   { type: string }
+        refresh_token:  { type: string }
+        expires_in:     { type: integer, example: 3600 }
+        user:           { $ref: "#/components/schemas/User" }
+
+    User:
+      type: object
+      properties:
+        id:         { type: string, format: uuid }
+        email:      { type: string, format: email }
+        name:       { type: string }
+        created_at: { type: string, format: date-time }
+
+    Semester:
+      type: object
+      properties:
+        id:         { type: string, format: uuid }
+        name:       { type: string, example: "2026년 가을학기" }
+        start_date: { type: string, format: date, example: "2026-09-01" }
+        end_date:   { type: string, format: date, example: "2026-12-20" }
+        is_active:  { type: boolean }
+        created_at: { type: string, format: date-time }
+
+    SemesterCreate:
+      type: object
+      required: [name, start_date, end_date]
+      properties:
+        name:       { type: string }
+        start_date: { type: string, format: date }
+        end_date:   { type: string, format: date }
+        is_active:  { type: boolean, default: true }
+
+    Course:
+      type: object
+      properties:
+        id:          { type: string, format: uuid }
+        semester_id: { type: string, format: uuid }
+        name:        { type: string, example: "현대물리학" }
+        professor:   { type: string, example: "홍길동" }
+        color:       { type: string, example: "#4A90E2", description: "Hex color for UI" }
+        schedule:
+          type: array
+          description: 강의 시간표
+          items:
+            type: object
+            properties:
+              day:        { type: string, enum: [Mon, Tue, Wed, Thu, Fri] }
+              start_time: { type: string, example: "10:00" }
+              end_time:   { type: string, example: "11:15" }
+              room:       { type: string, example: "과학관 301" }
+        created_at:  { type: string, format: date-time }
+
+    CourseCreate:
+      type: object
+      required: [name]
+      properties:
+        name:      { type: string }
+        professor: { type: string }
+        color:     { type: string, example: "#4A90E2" }
+        schedule:
+          type: array
+          items:
+            type: object
+            properties:
+              day:        { type: string, enum: [Mon, Tue, Wed, Thu, Fri] }
+              start_time: { type: string }
+              end_time:   { type: string }
+              room:       { type: string }
+
+    File:
+      type: object
+      properties:
+        id:            { type: string, format: uuid }
+        course_id:     { type: string, format: uuid }
+        filename:      { type: string }
+        file_type:     { type: string, enum: [syllabus, lecture_material, assignment, other] }
+        s3_key:        { type: string }
+        size_bytes:    { type: integer }
+        status:
+          type: string
+          enum: [uploading, processing, classified, failed]
+        week:          { type: integer, nullable: true, description: "AI 분류된 주차 (1~16)" }
+        ai_confidence: { type: number, format: float, nullable: true, description: "분류 신뢰도 0~1" }
+        created_at:    { type: string, format: date-time }
+        updated_at:    { type: string, format: date-time }
+
+    Schedule:
+      type: object
+      properties:
+        id:          { type: string, format: uuid }
+        course_id:   { type: string, format: uuid }
+        course_name: { type: string }
+        course_color:{ type: string }
+        title:       { type: string, example: "중간고사" }
+        type:        { type: string, enum: [exam, assignment, lecture, event] }
+        due_date:    { type: string, format: date-time }
+        description: { type: string, nullable: true }
+        is_auto:     { type: boolean, description: "강의계획서 AI 파싱으로 자동 생성 여부" }
+        created_at:  { type: string, format: date-time }
+
+    ScheduleCreate:
+      type: object
+      required: [course_id, title, type, due_date]
+      properties:
+        course_id:   { type: string, format: uuid }
+        title:       { type: string }
+        type:        { type: string, enum: [exam, assignment, lecture, event] }
+        due_date:    { type: string, format: date-time }
+        description: { type: string }
+
+    Todo:
+      type: object
+      properties:
+        id:           { type: string, format: uuid }
+        schedule_id:  { type: string, format: uuid, nullable: true }
+        course_id:    { type: string, format: uuid }
+        course_name:  { type: string }
+        course_color: { type: string }
+        title:        { type: string }
+        due_date:     { type: string, format: date-time }
+        priority:
+          type: string
+          enum: [high, medium, low]
+          description: "high=D-3 이내, medium=D-7 이내, low=그 외"
+        is_done:      { type: boolean }
+        created_at:   { type: string, format: date-time }
+
+    AISummary:
+      type: object
+      properties:
+        file_id:      { type: string, format: uuid }
+        week:         { type: integer }
+        content:      { type: string, description: "Markdown 형식 요약 노트" }
+        generated_at: { type: string, format: date-time }
+
+    AIQuiz:
+      type: object
+      properties:
+        file_id:   { type: string, format: uuid }
+        questions:
+          type: array
+          items:
+            type: object
+            properties:
+              id:       { type: string, format: uuid }
+              type:     { type: string, enum: [multiple_choice, short_answer] }
+              question: { type: string }
+              choices:
+                type: array
+                nullable: true
+                items: { type: string }
+                description: "multiple_choice일 때만 존재 (4개)"
+              answer:     { type: string }
+              explanation:{ type: string }
+
+    Flashcard:
+      type: object
+      properties:
+        id:    { type: string, format: uuid }
+        front: { type: string, description: "개념/용어" }
+        back:  { type: string, description: "설명/정의" }
+
+    Dashboard:
+      type: object
+      properties:
+        today_lectures:
+          type: array
+          description: 오늘 강의 목록
+          items:
+            type: object
+            properties:
+              course_name:  { type: string }
+              course_color: { type: string }
+              start_time:   { type: string }
+              end_time:     { type: string }
+              room:         { type: string }
+        upcoming_deadlines:
+          type: array
+          description: D-7 이내 마감 일정
+          items:
+            type: object
+            properties:
+              schedule_id:  { type: string, format: uuid }
+              course_name:  { type: string }
+              course_color: { type: string }
+              title:        { type: string }
+              due_date:     { type: string, format: date-time }
+              d_day:        { type: integer, description: "0=오늘, 1=내일, ..." }
+              type:         { type: string, enum: [exam, assignment, event] }
+        this_week_todos:
+          type: object
+          properties:
+            total:     { type: integer }
+            done:      { type: integer }
+            todos:
+              type: array
+              items: { $ref: "#/components/schemas/Todo" }
+        unclassified_files_count:
+          type: integer
+          description: 분류 미완료 파일 수
