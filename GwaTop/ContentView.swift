@@ -9,7 +9,7 @@ struct ContentView: View {
     var body: some View {
         Group {
             if let signedInUser {
-                GwaTopHomeRootView(user: signedInUser) {
+                GwaTopMainTabView(user: signedInUser) {
                     logout()
                 }
             } else {
