@@ -1,0 +1,83 @@
+//
+//  AuthService.swift
+//  GwaTop
+//
+
+import Foundation
+
+struct SocialLoginRequest: Encodable {
+    let provider: String
+    let idToken: String
+
+    enum CodingKeys: String, CodingKey {
+        case provider
+        case idToken = "id_token"
+    }
+}
+
+struct UserOut: Decodable {
+    let id: String
+    let email: String
+    let name: String
+}
+
+struct AuthResponse: Decodable {
+    let accessToken: String
+    let refreshToken: String
+    let expiresIn: Int
+    let user: UserOut
+
+    enum CodingKeys: String, CodingKey {
+        case accessToken  = "access_token"
+        case refreshToken = "refresh_token"
+        case expiresIn    = "expires_in"
+        case user
+    }
+}
+
+enum AuthError: LocalizedError {
+    case noIdToken
+    case serverError(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .noIdToken:             return "Google 토큰을 가져올 수 없습니다."
+        case .serverError(let msg):  return msg
+        }
+    }
+}
+
+actor AuthService {
+    static let shared = AuthService()
+
+    private let baseURL = "http://localhost:8000"
+
+    func googleLogin(idToken: String) async throws -> AuthResponse {
+        guard let url = URL(string: "\(baseURL)/v1/auth/social") else {
+            throw AuthError.serverError("서버 주소가 올바르지 않습니다.")
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(
+            SocialLoginRequest(provider: "google", idToken: idToken)
+        )
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            struct ErrorEnvelope: Decodable {
+                struct Detail: Decodable { let message: String? }
+                let detail: Detail?
+            }
+            if let env = try? JSONDecoder().decode(ErrorEnvelope.self, from: data),
+               let msg = env.detail?.message {
+                throw AuthError.serverError(msg)
+            }
+            throw AuthError.serverError("로그인에 실패했습니다.")
+        }
+
+        return try JSONDecoder().decode(AuthResponse.self, from: data)
+    }
+}

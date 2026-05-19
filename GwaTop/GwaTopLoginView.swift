@@ -6,17 +6,17 @@
 //
 
 import SwiftUI
-
-// MARK: - GwaTop 로그인 화면
-// 이 파일은 백엔드 연결 없이 UI/UX만 먼저 확인하기 위한 Mock 버전입니다.
-// 나중에 백엔드가 완성되면 handleEmailLogin(), handleGoogleLogin(), handleSignUp() 내부에 API 호출을 연결하면 됩니다.
+import GoogleSignIn
 
 struct GwaTopLoginView: View {
+    @AppStorage("accessToken")  private var accessToken:  String = ""
+    @AppStorage("refreshToken") private var refreshToken: String = ""
+
     @State private var email: String = ""
     @State private var password: String = ""
-    @State private var showMockSuccessAlert: Bool = false
-    @State private var alertMessage: String = ""
     @State private var isPasswordVisible: Bool = false
+    @State private var isLoading: Bool = false
+    @State private var errorMessage: String? = nil
 
     var body: some View {
         NavigationStack {
@@ -38,13 +38,24 @@ struct GwaTopLoginView: View {
                     }
                     .padding(.horizontal, 22)
                 }
+
+                if isLoading {
+                    Color.black.opacity(0.35)
+                        .ignoresSafeArea()
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(.white)
+                        .scaleEffect(1.6)
+                }
             }
             .navigationBarHidden(true)
-
-            .alert("GwaTop", isPresented: $showMockSuccessAlert) {
-                Button("확인", role: .cancel) { }
+            .alert("오류", isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )) {
+                Button("확인", role: .cancel) { errorMessage = nil }
             } message: {
-                Text(alertMessage)
+                Text(errorMessage ?? "")
             }
         }
     }
@@ -137,21 +148,15 @@ struct GwaTopLoginView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     .shadow(color: GwaTopTheme.primary.opacity(0.28), radius: 12, x: 0, y: 8)
             }
-            .disabled(email.isEmpty || password.isEmpty)
+            .disabled(email.isEmpty || password.isEmpty || isLoading)
             .opacity(email.isEmpty || password.isEmpty ? 0.55 : 1.0)
 
             HStack(spacing: 12) {
-                Rectangle()
-                    .fill(GwaTopTheme.line)
-                    .frame(height: 1)
-
+                Rectangle().fill(GwaTopTheme.line).frame(height: 1)
                 Text("또는")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(GwaTopTheme.textSecondary)
-
-                Rectangle()
-                    .fill(GwaTopTheme.line)
-                    .frame(height: 1)
+                Rectangle().fill(GwaTopTheme.line).frame(height: 1)
             }
 
             Button {
@@ -178,28 +183,18 @@ struct GwaTopLoginView: View {
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
+            .disabled(isLoading)
 
             HStack(spacing: 4) {
                 Text("아직 계정이 없나요?")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(GwaTopTheme.textSecondary)
 
-                NavigationLink(
-                    destination: GwaTopSignUpView()
-                ){
-                    Text(
-                        "회원가입"
-                    )
-                    .font(
-                        .system(
-                            size: 14,
-                            weight: .bold
-                        )
-                    )
-                    .foregroundStyle(
-                        GwaTopTheme.primary
-                    )
-                    }
+                NavigationLink(destination: GwaTopSignUpView()) {
+                    Text("회원가입")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(GwaTopTheme.primary)
+                }
             }
             .padding(.top, 2)
         }
@@ -218,28 +213,55 @@ struct GwaTopLoginView: View {
             .padding(.horizontal, 8)
     }
 
-    // MARK: - Mock 액션
+    // MARK: - 액션
 
     private func handleEmailLogin() {
         guard email.contains("@") else {
-            alertMessage = "이메일 형식이 올바르지 않습니다."
-            showMockSuccessAlert = true
+            errorMessage = "이메일 형식이 올바르지 않습니다."
             return
         }
-
         guard password.count >= 6 else {
-            alertMessage = "비밀번호는 최소 6자 이상으로 입력해 주세요."
-            showMockSuccessAlert = true
+            errorMessage = "비밀번호는 최소 6자 이상으로 입력해 주세요."
             return
         }
-
-        alertMessage = "이메일 로그인 UI 테스트가 완료되었습니다.\n백엔드가 연결되면 이 버튼에서 로그인 API를 호출하면 됩니다."
-        showMockSuccessAlert = true
+        // TODO: 이메일 로그인 백엔드 연결
+        errorMessage = "이메일 로그인은 아직 준비 중입니다."
     }
 
     private func handleGoogleLogin() {
-        alertMessage = "Google 로그인 UI 테스트가 완료되었습니다.\n아직 Google SDK는 연결하지 않은 Mock 상태입니다."
-        showMockSuccessAlert = true
+        guard let windowScene = UIApplication.shared.connectedScenes
+            .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,
+              let rootVC = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController
+        else {
+            errorMessage = "화면을 찾을 수 없습니다."
+            return
+        }
+
+        isLoading = true
+
+        Task {
+            defer { Task { @MainActor in isLoading = false } }
+
+            do {
+                let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: rootVC)
+                guard let idToken = result.user.idToken?.tokenString else {
+                    throw AuthError.noIdToken
+                }
+
+                let auth = try await AuthService.shared.googleLogin(idToken: idToken)
+
+                await MainActor.run {
+                    accessToken  = auth.accessToken
+                    refreshToken = auth.refreshToken
+                }
+            } catch let error as GIDSignInError where error.code == .canceled {
+                // 사용자가 직접 취소한 경우 — 에러 표시 안 함
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
     }
 }
 
@@ -353,18 +375,18 @@ struct FeaturePill: View {
 // MARK: - 테마
 
 struct GwaTopTheme {
-    static let primary = Color(red: 0.24, green: 0.36, blue: 0.96)
-    static let primaryDark = Color(red: 0.12, green: 0.20, blue: 0.72)
-    static let textPrimary = Color(red: 0.10, green: 0.12, blue: 0.18)
+    static let primary       = Color(red: 0.24, green: 0.36, blue: 0.96)
+    static let primaryDark   = Color(red: 0.12, green: 0.20, blue: 0.72)
+    static let textPrimary   = Color(red: 0.10, green: 0.12, blue: 0.18)
     static let textSecondary = Color(red: 0.43, green: 0.46, blue: 0.56)
-    static let line = Color(red: 0.88, green: 0.90, blue: 0.95)
+    static let line          = Color(red: 0.88, green: 0.90, blue: 0.95)
 
     static var backgroundGradient: LinearGradient {
         LinearGradient(
             colors: [
                 Color(red: 0.34, green: 0.45, blue: 1.0),
                 Color(red: 0.16, green: 0.25, blue: 0.78),
-                Color(red: 0.10, green: 0.13, blue: 0.36)
+                Color(red: 0.10, green: 0.13, blue: 0.36),
             ],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
