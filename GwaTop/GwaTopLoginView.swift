@@ -246,22 +246,27 @@ struct GwaTopLoginView: View {
 
             do {
                 let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: rootVC)
-                
+
+                guard let idToken = result.user.idToken?.tokenString else {
+                    throw AuthError.noIdToken
+                }
+
+                let authResponse = try await AuthService.shared.googleLogin(idToken: idToken)
+
                 let profile = result.user.profile
-                
                 let signedInUser = GwaTopSignedInUser(
-                    id: profile?.email ?? result.user.userID ?? UUID().uuidString,
-                    displayName: profile?.name ?? profile?.email ?? "GwaTop 사용자",
-                    email: profile?.email ?? "",
+                    id: authResponse.user.id,
+                    displayName: authResponse.user.name,
+                    email: authResponse.user.email,
                     givenName: profile?.givenName,
                     familyName: profile?.familyName,
                     profileImageURL: profile?.imageURL(withDimension: 240)?.absoluteString,
                     loginProvider: "google"
                 )
-                
+
                 await MainActor.run {
-                    accessToken = "mock-google-access-token"
-                    refreshToken = "mock-google-refresh-token"
+                    accessToken  = authResponse.accessToken
+                    refreshToken = authResponse.refreshToken
                     onLoginSuccess(signedInUser)
                 }
 
