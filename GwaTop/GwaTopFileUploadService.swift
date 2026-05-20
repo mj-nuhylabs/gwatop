@@ -53,6 +53,27 @@ struct GwaTopFileConfirmResponse: Decodable {
     let file: GwaTopFileDTO
 }
 
+/// /v1/files/{id}/debug 응답 (status 폴링용)
+struct GwaTopFileDebugResponse: Decodable {
+    struct FileBlock: Decodable {
+        let id: String
+        let status: String
+        let parseError: String?
+
+        enum CodingKeys: String, CodingKey {
+            case id, status
+            case parseError = "parse_error"
+        }
+    }
+    let file: FileBlock
+    let schedulesCount: Int
+
+    enum CodingKeys: String, CodingKey {
+        case file
+        case schedulesCount = "schedules_count"
+    }
+}
+
 actor GwaTopFileUploadService {
     static let shared = GwaTopFileUploadService()
 
@@ -88,6 +109,45 @@ actor GwaTopFileUploadService {
         )
 
         return presigned.fileId
+    }
+
+    /// 파일 파싱 완료까지 폴링.
+    /// - Returns: (성공 여부, 마지막 status, 에러 메시지, 최종 schedules_count)
+    func waitForParseCompletion(
+        fileId: String,
+        timeoutSeconds: Int = 45,
+        pollIntervalSeconds: Double = 2.0
+    ) async -> (succeeded: Bool, status: String, error: String?, schedulesCount: Int) {
+        let maxAttempts = max(1, Int(Double(timeoutSeconds) / pollIntervalSeconds))
+        let pollNs = UInt64(pollIntervalSeconds * 1_000_000_000)
+
+        var lastStatus = "unknown"
+        var lastErr: String? = nil
+        var lastCount = 0
+
+        for attempt in 0..<maxAttempts {
+            do {
+                let debug: GwaTopFileDebugResponse = try await GwaTopAPIClient.shared.get(
+                    "/v1/files/\(fileId)/debug"
+                )
+                lastStatus = debug.file.status
+                lastErr = debug.file.parseError
+                lastCount = debug.schedulesCount
+
+                if debug.file.status == "parsed" {
+                    return (true, lastStatus, lastErr, lastCount)
+                }
+                if debug.file.status == "failed" {
+                    return (false, lastStatus, lastErr, lastCount)
+                }
+            } catch {
+                // 일시적 네트워크 에러는 무시하고 계속 폴링
+                print("[Upload] poll attempt \(attempt) failed: \(error)")
+            }
+            try? await Task.sleep(nanoseconds: pollNs)
+        }
+
+        return (false, lastStatus, lastErr ?? "타임아웃 (\(timeoutSeconds)초)", lastCount)
     }
 
     private static func contentType(for fileType: String) -> String {

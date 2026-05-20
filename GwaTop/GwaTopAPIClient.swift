@@ -43,27 +43,48 @@ enum GwaTopAPI {
         let isoBasic = ISO8601DateFormatter()
         isoBasic.formatOptions = [.withInternetDateTime]
 
-        // FastAPI 네이브 datetime을 KST로 해석 (백엔드가 한국시간 기준으로 저장한다고 가정).
-        // 추후 백엔드가 TZ-aware로 바뀌면 위 ISO8601 디코더가 우선 매칭됨.
+        // FastAPI 네이브 datetime을 KST로 해석.
+        // DateFormatter는 `SSS`(밀리초)까지만 안정적으로 파싱하므로
+        // 마이크로초(6자리) 같은 더 긴 fractional은 stripping 후 파싱한다.
         let kst = TimeZone(identifier: "Asia/Seoul")!
 
         d.dateDecodingStrategy = .custom { decoder in
             let c = try decoder.singleValueContainer()
             let raw = try c.decode(String.self)
+
+            // 1) ISO 8601 (timezone 포함)
             if let date = iso.date(from: raw) ?? isoBasic.date(from: raw) {
                 return date
             }
+
+            // 2) Naive datetime — fractional 초가 있으면 통째로 제거
+            //    "2026-05-20T09:32:35.987260" → "2026-05-20T09:32:35"
+            let stripped: String = {
+                if let dot = raw.firstIndex(of: ".") {
+                    // 소수점 뒤가 timezone 표기자(+/-/Z)인지 검사
+                    let suffix = raw[raw.index(after: dot)...]
+                    if let tzStart = suffix.firstIndex(where: { "Z+-".contains($0) }) {
+                        let beforeDot = raw[..<dot]
+                        let tz = suffix[tzStart...]
+                        return String(beforeDot) + String(tz)
+                    }
+                    return String(raw[..<dot])
+                }
+                return raw
+            }()
+
             let fmt = DateFormatter()
             fmt.locale = Locale(identifier: "en_US_POSIX")
             fmt.timeZone = kst
-            fmt.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSS"
-            if let d = fmt.date(from: raw) { return d }
-            fmt.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSS"
-            if let d = fmt.date(from: raw) { return d }
-            fmt.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
-            if let d = fmt.date(from: raw) { return d }
-            fmt.dateFormat = "yyyy-MM-dd"
-            if let d = fmt.date(from: raw) { return d }
+            for pattern in [
+                "yyyy-MM-dd'T'HH:mm:ssXXXXX",
+                "yyyy-MM-dd'T'HH:mm:ss",
+                "yyyy-MM-dd",
+            ] {
+                fmt.dateFormat = pattern
+                if let d = fmt.date(from: stripped) { return d }
+            }
+
             throw DecodingError.dataCorruptedError(
                 in: c, debugDescription: "Unrecognized date: \(raw)"
             )

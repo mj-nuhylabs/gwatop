@@ -339,14 +339,28 @@ struct GwaTopSyllabusUploadSheet: View {
             await MainActor.run {
                 self.uploadedFileId = fileId
                 self.phase = .waitingForParse
-                self.phaseMessage = "AI가 강의계획서를 분석하고 있어요…"
+                self.phaseMessage = "AI가 강의계획서를 분석하고 있어요… (최대 45초)"
             }
-            try? await Task.sleep(nanoseconds: 4_000_000_000)
-            await MainActor.run {
-                self.phase = .success
-                self.phaseMessage = "분석 완료! 캘린더로 돌아가 새 일정을 확인하세요."
+
+            // Celery 파싱 완료까지 실제로 폴링 (이전 4초 sleep은 너무 짧아 일정이 안 들어와 보였음)
+            let result = await GwaTopFileUploadService.shared.waitForParseCompletion(
+                fileId: fileId,
+                timeoutSeconds: 45,
+                pollIntervalSeconds: 2.0
+            )
+
+            if result.succeeded {
+                await MainActor.run {
+                    self.phase = .success
+                    self.phaseMessage = "분석 완료! \(result.schedulesCount)개의 일정이 등록되었습니다."
+                }
+                onUploadCompleted()
+            } else {
+                let detail = result.error.map { " (\($0))" } ?? ""
+                await MainActor.run {
+                    self.phase = .failed("AI 파싱 실패: status=\(result.status)\(detail)")
+                }
             }
-            onUploadCompleted()
         } catch {
             let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             await MainActor.run { self.phase = .failed("업로드 실패: \(msg)") }
