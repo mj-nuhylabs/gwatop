@@ -13,7 +13,12 @@ import SwiftUI
 // 백엔드는 아직 연결하지 않고, 입력 검증과 Mock 성공 팝업만 동작합니다.
 
 struct GwaTopSignUpView: View {
+    var onSignUpSuccess: (GwaTopSignedInUser) -> Void = { _ in }
+
     @Environment(\.dismiss) private var dismiss
+
+    @AppStorage("accessToken")  private var accessToken:  String = ""
+    @AppStorage("refreshToken") private var refreshToken: String = ""
 
     @State private var name: String = ""
     @State private var email: String = ""
@@ -24,7 +29,7 @@ struct GwaTopSignUpView: View {
     @State private var isPasswordVisible: Bool = false
     @State private var isConfirmPasswordVisible: Bool = false
     @State private var errorMessage: String? = nil
-    @State private var showSuccessAlert: Bool = false
+    @State private var isLoading: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -44,6 +49,15 @@ struct GwaTopSignUpView: View {
                     }
                     .padding(.horizontal, 22)
                 }
+
+                if isLoading {
+                    Color.black.opacity(0.35)
+                        .ignoresSafeArea()
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(.white)
+                        .scaleEffect(1.6)
+                }
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -60,13 +74,6 @@ struct GwaTopSignUpView: View {
                         .foregroundStyle(.white)
                     }
                 }
-            }
-            .alert("회원가입 완료", isPresented: $showSuccessAlert) {
-                Button("확인") {
-                    dismiss()
-                }
-            } message: {
-                Text("\(name)님, 회원가입 UI 테스트가 완료되었습니다.\n백엔드가 연결되면 이 화면에서 회원가입 API를 호출하면 됩니다.")
             }
         }
     }
@@ -187,7 +194,7 @@ struct GwaTopSignUpView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     .shadow(color: GwaTopTheme.primary.opacity(0.28), radius: 12, x: 0, y: 8)
             }
-            .disabled(isButtonDisabled)
+            .disabled(isButtonDisabled || isLoading)
             .opacity(isButtonDisabled ? 0.55 : 1.0)
             .padding(.top, 4)
 
@@ -228,7 +235,7 @@ struct GwaTopSignUpView: View {
         confirmPassword.isEmpty
     }
 
-    // MARK: - Mock 회원가입 검증
+    // MARK: - 회원가입 처리
 
     private func handleSignUp() {
         errorMessage = nil
@@ -262,7 +269,34 @@ struct GwaTopSignUpView: View {
             return
         }
 
-        showSuccessAlert = true
+        Task { @MainActor in
+            isLoading = true
+            defer { isLoading = false }
+
+            do {
+                let authResponse = try await AuthService.shared.register(
+                    email: trimmedEmail,
+                    password: password,
+                    name: trimmedName
+                )
+
+                let signedInUser = GwaTopSignedInUser(
+                    id: authResponse.user.id,
+                    displayName: authResponse.user.name,
+                    email: authResponse.user.email,
+                    givenName: nil,
+                    familyName: nil,
+                    profileImageURL: nil,
+                    loginProvider: "email"
+                )
+
+                accessToken  = authResponse.accessToken
+                refreshToken = authResponse.refreshToken
+                onSignUpSuccess(signedInUser)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
     }
 }
 
