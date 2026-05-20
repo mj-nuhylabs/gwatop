@@ -2,11 +2,19 @@
 
 extract_text_task:
     files.s3_key 다운로드 → (PDF면) PyMuPDF로 텍스트 추출 → files.extracted_text 저장.
-    is_syllabus=True 이면 parse_syllabus_task 자동 트리거.
+    is_syllabus=True 이면 parse_syllabus_task, 아니면 classify_file_task 트리거.
 
 parse_syllabus_task:
     files.extracted_text + course/semester 컨텍스트 → GPT-4o-mini 파싱 →
     schedules 테이블에 시험/과제 일정 자동 INSERT.
+    + Day 4: 주차별 토픽을 Course.weekly_topics 에 저장하고 임베딩 캐시를 만든다.
+
+classify_file_task (Day 4):
+    files.filename + extracted_text + Course.weekly_topic_embeddings →
+    파일명 regex / 임베딩 코사인 유사도 결합으로 주차 자동 배정.
+
+notify_classified_task (Day 4 / Day 7 APNs placeholder):
+    분류 완료 알림 — 지금은 로그만, Day 7에서 APNs로 교체.
 """
 
 from __future__ import annotations
@@ -28,6 +36,13 @@ from app.models.schedule import Schedule
 from app.models.semester import Semester
 from app.schemas.syllabus import ParsedAssignment, ParsedExam, ParsedSyllabus, ParsedWeek
 from app.services import s3
+from app.services.classification import classify_file
+from app.services.embedding_classifier import (
+    EmbeddingClassifierError,
+    build_weekly_topic_embeddings,
+    deserialize_week_embeddings,
+    serialize_week_embeddings,
+)
 from app.services.pdf_text import extract_text_from_pdf_bytes
 from app.services.syllabus_parser import SyllabusParseError, parse_syllabus
 from app.tasks.celery_app import celery_app
@@ -56,6 +71,20 @@ def extract_text_task(file_id: str) -> None:
 @celery_app.task(name="tasks.parse_syllabus")
 def parse_syllabus_task(file_id: str) -> None:
     _run_with_fresh_engine(lambda Session: _run_parse_syllabus(file_id, Session))
+
+
+@celery_app.task(name="tasks.classify_file")
+def classify_file_task(file_id: str) -> None:
+    _run_with_fresh_engine(lambda Session: _run_classify(file_id, Session))
+
+
+@celery_app.task(name="tasks.notify_classified")
+def notify_classified_task(file_id: str) -> None:
+    """분류 완료 알림 placeholder.
+
+    Day 7에서 APNs로 실제 푸시를 보내도록 교체한다. 지금은 로그만.
+    """
+    logger.info("notify_classified: file=%s (APNs not wired yet)", file_id)
 
 
 # ---------- Pipeline: text extraction ----------
@@ -99,6 +128,10 @@ async def _run_extract(file_id: str, SessionLocal) -> None:
 
     if file_row.is_syllabus and text:
         parse_syllabus_task.delay(file_id)
+    elif not file_row.is_syllabus:
+        # Day 4: 일반 강의 자료는 주차 자동 분류 파이프라인으로 넘긴다.
+        # PDF가 아니어서 text가 None이어도 파일명 regex만으로 분류 시도할 수 있다.
+        classify_file_task.delay(file_id)
 
 
 # ---------- Pipeline: syllabus parsing ----------
@@ -172,6 +205,26 @@ async def _run_parse_syllabus(file_id: str, SessionLocal) -> None:
         )
 
         inserted_rows = _insert_schedules(session, course.id, syllabus, semester.start_date)
+
+        # Day 4: 주차별 토픽을 Course에 캐시. 자료 자동 분류의 기준 데이터가 된다.
+        course.weekly_topics = [
+            {"week_number": w.week_number, "topic": w.topic, "notes": w.notes}
+            for w in syllabus.weeks
+        ]
+        # 임베딩 캐시 빌드. OpenAI 호출 실패해도 syllabus 파싱 자체는 성공으로 본다.
+        try:
+            embeddings = await build_weekly_topic_embeddings(syllabus.weeks)
+            course.weekly_topic_embeddings = serialize_week_embeddings(embeddings)
+            logger.info(
+                "[PARSE_DEBUG] cached %d week embeddings for course=%s",
+                len(embeddings), course.id,
+            )
+        except EmbeddingClassifierError as exc:
+            logger.warning(
+                "[PARSE_DEBUG] week embedding build failed for course=%s: %s",
+                course.id, exc,
+            )
+
         file_row.status = "parsed"
         file_row.ai_confidence = syllabus.confidence
         await session.commit()
@@ -351,3 +404,58 @@ def _schedule_from_assignment(course_id: UUID, assignment: ParsedAssignment, due
         description=assignment.description,
         is_auto=True,
     )
+
+
+# ---------- Pipeline: classify file (Day 4) ----------
+
+async def _run_classify(file_id: str, SessionLocal) -> None:
+    async with SessionLocal() as session:
+        file_row = await _load_file(session, UUID(file_id))
+        if file_row is None:
+            logger.warning("classify_file: file %s not found", file_id)
+            return
+
+        if file_row.is_syllabus:
+            logger.info("classify_file: skip syllabus file %s", file_id)
+            return
+
+        course = await session.get(Course, file_row.course_id)
+        if course is None:
+            await _mark_failed(session, file_row, "Course not found")
+            return
+
+        file_row.status = "classifying"
+        await session.commit()
+
+        week_embeddings = deserialize_week_embeddings(
+            course.weekly_topic_embeddings or []
+        )
+
+        result = await classify_file(
+            filename=file_row.filename or "",
+            extracted_text=file_row.extracted_text,
+            week_embeddings=week_embeddings,
+        )
+
+        logger.info(
+            "[CLASSIFY] file=%s filename=%r source=%s week=%s confidence=%.3f detail=%s",
+            file_id, file_row.filename, result.source,
+            result.week_number, result.confidence,
+            json.dumps(result.detail, ensure_ascii=False),
+        )
+
+        if result.week_number is None:
+            file_row.week = None
+            file_row.ai_confidence = 0.0
+            file_row.classification_source = None
+            file_row.status = "unclassified"
+        else:
+            file_row.week = result.week_number
+            file_row.ai_confidence = round(result.confidence, 4)
+            file_row.classification_source = result.source
+            file_row.status = "classified"
+
+        await session.commit()
+
+    # 분류 결과와 무관하게 알림은 한 번 — UI에서 "미분류 폴더" 안내에도 쓰임.
+    notify_classified_task.delay(file_id)

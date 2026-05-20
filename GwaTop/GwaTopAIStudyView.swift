@@ -13,6 +13,8 @@ struct GwaTopAIStudyView: View {
     @State private var selectedFlashcardIndex: Int = 0
     @State private var isFlashcardFlipped: Bool = false
     @State private var tutorQuestion: String = ""
+    @State private var showMaterialUploadSheet: Bool = false
+    @State private var showMaterialsSheet: Bool = false
 
     private var currentQuiz: GwaTopQuizItem? {
         guard selectedContent.quizItems.indices.contains(selectedQuizIndex) else { return nil }
@@ -59,18 +61,45 @@ struct GwaTopAIStudyView: View {
             .navigationTitle("AI 학습")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        // 추후 파일 선택, S3 업로드, AI 자동 분류 플로우로 연결합니다.
-                    } label: {
-                        Image(systemName: "doc.badge.arrow.up")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(GwaTopHomeTheme.primary)
-                            .frame(width: 40, height: 40)
-                            .background(.white)
-                            .clipShape(Circle())
-                            .shadow(color: .black.opacity(0.05), radius: 10, x: 0, y: 5)
+                    HStack(spacing: 10) {
+                        Button {
+                            showMaterialsSheet = true
+                        } label: {
+                            Image(systemName: "folder.fill")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundStyle(GwaTopHomeTheme.primary)
+                                .frame(width: 40, height: 40)
+                                .background(.white)
+                                .clipShape(Circle())
+                                .shadow(color: .black.opacity(0.05), radius: 10, x: 0, y: 5)
+                        }
+                        Button {
+                            showMaterialUploadSheet = true
+                        } label: {
+                            Image(systemName: "doc.badge.arrow.up")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundStyle(GwaTopHomeTheme.primary)
+                                .frame(width: 40, height: 40)
+                                .background(.white)
+                                .clipShape(Circle())
+                                .shadow(color: .black.opacity(0.05), radius: 10, x: 0, y: 5)
+                        }
                     }
                 }
+            }
+            .sheet(isPresented: $showMaterialUploadSheet) {
+                GwaTopMaterialUploadSheet(onUploadCompleted: {
+                    // 업로드 완료 후 자연스럽게 자료 화면으로 넘어가도록 트리거.
+                    showMaterialUploadSheet = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        showMaterialsSheet = true
+                    }
+                })
+                .presentationDetents([.large])
+            }
+            .sheet(isPresented: $showMaterialsSheet) {
+                GwaTopCourseMaterialsView()
+                    .presentationDetents([.large])
             }
             .onChange(of: selectedContent.id) { _ in
                 resetInteractiveStates()
