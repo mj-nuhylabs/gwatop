@@ -26,7 +26,7 @@ import re
 from datetime import datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import make_celery_session_factory
@@ -191,6 +191,18 @@ async def _run_parse_syllabus(file_id: str, SessionLocal) -> None:
             )
         for w in syllabus.warnings:
             logger.info("[PARSE_DEBUG] warning: %s", w)
+
+        # 같은 course의 기존 AI 자동 일정 정리 (재파싱/재업로드 시 중복 방지)
+        deleted = await session.execute(
+            delete(Schedule).where(
+                Schedule.course_id == course.id,
+                Schedule.is_auto.is_(True),
+            )
+        )
+        logger.info(
+            "[PARSE_DEBUG] cleared %d existing is_auto schedules for course=%s before re-insert",
+            deleted.rowcount or 0, course.id,
+        )
 
         inserted_rows = _insert_schedules(session, course.id, syllabus, semester.start_date)
 
