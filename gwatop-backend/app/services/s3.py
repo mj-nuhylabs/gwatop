@@ -1,14 +1,18 @@
 import uuid
 import boto3
+from botocore.config import Config
 from app.core.config import settings
 
 
 def _client():
+    # ap-northeast-2 등 최신 리전은 SigV4 필수. 기본값이 V2로 떨어질 때가
+    # 있어 명시적으로 s3v4를 지정해야 presigned URL이 받아들여진다.
     return boto3.client(
         "s3",
         region_name=settings.AWS_REGION,
         aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
         aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        config=Config(signature_version="s3v4", s3={"addressing_style": "virtual"}),
     )
 
 
