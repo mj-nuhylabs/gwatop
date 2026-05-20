@@ -192,7 +192,7 @@ struct GwaTopLoginView: View {
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(GwaTopTheme.textSecondary)
 
-                NavigationLink(destination: GwaTopSignUpView()) {
+                NavigationLink(destination: GwaTopSignUpView(onSignUpSuccess: onLoginSuccess)) {
                     Text("회원가입")
                         .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(GwaTopTheme.primary)
@@ -218,7 +218,8 @@ struct GwaTopLoginView: View {
     // MARK: - 액션
 
     private func handleEmailLogin() {
-        guard email.contains("@") else {
+        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedEmail.contains("@") && trimmedEmail.contains(".") else {
             errorMessage = "이메일 형식이 올바르지 않습니다."
             return
         }
@@ -226,8 +227,34 @@ struct GwaTopLoginView: View {
             errorMessage = "비밀번호는 최소 6자 이상으로 입력해 주세요."
             return
         }
-        // TODO: 이메일 로그인 백엔드 연결
-        errorMessage = "이메일 로그인은 아직 준비 중입니다."
+
+        Task { @MainActor in
+            isLoading = true
+            defer { isLoading = false }
+
+            do {
+                let authResponse = try await AuthService.shared.emailLogin(
+                    email: trimmedEmail,
+                    password: password
+                )
+
+                let signedInUser = GwaTopSignedInUser(
+                    id: authResponse.user.id,
+                    displayName: authResponse.user.name,
+                    email: authResponse.user.email,
+                    givenName: nil,
+                    familyName: nil,
+                    profileImageURL: nil,
+                    loginProvider: "email"
+                )
+
+                accessToken  = authResponse.accessToken
+                refreshToken = authResponse.refreshToken
+                onLoginSuccess(signedInUser)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
     }
 
     private func handleGoogleLogin() {

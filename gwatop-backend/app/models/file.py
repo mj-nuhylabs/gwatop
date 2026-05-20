@@ -21,6 +21,8 @@ class File(Base):
     is_syllabus: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     parse_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    extract_error: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
