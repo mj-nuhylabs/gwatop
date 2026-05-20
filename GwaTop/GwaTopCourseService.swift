@@ -27,6 +27,12 @@ struct GwaTopCourseCreateRequest: Encodable {
     let color: String
 }
 
+struct GwaTopCourseUpdateRequest: Encodable {
+    let name: String?
+    let professor: String?
+    let color: String?
+}
+
 actor GwaTopCourseService {
     static let shared = GwaTopCourseService()
 
@@ -45,5 +51,19 @@ actor GwaTopCourseService {
             "/v1/semesters/\(semesterId)/courses",
             body: body
         )
+    }
+
+    func update(
+        id: String,
+        name: String? = nil,
+        professor: String? = nil,
+        color: String? = nil
+    ) async throws -> GwaTopCourseDTO {
+        let body = GwaTopCourseUpdateRequest(name: name, professor: professor, color: color)
+        return try await GwaTopAPIClient.shared.put("/v1/courses/\(id)", body: body)
+    }
+
+    func delete(id: String) async throws {
+        try await GwaTopAPIClient.shared.deleteNoContent("/v1/courses/\(id)")
     }
 }

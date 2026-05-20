@@ -318,6 +318,17 @@ struct GwaTopSettingsView: View {
                     }
 
                     VStack(spacing: 12) {
+                        NavigationLink {
+                            GwaTopAcademicManagementView()
+                        } label: {
+                            GwaTopSettingsRow(
+                                iconName: "book.closed.fill",
+                                title: "학기 / 과목 관리",
+                                value: "추가, 수정, 삭제"
+                            )
+                        }
+                        .buttonStyle(.plain)
+
                         GwaTopSettingsRow(iconName: "person.fill", title: "프로필 정보", value: user.displayName)
                         GwaTopSettingsRow(iconName: "envelope.fill", title: "이메일", value: user.email)
                         GwaTopSettingsRow(iconName: "key.fill", title: "인증 제공자", value: user.loginProvider)

@@ -88,14 +88,10 @@ struct GwaTopAIStudyView: View {
                 }
             }
             .sheet(isPresented: $showMaterialUploadSheet) {
-                GwaTopMaterialUploadSheet(onUploadCompleted: {
-                    // 업로드 완료 후 자연스럽게 자료 화면으로 넘어가도록 트리거.
-                    showMaterialUploadSheet = false
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                        showMaterialsSheet = true
-                    }
-                })
-                .presentationDetents([.large])
+                // 업로드 완료 후 자동 시트 전환 제거. 사용자가 "닫기"를 누르면 그대로 학습 탭에 머무름.
+                // 분류 결과는 폴더 버튼으로 명시적으로 진입.
+                GwaTopMaterialUploadSheet(onUploadCompleted: {})
+                    .presentationDetents([.large])
             }
             .sheet(isPresented: $showMaterialsSheet) {
                 GwaTopCourseMaterialsView()

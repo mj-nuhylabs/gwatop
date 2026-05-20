@@ -73,4 +73,40 @@ actor GwaTopSemesterService {
         )
         return try await GwaTopAPIClient.shared.post("/v1/semesters", body: body)
     }
+
+    func update(
+        id: String,
+        name: String? = nil,
+        startDate: Date? = nil,
+        endDate: Date? = nil,
+        isActive: Bool? = nil
+    ) async throws -> GwaTopSemesterDTO {
+        struct UpdateBody: Encodable {
+            let name: String?
+            let startDate: String?
+            let endDate: String?
+            let isActive: Bool?
+            enum CodingKeys: String, CodingKey {
+                case name
+                case startDate = "start_date"
+                case endDate   = "end_date"
+                case isActive  = "is_active"
+            }
+        }
+        let body = UpdateBody(
+            name: name,
+            startDate: startDate.map(Self.dateFormatter.string(from:)),
+            endDate: endDate.map(Self.dateFormatter.string(from:)),
+            isActive: isActive
+        )
+        return try await GwaTopAPIClient.shared.put("/v1/semesters/\(id)", body: body)
+    }
+
+    func setActive(id: String) async throws -> GwaTopSemesterDTO {
+        try await GwaTopAPIClient.shared.patchEmpty("/v1/semesters/\(id)/set-active")
+    }
+
+    func delete(id: String) async throws {
+        try await GwaTopAPIClient.shared.deleteNoContent("/v1/semesters/\(id)")
+    }
 }
