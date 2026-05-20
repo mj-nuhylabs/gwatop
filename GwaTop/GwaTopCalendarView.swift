@@ -12,6 +12,8 @@ struct GwaTopCalendarView: View {
     @State private var isLoading: Bool = false
     @State private var loadErrorMessage: String? = nil
     @State private var didInitialLoad: Bool = false
+    @State private var showingCreateSheet: Bool = false
+    @State private var editingEvent: GwaTopCalendarEvent? = nil
 
     private let calendar = Calendar.current
     private let weekdaySymbols = ["일", "월", "화", "수", "목", "금", "토"]
@@ -75,7 +77,7 @@ struct GwaTopCalendarView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        // 추후 C-3 일정 추가/편집 화면으로 연결합니다.
+                        showingCreateSheet = true
                     } label: {
                         Image(systemName: "plus")
                             .font(.system(size: 16, weight: .bold))
@@ -87,8 +89,32 @@ struct GwaTopCalendarView: View {
                 }
             }
             .sheet(item: $selectedEvent) { event in
-                GwaTopCalendarEventDetailSheet(event: event)
-                    .presentationDetents([.medium, .large])
+                GwaTopCalendarEventDetailSheet(
+                    event: event,
+                    onEdit: {
+                        selectedEvent = nil
+                        editingEvent = event
+                    },
+                    onDelete: {
+                        Task { await deleteEvent(event) }
+                    }
+                )
+                .presentationDetents([.medium, .large])
+            }
+            .sheet(isPresented: $showingCreateSheet) {
+                GwaTopScheduleEditSheet(
+                    mode: .create,
+                    initialDate: selectedDate,
+                    onSaved: { Task { await reload(jumpToLatest: true) } }
+                )
+                .presentationDetents([.large])
+            }
+            .sheet(item: $editingEvent) { event in
+                GwaTopScheduleEditSheet(
+                    mode: .edit(event),
+                    onSaved: { Task { await reload() } }
+                )
+                .presentationDetents([.large])
             }
             .sheet(isPresented: $showUploadPreview) {
                 GwaTopSyllabusUploadSheet(onUploadCompleted: {
@@ -122,7 +148,13 @@ struct GwaTopCalendarView: View {
                 print("[Calendar]  • \(dto.type) \(dto.title) @ \(dto.dueDate) is_auto=\(dto.isAuto)")
             }
 
+            // 자동 점프 조건:
+            //  1) 업로드 직후 (jumpToLatest=true) — 가장 가까운 자동 일정으로
+            //  2) 일반 로드인데 현재 displayedMonth에 일정이 0이면서 어딘가에 일정이 있을 때
+            //     → 사용자가 빈 달을 보고 "데이터가 사라졌다"고 오해하는 것 방지
             if jumpToLatest {
+                jumpToFirstUpcomingOrAuto()
+            } else if !events.isEmpty && eventsInDisplayedMonth.isEmpty {
                 jumpToFirstUpcomingOrAuto()
             }
         } catch {
@@ -133,6 +165,21 @@ struct GwaTopCalendarView: View {
             print("[Calendar] reload failed: \(error)")
         }
         isLoading = false
+    }
+
+    @MainActor
+    private func deleteEvent(_ event: GwaTopCalendarEvent) async {
+        do {
+            try await GwaTopScheduleService.shared.delete(id: event.id)
+            await MainActor.run {
+                events.removeAll { $0.id == event.id }
+                selectedEvent = nil
+            }
+        } catch {
+            await MainActor.run {
+                loadErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+        }
     }
 
     @MainActor
@@ -317,6 +364,19 @@ struct GwaTopCalendarView: View {
                             GwaTopCalendarEventRow(event: event)
                         }
                         .buttonStyle(.plain)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(role: .destructive) {
+                                Task { await deleteEvent(event) }
+                            } label: {
+                                Label("삭제", systemImage: "trash")
+                            }
+                            Button {
+                                editingEvent = event
+                            } label: {
+                                Label("수정", systemImage: "pencil")
+                            }
+                            .tint(GwaTopHomeTheme.primary)
+                        }
                     }
                 }
             }
@@ -574,6 +634,11 @@ private struct GwaTopCalendarEventRow: View {
 
 private struct GwaTopCalendarEventDetailSheet: View {
     let event: GwaTopCalendarEvent
+    var onEdit: () -> Void
+    var onDelete: () -> Void
+
+    @State private var showDeleteConfirm: Bool = false
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
@@ -609,7 +674,7 @@ private struct GwaTopCalendarEventDetailSheet: View {
                         Text("메모")
                             .font(.system(size: 18, weight: .heavy))
                             .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                        Text(event.memo)
+                        Text(event.memo.isEmpty ? "메모가 없습니다." : event.memo)
                             .font(.system(size: 15, weight: .medium))
                             .foregroundStyle(GwaTopHomeTheme.textSecondary)
                             .lineSpacing(4)
@@ -617,11 +682,54 @@ private struct GwaTopCalendarEventDetailSheet: View {
                     .padding(16)
                     .background(GwaTopHomeTheme.background)
                     .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+                    HStack(spacing: 12) {
+                        Button(action: onEdit) {
+                            HStack {
+                                Image(systemName: "pencil")
+                                Text("수정")
+                            }
+                            .font(.system(size: 15, weight: .heavy))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 13)
+                            .background(GwaTopHomeTheme.primary)
+                            .foregroundStyle(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                        }
+
+                        Button {
+                            showDeleteConfirm = true
+                        } label: {
+                            HStack {
+                                Image(systemName: "trash")
+                                Text("삭제")
+                            }
+                            .font(.system(size: 15, weight: .heavy))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 13)
+                            .background(Color.red.opacity(0.1))
+                            .foregroundStyle(.red)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                        }
+                    }
                 }
                 .padding(20)
             }
             .navigationTitle("일정 상세")
             .navigationBarTitleDisplayMode(.inline)
+            .confirmationDialog(
+                "일정을 삭제할까요?",
+                isPresented: $showDeleteConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("삭제", role: .destructive) {
+                    onDelete()
+                    dismiss()
+                }
+                Button("취소", role: .cancel) {}
+            } message: {
+                Text("\(event.title) — 되돌릴 수 없습니다.")
+            }
         }
     }
 }

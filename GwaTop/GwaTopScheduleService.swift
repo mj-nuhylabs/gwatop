@@ -2,7 +2,10 @@
 //  GwaTopScheduleService.swift
 //  GwaTop
 //
-//  백엔드 schedules 목록을 가져와 GwaTopCalendarEvent로 매핑.
+//  GET    /v1/schedules
+//  POST   /v1/schedules
+//  PUT    /v1/schedules/{id}
+//  DELETE /v1/schedules/{id}
 //
 
 import Foundation
@@ -34,11 +37,94 @@ struct GwaTopScheduleDTO: Decodable, Identifiable {
     }
 }
 
+struct GwaTopScheduleCreateRequest: Encodable {
+    let courseId: String
+    let title: String
+    let type: String
+    let dueDate: String     // ISO 8601 — "2026-06-19T10:00:00" 형식
+    let description: String?
+
+    enum CodingKeys: String, CodingKey {
+        case courseId    = "course_id"
+        case title
+        case type
+        case dueDate     = "due_date"
+        case description
+    }
+}
+
+struct GwaTopScheduleUpdateRequest: Encodable {
+    let courseId: String?
+    let title: String?
+    let type: String?
+    let dueDate: String?
+    let description: String?
+
+    enum CodingKeys: String, CodingKey {
+        case courseId    = "course_id"
+        case title
+        case type
+        case dueDate     = "due_date"
+        case description
+    }
+}
+
 actor GwaTopScheduleService {
     static let shared = GwaTopScheduleService()
 
+    private static let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "Asia/Seoul")
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        return f
+    }()
+
+    static func encode(_ date: Date) -> String {
+        dateFormatter.string(from: date)
+    }
+
     func fetchAll() async throws -> [GwaTopScheduleDTO] {
         try await GwaTopAPIClient.shared.get("/v1/schedules")
+    }
+
+    func create(
+        courseId: String,
+        title: String,
+        type: String,
+        dueDate: Date,
+        description: String?
+    ) async throws -> GwaTopScheduleDTO {
+        let body = GwaTopScheduleCreateRequest(
+            courseId: courseId,
+            title: title,
+            type: type,
+            dueDate: Self.encode(dueDate),
+            description: description
+        )
+        return try await GwaTopAPIClient.shared.post("/v1/schedules", body: body)
+    }
+
+    func update(
+        id: String,
+        courseId: String? = nil,
+        title: String? = nil,
+        type: String? = nil,
+        dueDate: Date? = nil,
+        description: String? = nil
+    ) async throws -> GwaTopScheduleDTO {
+        let body = GwaTopScheduleUpdateRequest(
+            courseId: courseId,
+            title: title,
+            type: type,
+            dueDate: dueDate.map(Self.encode),
+            description: description
+        )
+        return try await GwaTopAPIClient.shared.put("/v1/schedules/\(id)", body: body)
+    }
+
+    func delete(id: String) async throws {
+        try await GwaTopAPIClient.shared.deleteNoContent("/v1/schedules/\(id)")
     }
 }
 

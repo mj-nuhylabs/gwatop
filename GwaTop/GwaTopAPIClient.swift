@@ -119,6 +119,28 @@ actor GwaTopAPIClient {
         return try await perform(req)
     }
 
+    func put<Body: Encodable, Response: Decodable>(
+        _ path: String,
+        body: Body,
+        requiresAuth: Bool = true
+    ) async throws -> Response {
+        let req = try buildRequest(path: path, method: "PUT", body: body, requiresAuth: requiresAuth)
+        return try await perform(req)
+    }
+
+    func deleteNoContent(_ path: String, requiresAuth: Bool = true) async throws {
+        let req = try buildRequest(path: path, method: "DELETE",
+                                   body: nil as EmptyBody?, requiresAuth: requiresAuth)
+        let (_, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse else {
+            throw GwaTopAPIError.server(-1, "Invalid response")
+        }
+        if http.statusCode == 401 { throw GwaTopAPIError.unauthorized }
+        guard (200..<300).contains(http.statusCode) else {
+            throw GwaTopAPIError.server(http.statusCode, "Delete failed")
+        }
+    }
+
     func uploadPUT(toAbsoluteURL urlString: String, body: Data, contentType: String) async throws {
         guard let url = URL(string: urlString) else { throw GwaTopAPIError.invalidURL }
         var req = URLRequest(url: url, timeoutInterval: 60)
