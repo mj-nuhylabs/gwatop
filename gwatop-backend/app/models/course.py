@@ -15,6 +15,12 @@ class Course(Base):
     professor: Mapped[str | None] = mapped_column(String, nullable=True)
     color: Mapped[str | None] = mapped_column(String(7), nullable=True)
     schedule: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # 강의계획서에서 추출한 주차별 토픽/노트 (Day 4 분류용 컨텍스트).
+    # [{"week_number": int, "topic": str|null, "notes": str|null}, ...]
+    weekly_topics: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # 위 weekly_topics를 OpenAI 임베딩한 벡터 캐시. classify 시 재계산을 피한다.
+    # [{"week_number": int, "vector": [float, ...]}, ...]
+    weekly_topic_embeddings: Mapped[list | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     semester: Mapped["Semester"] = relationship("Semester", back_populates="courses")

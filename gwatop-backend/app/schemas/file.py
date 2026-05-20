@@ -31,6 +31,7 @@ class FileResponse(BaseModel):
     week: int | None
     ai_confidence: float | None
     is_syllabus: bool
+    classification_source: str | None = None
     parse_error: str | None
     created_at: datetime
     updated_at: datetime

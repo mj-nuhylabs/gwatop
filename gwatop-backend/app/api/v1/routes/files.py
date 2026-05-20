@@ -1,5 +1,6 @@
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -11,7 +12,7 @@ from app.models.semester import Semester
 from app.models.file import File
 from app.schemas.file import PresignedUrlRequest, PresignedUrlResponse, FileResponse, FileConfirmResponse
 from app.services import s3
-from app.tasks.file_tasks import extract_text_task
+from app.tasks.file_tasks import classify_file_task, extract_text_task
 
 router = APIRouter(tags=["Files"])
 
@@ -135,13 +136,16 @@ async def file_debug(
     schedules = schedules_q.scalars().all()
 
     text = file_row.extracted_text or ""
+    weekly_topics = course.weekly_topics or []
     return {
         "file": {
             "id": str(file_row.id),
             "filename": file_row.filename,
             "status": file_row.status,
             "is_syllabus": file_row.is_syllabus,
+            "week": file_row.week,
             "ai_confidence": file_row.ai_confidence,
+            "classification_source": file_row.classification_source,
             "parse_error": file_row.parse_error,
             "extracted_text_length": len(text),
             "extracted_text_preview": text[:500].replace("\n", " "),
@@ -151,6 +155,9 @@ async def file_debug(
         "course": {
             "id": str(course.id),
             "name": course.name,
+            "weekly_topics_count": len(weekly_topics),
+            "weekly_topics_preview": weekly_topics[:3],
+            "has_week_embeddings": bool(course.weekly_topic_embeddings),
         },
         "schedules_auto": [
             {
@@ -165,3 +172,75 @@ async def file_debug(
         ],
         "schedules_count": len(schedules),
     }
+
+
+# ---------- Day 4: 자동 분류 결과 조회/수동 정정 ----------
+
+
+@router.post("/files/{file_id}/reclassify", status_code=status.HTTP_202_ACCEPTED)
+async def reclassify_file(
+    file_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """자동 분류를 다시 실행한다. 강의계획서가 새로 파싱되어 임베딩 캐시가
+    갱신된 경우, 또는 분류 결과가 부정확할 때 사용한다."""
+    file_row = (
+        await db.execute(
+            select(File)
+            .join(Course, File.course_id == Course.id)
+            .join(Semester, Course.semester_id == Semester.id)
+            .where(File.id == file_id, Semester.user_id == current_user.id)
+        )
+    ).scalar_one_or_none()
+    if not file_row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+    if file_row.is_syllabus:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="강의계획서는 자동 분류 대상이 아닙니다.",
+        )
+
+    classify_file_task.delay(str(file_id))
+    return {"file_id": str(file_id), "status": "queued"}
+
+
+class ManualWeekUpdate(BaseModel):
+    week: int | None = Field(None, ge=1, le=30)
+
+
+@router.patch("/files/{file_id}/week", response_model=FileResponse)
+async def set_file_week(
+    file_id: uuid.UUID,
+    body: ManualWeekUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """사용자가 분류 결과를 수동으로 정정/지정한다.
+
+    body.week=null 이면 미분류로 되돌린다.
+    """
+    file_row = (
+        await db.execute(
+            select(File)
+            .join(Course, File.course_id == Course.id)
+            .join(Semester, Course.semester_id == Semester.id)
+            .where(File.id == file_id, Semester.user_id == current_user.id)
+        )
+    ).scalar_one_or_none()
+    if not file_row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+
+    file_row.week = body.week
+    if body.week is None:
+        file_row.classification_source = None
+        file_row.status = "unclassified"
+        file_row.ai_confidence = 0.0
+    else:
+        file_row.classification_source = "manual"
+        file_row.status = "classified"
+        file_row.ai_confidence = 1.0
+
+    await db.commit()
+    await db.refresh(file_row)
+    return FileResponse.model_validate(file_row)

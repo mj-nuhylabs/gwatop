@@ -23,6 +23,8 @@ class File(Base):
     parse_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     extract_error: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Day 4: 어떤 경로로 주차가 정해졌는지 — "filename" | "embedding" | "manual" | null
+    classification_source: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
