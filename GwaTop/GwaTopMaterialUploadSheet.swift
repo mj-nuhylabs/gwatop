@@ -212,18 +212,38 @@ struct GwaTopMaterialUploadSheet: View {
     }
 
     private func successBanner(_ message: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(.green)
-                .font(.system(size: 18, weight: .bold))
-            Text(message)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.primary)
-                .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .font(.system(size: 18, weight: .bold))
+                Text(message)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Button {
+                onUploadCompleted()
+                dismiss()
+            } label: {
+                HStack {
+                    Image(systemName: "folder.fill")
+                    Text("내 강의 자료 보기")
+                        .font(.system(size: 14, weight: .bold))
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .bold))
+                }
+                .foregroundStyle(.blue)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(Color.blue.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.green.opacity(0.1))
+        .background(Color.green.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
