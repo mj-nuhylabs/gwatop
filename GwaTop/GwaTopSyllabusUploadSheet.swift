@@ -3,7 +3,7 @@
 //  GwaTop
 //
 //  실제 강의계획서 업로드 흐름:
-//   - 과목 선택 (백엔드 GET /v1/courses)
+//   - 과목 선택 / 새 과목 추가 (백엔드 GET /v1/courses, POST /v1/semesters/{id}/courses)
 //   - PDF 파일 선택 (.fileImporter)
 //   - presigned-url → S3 PUT → confirm
 //   - 백엔드 Celery가 비동기로 PyMuPDF + GPT-4o-mini 파싱 → schedules INSERT
@@ -19,9 +19,11 @@ struct GwaTopSyllabusUploadSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var courses: [GwaTopCourseDTO] = []
+    @State private var semesters: [GwaTopSemesterDTO] = []
     @State private var selectedCourseId: String? = nil
     @State private var isLoadingCourses: Bool = false
     @State private var courseLoadError: String? = nil
+    @State private var showingNewCourseSheet: Bool = false
 
     @State private var showingFileImporter: Bool = false
     @State private var pickedFileName: String? = nil
@@ -84,8 +86,25 @@ struct GwaTopSyllabusUploadSheet: View {
             ) { result in
                 handleFilePick(result)
             }
+            .sheet(isPresented: $showingNewCourseSheet) {
+                GwaTopNewCourseSheet(
+                    semesters: semesters,
+                    onCreated: { newCourse in
+                        Task {
+                            await MainActor.run {
+                                if !courses.contains(where: { $0.id == newCourse.id }) {
+                                    courses.append(newCourse)
+                                    courses.sort { $0.name < $1.name }
+                                }
+                                selectedCourseId = newCourse.id
+                            }
+                        }
+                    }
+                )
+                .presentationDetents([.medium, .large])
+            }
             .task {
-                await loadCourses()
+                await loadCoursesAndSemesters()
             }
         }
     }
@@ -108,26 +127,55 @@ struct GwaTopSyllabusUploadSheet: View {
 
     private var courseSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionTitle("1. 과목 선택")
+            HStack {
+                sectionTitle("1. 과목 선택")
+                Spacer()
+                Button {
+                    showingNewCourseSheet = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus.circle.fill")
+                        Text("새 과목 추가")
+                    }
+                    .font(.system(size: 13, weight: .heavy))
+                    .foregroundStyle(GwaTopHomeTheme.primary)
+                }
+                .disabled(semesters.isEmpty)
+                .opacity(semesters.isEmpty ? 0.4 : 1)
+            }
+
             if isLoadingCourses {
                 HStack { ProgressView(); Text("과목 목록 불러오는 중…").font(.system(size: 13)) }
             } else if let err = courseLoadError {
                 Text(err).font(.system(size: 13)).foregroundStyle(.orange)
             } else if courses.isEmpty {
-                Text("등록된 과목이 없습니다. 먼저 과목을 추가해 주세요.")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                    .padding(14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("등록된 과목이 없습니다.")
+                        .font(.system(size: 14, weight: .heavy))
+                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                    Text(semesters.isEmpty
+                         ? "먼저 학기를 등록해 주세요."
+                         : "오른쪽 위 '새 과목 추가' 버튼으로 시작하세요.")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
             } else {
                 Picker("과목", selection: Binding(
                     get: { selectedCourseId ?? courses.first?.id ?? "" },
                     set: { selectedCourseId = $0 }
                 )) {
                     ForEach(courses) { c in
-                        Text(c.name).tag(c.id)
+                        HStack {
+                            Circle()
+                                .fill(Color.gwaTopHex(c.color ?? "#4F8EF7"))
+                                .frame(width: 10, height: 10)
+                            Text(c.name)
+                        }
+                        .tag(c.id)
                     }
                 }
                 .pickerStyle(.menu)
@@ -218,14 +266,18 @@ struct GwaTopSyllabusUploadSheet: View {
 
     // MARK: - Actions
 
-    private func loadCourses() async {
+    private func loadCoursesAndSemesters() async {
         isLoadingCourses = true
         courseLoadError = nil
         do {
-            let list = try await GwaTopCourseService.shared.fetchAll()
+            async let coursesTask = GwaTopCourseService.shared.fetchAll()
+            async let semestersTask = GwaTopSemesterService.shared.fetchAll()
+            let (courseList, semesterList) = try await (coursesTask, semestersTask)
+
             await MainActor.run {
-                self.courses = list
-                if self.selectedCourseId == nil { self.selectedCourseId = list.first?.id }
+                self.courses = courseList
+                self.semesters = semesterList
+                if self.selectedCourseId == nil { self.selectedCourseId = courseList.first?.id }
             }
         } catch {
             let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -284,7 +336,6 @@ struct GwaTopSyllabusUploadSheet: View {
                 self.phase = .waitingForParse
                 self.phaseMessage = "AI가 강의계획서를 분석하고 있어요…"
             }
-            // Celery는 비동기라 응답에 결과 보장 X. 짧은 grace period 후 캘린더 reload.
             try? await Task.sleep(nanoseconds: 4_000_000_000)
             await MainActor.run {
                 self.phase = .success
@@ -297,6 +348,183 @@ struct GwaTopSyllabusUploadSheet: View {
         }
     }
 }
+
+
+// MARK: - 새 과목 생성 시트
+
+private let courseColorPalette: [String] = [
+    "#3B82F6",  // 파랑
+    "#8B5CF6",  // 보라
+    "#F97316",  // 주황
+    "#10B981",  // 초록
+    "#EF4444",  // 빨강
+    "#F59E0B",  // 노랑
+    "#EC4899",  // 핑크
+    "#06B6D4",  // 청록
+]
+
+struct GwaTopNewCourseSheet: View {
+    let semesters: [GwaTopSemesterDTO]
+    var onCreated: (GwaTopCourseDTO) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var name: String = ""
+    @State private var professor: String = ""
+    @State private var color: String = "#3B82F6"
+    @State private var selectedSemesterId: String? = nil
+
+    @State private var isSubmitting: Bool = false
+    @State private var errorMessage: String? = nil
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    Text("새 과목 추가")
+                        .font(.system(size: 22, weight: .heavy, design: .rounded))
+                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
+
+                    // 학기 선택 (학기 1개면 자동)
+                    if semesters.count > 1 {
+                        VStack(alignment: .leading, spacing: 6) {
+                            label("학기")
+                            Picker("학기", selection: Binding(
+                                get: { selectedSemesterId ?? semesters.first?.id ?? "" },
+                                set: { selectedSemesterId = $0 }
+                            )) {
+                                ForEach(semesters) { s in
+                                    Text(s.name).tag(s.id)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        label("과목명")
+                        TextField("예: 데이터베이스", text: $name)
+                            .textInputAutocapitalization(.never)
+                            .padding(14)
+                            .background(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        label("담당 교수 (선택)")
+                        TextField("예: 김민수", text: $professor)
+                            .padding(14)
+                            .background(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        label("색상")
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 12) {
+                                ForEach(courseColorPalette, id: \.self) { hex in
+                                    Circle()
+                                        .fill(Color.gwaTopHex(hex))
+                                        .frame(width: 34, height: 34)
+                                        .overlay(
+                                            Circle()
+                                                .stroke(color == hex ? Color.black.opacity(0.6) : Color.clear, lineWidth: 3)
+                                        )
+                                        .onTapGesture { color = hex }
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+
+                    if let msg = errorMessage {
+                        Text(msg)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.orange)
+                    }
+
+                    Button(action: submit) {
+                        HStack {
+                            if isSubmitting { ProgressView().tint(.white).padding(.trailing, 6) }
+                            Text(isSubmitting ? "추가 중…" : "추가하기")
+                                .font(.system(size: 16, weight: .heavy))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(canSubmit ? GwaTopHomeTheme.primary : Color.gray.opacity(0.4))
+                        .foregroundStyle(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                    }
+                    .disabled(!canSubmit)
+                }
+                .padding(20)
+            }
+            .navigationTitle("새 과목")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("취소") { dismiss() }
+                }
+            }
+            .task {
+                if selectedSemesterId == nil {
+                    selectedSemesterId = semesters.first(where: { $0.isActive })?.id
+                        ?? semesters.first?.id
+                }
+            }
+        }
+    }
+
+    private func label(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 13, weight: .heavy))
+            .foregroundStyle(GwaTopHomeTheme.textPrimary)
+    }
+
+    private var canSubmit: Bool {
+        !isSubmitting && !name.trimmingCharacters(in: .whitespaces).isEmpty &&
+        (selectedSemesterId ?? semesters.first?.id) != nil
+    }
+
+    private func submit() {
+        guard let semId = selectedSemesterId ?? semesters.first?.id else {
+            errorMessage = "학기가 없습니다. 먼저 학기를 등록해주세요."
+            return
+        }
+        let trimmedName = name.trimmingCharacters(in: .whitespaces)
+        let trimmedProf = professor.trimmingCharacters(in: .whitespaces)
+
+        Task {
+            await MainActor.run {
+                self.isSubmitting = true
+                self.errorMessage = nil
+            }
+            do {
+                let newCourse = try await GwaTopCourseService.shared.create(
+                    semesterId: semId,
+                    name: trimmedName,
+                    professor: trimmedProf.isEmpty ? nil : trimmedProf,
+                    color: color
+                )
+                await MainActor.run {
+                    onCreated(newCourse)
+                    dismiss()
+                }
+            } catch {
+                let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                await MainActor.run {
+                    self.errorMessage = "추가 실패: \(msg)"
+                    self.isSubmitting = false
+                }
+            }
+        }
+    }
+}
+
 
 #Preview {
     GwaTopSyllabusUploadSheet(onUploadCompleted: {})
