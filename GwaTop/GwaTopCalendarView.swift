@@ -4,11 +4,14 @@ import SwiftUI
 // C-1 월간 캘린더, C-2 일정 상세, C-3 일정 추가/편집 진입 버튼, C-4 강의계획서 업로드 진입 버튼을 포함합니다.
 
 struct GwaTopCalendarView: View {
-    @State private var events: [GwaTopCalendarEvent] = GwaTopCalendarEvent.sampleData
+    @State private var events: [GwaTopCalendarEvent] = []
     @State private var displayedMonth: Date = Date()
     @State private var selectedDate: Date = Date()
     @State private var selectedEvent: GwaTopCalendarEvent? = nil
     @State private var showUploadPreview: Bool = false
+    @State private var isLoading: Bool = false
+    @State private var loadErrorMessage: String? = nil
+    @State private var didInitialLoad: Bool = false
 
     private let calendar = Calendar.current
     private let weekdaySymbols = ["일", "월", "화", "수", "목", "금", "토"]
@@ -41,6 +44,12 @@ struct GwaTopCalendarView: View {
                         calendarHeader
                             .padding(.top, 14)
 
+                        if isLoading {
+                            loadingBanner
+                        } else if let msg = loadErrorMessage {
+                            errorBanner(message: msg)
+                        }
+
                         monthGrid
                         selectedDaySection
                         syllabusUploadCard
@@ -69,10 +78,37 @@ struct GwaTopCalendarView: View {
                     .presentationDetents([.medium, .large])
             }
             .sheet(isPresented: $showUploadPreview) {
-                GwaTopSyllabusUploadMockSheet()
-                    .presentationDetents([.medium])
+                GwaTopSyllabusUploadSheet(onUploadCompleted: {
+                    Task { await reload() }
+                })
+                .presentationDetents([.large])
+            }
+            .task {
+                if !didInitialLoad {
+                    didInitialLoad = true
+                    await reload()
+                }
+            }
+            .refreshable {
+                await reload()
             }
         }
+    }
+
+    @MainActor
+    private func reload() async {
+        isLoading = true
+        loadErrorMessage = nil
+        do {
+            let dtos = try await GwaTopScheduleService.shared.fetchAll()
+            events = dtos.map { GwaTopCalendarEvent(dto: $0) }
+        } catch {
+            if events.isEmpty {
+                events = GwaTopCalendarEvent.sampleData   // 첫 로드 실패 시만 샘플 폴백
+            }
+            loadErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+        isLoading = false
     }
 
     private var calendarHeader: some View {
@@ -234,6 +270,39 @@ struct GwaTopCalendarView: View {
                 }
             }
         }
+    }
+
+    private var loadingBanner: some View {
+        HStack(spacing: 10) {
+            ProgressView().tint(GwaTopHomeTheme.primary)
+            Text("일정을 불러오는 중…")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+            Spacer()
+        }
+        .padding(14)
+        .background(.white)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func errorBanner(message: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("연동 오류 — 샘플 데이터 표시 중")
+                    .font(.system(size: 13, weight: .heavy))
+                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                Text(message)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                    .lineLimit(3)
+            }
+            Spacer()
+        }
+        .padding(14)
+        .background(.white)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private var syllabusUploadCard: some View {
@@ -537,40 +606,7 @@ private struct GwaTopEventDetailRow: View {
     }
 }
 
-private struct GwaTopSyllabusUploadMockSheet: View {
-    var body: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 18) {
-                Image(systemName: "doc.badge.arrow.up.fill")
-                    .font(.system(size: 34, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 76, height: 76)
-                    .background(GwaTopHomeTheme.primaryGradient)
-                    .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-
-                Text("강의계획서 업로드 준비")
-                    .font(.system(size: 26, weight: .heavy, design: .rounded))
-                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
-
-                Text("현재 단계에서는 UI만 제공합니다. 다음 단계에서 Files 앱 선택, S3 Presigned URL 업로드, FastAPI의 강의계획서 파싱 API와 연결하면 됩니다.")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                    .lineSpacing(5)
-
-                VStack(spacing: 10) {
-                    GwaTopEventDetailRow(iconName: "1.circle.fill", title: "1단계", value: "PDF/이미지 선택")
-                    GwaTopEventDetailRow(iconName: "2.circle.fill", title: "2단계", value: "AI 일정 파싱")
-                    GwaTopEventDetailRow(iconName: "3.circle.fill", title: "3단계", value: "캘린더 등록 확인")
-                }
-
-                Spacer()
-            }
-            .padding(22)
-            .navigationTitle("업로드")
-            .navigationBarTitleDisplayMode(.inline)
-        }
-    }
-}
+// 실제 업로드 시트는 GwaTopSyllabusUploadSheet.swift 참고.
 
 #Preview {
     GwaTopCalendarView()

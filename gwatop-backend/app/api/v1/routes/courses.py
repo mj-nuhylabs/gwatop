@@ -35,6 +35,21 @@ async def _owned_course(course_id: uuid.UUID, user: User, db: AsyncSession) -> C
     return course
 
 
+@router.get("/courses", response_model=list[CourseResponse])
+async def list_all_courses(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """유저의 모든 학기에 걸친 과목을 반환."""
+    result = await db.execute(
+        select(Course)
+        .join(Semester, Course.semester_id == Semester.id)
+        .where(Semester.user_id == current_user.id)
+        .order_by(Course.name)
+    )
+    return result.scalars().all()
+
+
 @router.get("/semesters/{semester_id}/courses", response_model=list[CourseResponse])
 async def list_courses(
     semester_id: uuid.UUID,

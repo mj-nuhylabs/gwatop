@@ -6,6 +6,7 @@ from app.api.v1.routes.auth import router as auth_router
 from app.api.v1.routes.semesters import router as semesters_router
 from app.api.v1.routes.courses import router as courses_router
 from app.api.v1.routes.files import router as files_router
+from app.api.v1.routes.schedules import router as schedules_router
 
 app = FastAPI(title="GwaTop API", version="1.0.0", docs_url="/docs", redoc_url="/redoc")
 
@@ -20,6 +21,7 @@ app.include_router(auth_router, prefix="/v1")
 app.include_router(semesters_router, prefix="/v1")
 app.include_router(courses_router, prefix="/v1")
 app.include_router(files_router, prefix="/v1")
+app.include_router(schedules_router, prefix="/v1")
 
 
 @app.get("/health")
