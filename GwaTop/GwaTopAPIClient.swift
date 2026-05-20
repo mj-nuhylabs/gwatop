@@ -117,11 +117,21 @@ actor GwaTopAPIClient {
         req.httpMethod = "PUT"
         req.setValue(contentType, forHTTPHeaderField: "Content-Type")
         req.httpBody = body
-        let (_, resp) = try await session.data(for: req)
+        let (data, resp) = try await session.data(for: req)
         guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
-            throw GwaTopAPIError.server(code, "S3 upload failed")
+            let rawBody = String(data: data, encoding: .utf8) ?? "(empty)"
+            // S3 에러 XML에서 <Code> 추출
+            let s3Code = Self.extract(tag: "Code", from: rawBody) ?? "?"
+            let s3Msg  = Self.extract(tag: "Message", from: rawBody) ?? rawBody.prefix(200).description
+            throw GwaTopAPIError.server(code, "S3 \(s3Code): \(s3Msg)")
         }
+    }
+
+    private static func extract(tag: String, from xml: String) -> String? {
+        guard let start = xml.range(of: "<\(tag)>"),
+              let end = xml.range(of: "</\(tag)>") else { return nil }
+        return String(xml[start.upperBound..<end.lowerBound])
     }
 
     // MARK: - Internals
