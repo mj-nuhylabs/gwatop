@@ -105,3 +105,63 @@ async def list_files(
         select(File).where(File.course_id == course_id).order_by(File.created_at.desc())
     )
     return result.scalars().all()
+
+
+@router.get("/files/{file_id}/debug")
+async def file_debug(
+    file_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """업로드된 파일의 처리 상태 + 생성된 schedules를 한 번에 보여주는 디버그용 엔드포인트.
+
+    iOS/curl에서 호출:
+        GET /v1/files/{file_id}/debug
+    """
+    from app.models.schedule import Schedule
+
+    file_row = (await db.execute(select(File).where(File.id == file_id))).scalar_one_or_none()
+    if not file_row:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    course = (await db.execute(select(Course).where(Course.id == file_row.course_id))).scalar_one_or_none()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    schedules_q = await db.execute(
+        select(Schedule).where(Schedule.course_id == file_row.course_id, Schedule.is_auto.is_(True))
+        .order_by(Schedule.created_at.desc()).limit(50)
+    )
+    schedules = schedules_q.scalars().all()
+
+    text = file_row.extracted_text or ""
+    return {
+        "file": {
+            "id": str(file_row.id),
+            "filename": file_row.filename,
+            "status": file_row.status,
+            "is_syllabus": file_row.is_syllabus,
+            "ai_confidence": file_row.ai_confidence,
+            "parse_error": file_row.parse_error,
+            "extracted_text_length": len(text),
+            "extracted_text_preview": text[:500].replace("\n", " "),
+            "created_at": file_row.created_at.isoformat(),
+            "updated_at": file_row.updated_at.isoformat(),
+        },
+        "course": {
+            "id": str(course.id),
+            "name": course.name,
+        },
+        "schedules_auto": [
+            {
+                "id": str(s.id),
+                "title": s.title,
+                "type": s.type,
+                "due_date": s.due_date.isoformat(),
+                "description": s.description,
+                "created_at": s.created_at.isoformat(),
+            }
+            for s in schedules
+        ],
+        "schedules_count": len(schedules),
+    }

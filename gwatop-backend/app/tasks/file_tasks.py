@@ -12,8 +12,10 @@ parse_syllabus_task:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
-from datetime import datetime
+import re
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import select
@@ -24,7 +26,7 @@ from app.models.course import Course
 from app.models.file import File
 from app.models.schedule import Schedule
 from app.models.semester import Semester
-from app.schemas.syllabus import ParsedAssignment, ParsedExam, ParsedSyllabus
+from app.schemas.syllabus import ParsedAssignment, ParsedExam, ParsedSyllabus, ParsedWeek
 from app.services import s3
 from app.services.pdf_text import extract_text_from_pdf_bytes
 from app.services.syllabus_parser import SyllabusParseError, parse_syllabus
@@ -78,6 +80,12 @@ async def _run_extract(file_id: str) -> None:
         file_row.status = "extracted"
         await session.commit()
 
+        text_preview = (text or "").strip().replace("\n", " ")[:200]
+        logger.info(
+            "extract_text: file=%s chars=%d preview=%r",
+            file_id, len(text or ""), text_preview,
+        )
+
     if file_row.is_syllabus and text:
         parse_syllabus_task.delay(file_id)
 
@@ -115,14 +123,49 @@ async def _run_parse_syllabus(file_id: str) -> None:
             await _mark_failed(session, file_row, f"Syllabus parse failed: {exc}")
             return
 
-        inserted = _insert_schedules(session, course.id, result.syllabus)
+        # === DEBUG: 파싱 결과 전체 덤프 ===
+        syllabus = result.syllabus
+        logger.info(
+            "[PARSE_DEBUG] file=%s course=%s/%s semester_start=%s year=%d term=%s confidence=%.2f",
+            file_id, course.id, course.name, semester.start_date, year, term, syllabus.confidence,
+        )
+        logger.info(
+            "[PARSE_DEBUG] counts: weeks=%d exams=%d assignments=%d warnings=%d",
+            len(syllabus.weeks), len(syllabus.exams), len(syllabus.assignments), len(syllabus.warnings),
+        )
+        for i, w in enumerate(syllabus.weeks):
+            logger.info("[PARSE_DEBUG] week[%d]: #%d %r %r", i, w.week_number, w.topic, w.notes)
+        for i, e in enumerate(syllabus.exams):
+            logger.info(
+                "[PARSE_DEBUG] exam[%d]: title=%r exam_date=%s start=%s end=%s location=%r",
+                i, e.title, e.exam_date, e.start_time, e.end_time, e.location,
+            )
+        for i, a in enumerate(syllabus.assignments):
+            logger.info(
+                "[PARSE_DEBUG] assignment[%d]: title=%r due_date=%s",
+                i, a.title, a.due_date,
+            )
+        for w in syllabus.warnings:
+            logger.info("[PARSE_DEBUG] warning: %s", w)
+
+        inserted_rows = _insert_schedules(session, course.id, syllabus, semester.start_date)
         file_row.status = "parsed"
-        file_row.ai_confidence = result.syllabus.confidence
+        file_row.ai_confidence = syllabus.confidence
         await session.commit()
 
         logger.info(
-            "parse_syllabus: file=%s course=%s schedules_inserted=%d confidence=%.2f tokens=%d",
-            file_id, course.id, inserted, result.syllabus.confidence, result.usage.total_tokens,
+            "[PARSE_DEBUG] inserted %d schedules for file=%s",
+            len(inserted_rows), file_id,
+        )
+        for r in inserted_rows:
+            logger.info(
+                "[PARSE_DEBUG] -> id=%s type=%s title=%r due=%s",
+                r.id, r.type, r.title, r.due_date.isoformat(),
+            )
+
+        logger.info(
+            "parse_syllabus: file=%s schedules_inserted=%d confidence=%.2f tokens=%d",
+            file_id, len(inserted_rows), syllabus.confidence, result.usage.total_tokens,
         )
 
 
@@ -162,29 +205,100 @@ def _to_datetime(d, t=None) -> datetime | None:
     return datetime.combine(d, t)
 
 
-def _insert_schedules(session: AsyncSession, course_id: UUID, syllabus: ParsedSyllabus) -> int:
+def _week_to_date(week_number: int | None, semester_start) -> datetime | None:
+    """학기 시작일 + (week-1)*7일로 대략적인 날짜 추정. week이 None이면 None."""
+    if not week_number or week_number < 1:
+        return None
+    return datetime.combine(semester_start, datetime.min.time()) + timedelta(days=(week_number - 1) * 7)
+
+
+_EXAM_WEEK_RE = re.compile(r"(\d{1,2})\s*주", re.IGNORECASE)
+
+
+def _guess_week_from_text(*texts: str | None) -> int | None:
+    """제목/노트에서 'N주차' 패턴 추출."""
+    for t in texts:
+        if not t:
+            continue
+        m = _EXAM_WEEK_RE.search(t)
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def _insert_schedules(
+    session: AsyncSession,
+    course_id: UUID,
+    syllabus: ParsedSyllabus,
+    semester_start,
+) -> list[Schedule]:
     """파싱된 시험/과제 일정을 schedules 테이블에 자동 등록.
 
-    is_auto=True로 마킹하여 사용자 수동 추가와 구분.
-    날짜 없는 항목은 스킵.
-    """
-    count = 0
+    날짜 매핑 우선순위:
+      1) exam_date / due_date 가 명시되어 있으면 그대로
+      2) 없으면 제목·노트에서 'N주차' 추출 → semester_start + (N-1)*7
+      3) 그래도 없으면 'exam'은 weeks 배열에서 '중간/기말' 키워드 매칭으로 추정
+      4) 다 실패하면 스킵
 
+    is_auto=True로 마킹.
+    """
+    inserted: list[Schedule] = []
+
+    # 1) 시험
     for exam in syllabus.exams:
         due = _to_datetime(exam.exam_date, exam.start_time)
-        if due is None:
-            continue
-        session.add(_schedule_from_exam(course_id, exam, due))
-        count += 1
+        source = "exam_date"
 
+        if due is None:
+            week_guess = _guess_week_from_text(exam.title, exam.description)
+            if week_guess is None:
+                week_guess = _find_week_for_exam(syllabus.weeks, exam.title)
+            due = _week_to_date(week_guess, semester_start)
+            source = f"week#{week_guess}" if week_guess else "none"
+
+        if due is None:
+            logger.warning("[PARSE_DEBUG] SKIP exam %r — no date (source=%s)", exam.title, source)
+            continue
+
+        row = _schedule_from_exam(course_id, exam, due)
+        session.add(row)
+        inserted.append(row)
+        logger.info("[PARSE_DEBUG] ADD exam %r at %s (source=%s)", exam.title, due.isoformat(), source)
+
+    # 2) 과제
     for assignment in syllabus.assignments:
         due = _to_datetime(assignment.due_date)
-        if due is None:
-            continue
-        session.add(_schedule_from_assignment(course_id, assignment, due))
-        count += 1
+        source = "due_date"
 
-    return count
+        if due is None:
+            week_guess = _guess_week_from_text(assignment.title, assignment.description)
+            due = _week_to_date(week_guess, semester_start)
+            source = f"week#{week_guess}" if week_guess else "none"
+
+        if due is None:
+            logger.warning("[PARSE_DEBUG] SKIP assignment %r — no date (source=%s)", assignment.title, source)
+            continue
+
+        row = _schedule_from_assignment(course_id, assignment, due)
+        session.add(row)
+        inserted.append(row)
+        logger.info("[PARSE_DEBUG] ADD assignment %r at %s (source=%s)", assignment.title, due.isoformat(), source)
+
+    return inserted
+
+
+def _find_week_for_exam(weeks: list[ParsedWeek], exam_title: str) -> int | None:
+    """weeks 배열에서 시험 제목과 매칭되는 주차 찾기."""
+    title_lower = exam_title.lower()
+    keywords = ["중간", "기말", "midterm", "final", "퀴즈", "quiz"]
+    matched_kw = next((kw for kw in keywords if kw in title_lower), None)
+    if not matched_kw:
+        return None
+    for w in weeks:
+        text = f"{w.topic or ''} {w.notes or ''}".lower()
+        if matched_kw in text:
+            return w.week_number
+    return None
 
 
 def _schedule_from_exam(course_id: UUID, exam: ParsedExam, due: datetime) -> Schedule:

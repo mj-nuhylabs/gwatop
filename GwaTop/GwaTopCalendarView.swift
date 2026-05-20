@@ -33,6 +33,19 @@ struct GwaTopCalendarView: View {
             .sorted { $0.startDate < $1.startDate }
     }
 
+    private var nearestUpcomingEvent: GwaTopCalendarEvent? {
+        let start = calendar.startOfDay(for: selectedDate)
+        return events
+            .filter { $0.startDate >= start }
+            .min(by: { $0.startDate < $1.startDate })
+            ?? events.min(by: { $0.startDate < $1.startDate })
+    }
+
+    private func jumpTo(event: GwaTopCalendarEvent) {
+        displayedMonth = event.startDate
+        selectedDate = event.startDate
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -79,7 +92,7 @@ struct GwaTopCalendarView: View {
             }
             .sheet(isPresented: $showUploadPreview) {
                 GwaTopSyllabusUploadSheet(onUploadCompleted: {
-                    Task { await reload() }
+                    Task { await reload(jumpToLatest: true) }
                 })
                 .presentationDetents([.large])
             }
@@ -96,19 +109,47 @@ struct GwaTopCalendarView: View {
     }
 
     @MainActor
-    private func reload() async {
+    private func reload(jumpToLatest: Bool = false) async {
         isLoading = true
         loadErrorMessage = nil
         do {
             let dtos = try await GwaTopScheduleService.shared.fetchAll()
+            let beforeCount = events.count
             events = dtos.map { GwaTopCalendarEvent(dto: $0) }
+
+            print("[Calendar] fetched \(dtos.count) schedules (before=\(beforeCount))")
+            for dto in dtos {
+                print("[Calendar]  • \(dto.type) \(dto.title) @ \(dto.dueDate) is_auto=\(dto.isAuto)")
+            }
+
+            if jumpToLatest {
+                jumpToFirstUpcomingOrAuto()
+            }
         } catch {
             if events.isEmpty {
                 events = GwaTopCalendarEvent.sampleData   // 첫 로드 실패 시만 샘플 폴백
             }
             loadErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            print("[Calendar] reload failed: \(error)")
         }
         isLoading = false
+    }
+
+    @MainActor
+    private func jumpToFirstUpcomingOrAuto() {
+        // 우선순위: (1) is_auto=true 중 가장 가까운 일정, (2) 오늘 이후 가장 가까운 일정
+        let autoEvents = events.filter { $0.source == "ai_parsed" }
+        let target = autoEvents.min(by: { $0.startDate < $1.startDate })
+            ?? events
+                .filter { $0.startDate >= calendar.startOfDay(for: Date()) }
+                .min(by: { $0.startDate < $1.startDate })
+            ?? events.first
+
+        guard let event = target else { return }
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.88)) {
+            displayedMonth = event.startDate
+            selectedDate = event.startDate
+        }
     }
 
     private var calendarHeader: some View {
@@ -135,9 +176,9 @@ struct GwaTopCalendarView: View {
             }
 
             HStack(spacing: 10) {
+                GwaTopCalendarHeaderMetric(title: "전체", value: "\(events.count)", unit: "개")
                 GwaTopCalendarHeaderMetric(title: "이번 달", value: "\(eventsInDisplayedMonth.count)", unit: "개")
-                GwaTopCalendarHeaderMetric(title: "과제", value: "\(eventsInDisplayedMonth.filter { $0.eventType == .assignment }.count)", unit: "개")
-                GwaTopCalendarHeaderMetric(title: "시험", value: "\(eventsInDisplayedMonth.filter { $0.eventType == .exam }.count)", unit: "개")
+                GwaTopCalendarHeaderMetric(title: "AI 자동", value: "\(events.filter { $0.source == "ai_parsed" }.count)", unit: "개")
             }
         }
         .padding(20)
@@ -244,14 +285,24 @@ struct GwaTopCalendarView: View {
                     Image(systemName: "calendar.badge.checkmark")
                         .font(.system(size: 32, weight: .bold))
                         .foregroundStyle(GwaTopHomeTheme.primary)
-                    Text("등록된 일정이 없어요")
+                    Text("이 날짜엔 일정이 없어요")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                    Text("오른쪽 위 + 버튼으로 직접 일정을 추가하거나 강의계획서를 업로드해보세요.")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                        .multilineTextAlignment(.center)
-                        .lineSpacing(3)
+                    if let nearest = nearestUpcomingEvent {
+                        Button {
+                            withAnimation { jumpTo(event: nearest) }
+                        } label: {
+                            Text("→ \(nearest.dateText)에 \(nearest.title)")
+                                .font(.system(size: 13, weight: .heavy))
+                                .foregroundStyle(GwaTopHomeTheme.primary)
+                        }
+                    } else if events.isEmpty {
+                        Text("오른쪽 위 + 버튼으로 직접 일정을 추가하거나 강의계획서를 업로드해보세요.")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                            .multilineTextAlignment(.center)
+                            .lineSpacing(3)
+                    }
                 }
                 .padding(22)
                 .frame(maxWidth: .infinity)

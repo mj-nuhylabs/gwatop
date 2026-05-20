@@ -42,19 +42,27 @@ enum GwaTopAPI {
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let isoBasic = ISO8601DateFormatter()
         isoBasic.formatOptions = [.withInternetDateTime]
+
+        // FastAPI 네이브 datetime을 KST로 해석 (백엔드가 한국시간 기준으로 저장한다고 가정).
+        // 추후 백엔드가 TZ-aware로 바뀌면 위 ISO8601 디코더가 우선 매칭됨.
+        let kst = TimeZone(identifier: "Asia/Seoul")!
+
         d.dateDecodingStrategy = .custom { decoder in
             let c = try decoder.singleValueContainer()
             let raw = try c.decode(String.self)
             if let date = iso.date(from: raw) ?? isoBasic.date(from: raw) {
                 return date
             }
-            // FastAPI naive datetime (no timezone)
             let fmt = DateFormatter()
             fmt.locale = Locale(identifier: "en_US_POSIX")
-            fmt.timeZone = TimeZone(secondsFromGMT: 0)
+            fmt.timeZone = kst
             fmt.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSS"
             if let d = fmt.date(from: raw) { return d }
+            fmt.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSS"
+            if let d = fmt.date(from: raw) { return d }
             fmt.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+            if let d = fmt.date(from: raw) { return d }
+            fmt.dateFormat = "yyyy-MM-dd"
             if let d = fmt.date(from: raw) { return d }
             throw DecodingError.dataCorruptedError(
                 in: c, debugDescription: "Unrecognized date: \(raw)"

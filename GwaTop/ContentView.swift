@@ -22,6 +22,9 @@ struct ContentView: View {
         }
         .onAppear {
             restoreLoginSessionIfNeeded()
+            print("=====ACCESS_TOKEN_BEGIN=====")
+            print(accessToken)
+            print("=====ACCESS_TOKEN_END=====")
         }
     }
 
