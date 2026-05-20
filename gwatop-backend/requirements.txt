@@ -13,3 +13,5 @@ pydantic[email]
 pydantic-settings
 greenlet
 boto3
+openai
+pymupdf

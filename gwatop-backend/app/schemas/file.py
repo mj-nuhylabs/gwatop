@@ -11,6 +11,7 @@ class PresignedUrlRequest(BaseModel):
     filename: str
     file_type: FILE_TYPES
     file_size_bytes: int
+    is_syllabus: bool = False
 
 
 class PresignedUrlResponse(BaseModel):
@@ -29,6 +30,8 @@ class FileResponse(BaseModel):
     status: str
     week: int | None
     ai_confidence: float | None
+    is_syllabus: bool
+    parse_error: str | None
     created_at: datetime
     updated_at: datetime
 

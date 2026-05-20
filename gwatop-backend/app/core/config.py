@@ -14,5 +14,9 @@ class Settings(BaseSettings):
     AWS_REGION: str = "ap-northeast-2"
     S3_BUCKET_NAME: str
     GOOGLE_CLIENT_ID: str = "166115611136-d42e728kfojf7resv9um0fcpgeffo8lp.apps.googleusercontent.com"
+    OPENAI_API_KEY: str = ""
+    OPENAI_SYLLABUS_MODEL: str = "gpt-4o-mini"
+    OPENAI_SYLLABUS_TEMPERATURE: float = 0.1
+    OPENAI_SYLLABUS_MAX_TOKENS: int = 4096
 
 settings = Settings()

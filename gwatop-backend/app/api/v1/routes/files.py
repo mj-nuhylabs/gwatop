@@ -11,7 +11,7 @@ from app.models.semester import Semester
 from app.models.file import File
 from app.schemas.file import PresignedUrlRequest, PresignedUrlResponse, FileResponse, FileConfirmResponse
 from app.services import s3
-from app.tasks.file_tasks import classify_file_task
+from app.tasks.file_tasks import extract_text_task
 
 router = APIRouter(tags=["Files"])
 
@@ -59,6 +59,7 @@ async def get_presigned_url(
         file_type=body.file_type,
         s3_key=storage_key,
         size_bytes=body.file_size_bytes,
+        is_syllabus=body.is_syllabus,
         status="pending",
     )
     db.add(file_record)
@@ -88,7 +89,7 @@ async def confirm_upload(
     if not file_record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
 
-    classify_file_task.delay(str(file_id))
+    extract_text_task.delay(str(file_id))
 
     return FileConfirmResponse(file=FileResponse.model_validate(file_record))
 
