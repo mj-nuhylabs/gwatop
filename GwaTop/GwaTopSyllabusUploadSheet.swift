@@ -86,7 +86,8 @@ struct GwaTopSyllabusUploadSheet: View {
             ) { result in
                 handleFilePick(result)
             }
-            .sheet(isPresented: $showingNewCourseSheet) {
+            .sheet(isPresented: $showingNewCourseSheet,
+                   onDismiss: { Task { await refreshSemestersOnly() } }) {
                 GwaTopNewCourseSheet(
                     semesters: semesters,
                     onCreated: { newCourse in
@@ -140,8 +141,6 @@ struct GwaTopSyllabusUploadSheet: View {
                     .font(.system(size: 13, weight: .heavy))
                     .foregroundStyle(GwaTopHomeTheme.primary)
                 }
-                .disabled(semesters.isEmpty)
-                .opacity(semesters.isEmpty ? 0.4 : 1)
             }
 
             if isLoadingCourses {
@@ -266,6 +265,12 @@ struct GwaTopSyllabusUploadSheet: View {
 
     // MARK: - Actions
 
+    private func refreshSemestersOnly() async {
+        if let list = try? await GwaTopSemesterService.shared.fetchAll() {
+            await MainActor.run { self.semesters = list }
+        }
+    }
+
     private func loadCoursesAndSemesters() async {
         isLoadingCourses = true
         courseLoadError = nil
@@ -364,7 +369,7 @@ private let courseColorPalette: [String] = [
 ]
 
 struct GwaTopNewCourseSheet: View {
-    let semesters: [GwaTopSemesterDTO]
+    @State var semesters: [GwaTopSemesterDTO]   // 시트가 학기를 추가하면 갱신
     var onCreated: (GwaTopCourseDTO) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -373,6 +378,7 @@ struct GwaTopNewCourseSheet: View {
     @State private var professor: String = ""
     @State private var color: String = "#3B82F6"
     @State private var selectedSemesterId: String? = nil
+    @State private var showingNewSemesterSheet: Bool = false
 
     @State private var isSubmitting: Bool = false
     @State private var errorMessage: String? = nil
@@ -385,25 +391,8 @@ struct GwaTopNewCourseSheet: View {
                         .font(.system(size: 22, weight: .heavy, design: .rounded))
                         .foregroundStyle(GwaTopHomeTheme.textPrimary)
 
-                    // 학기 선택 (학기 1개면 자동)
-                    if semesters.count > 1 {
-                        VStack(alignment: .leading, spacing: 6) {
-                            label("학기")
-                            Picker("학기", selection: Binding(
-                                get: { selectedSemesterId ?? semesters.first?.id ?? "" },
-                                set: { selectedSemesterId = $0 }
-                            )) {
-                                ForEach(semesters) { s in
-                                    Text(s.name).tag(s.id)
-                                }
-                            }
-                            .pickerStyle(.menu)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                        }
-                    }
+                    // 학기 영역 — 없으면 등록 유도, 있으면 picker
+                    semesterField
 
                     VStack(alignment: .leading, spacing: 6) {
                         label("과목명")
@@ -470,11 +459,73 @@ struct GwaTopNewCourseSheet: View {
                     Button("취소") { dismiss() }
                 }
             }
+            .sheet(isPresented: $showingNewSemesterSheet) {
+                GwaTopNewSemesterSheet { newSemester in
+                    Task {
+                        await MainActor.run {
+                            if !semesters.contains(where: { $0.id == newSemester.id }) {
+                                semesters.insert(newSemester, at: 0)
+                            }
+                            selectedSemesterId = newSemester.id
+                        }
+                    }
+                }
+                .presentationDetents([.medium, .large])
+            }
             .task {
                 if selectedSemesterId == nil {
                     selectedSemesterId = semesters.first(where: { $0.isActive })?.id
                         ?? semesters.first?.id
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var semesterField: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                label("학기")
+                Spacer()
+                Button {
+                    showingNewSemesterSheet = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus.circle.fill")
+                        Text("새 학기 등록")
+                    }
+                    .font(.system(size: 12, weight: .heavy))
+                    .foregroundStyle(GwaTopHomeTheme.primary)
+                }
+            }
+
+            if semesters.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("등록된 학기가 없습니다.")
+                        .font(.system(size: 13, weight: .heavy))
+                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                    Text("오른쪽 위 '새 학기 등록'으로 시작하세요.")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            } else {
+                Picker("학기", selection: Binding(
+                    get: { selectedSemesterId ?? semesters.first?.id ?? "" },
+                    set: { selectedSemesterId = $0 }
+                )) {
+                    ForEach(semesters) { s in
+                        Text(s.isActive ? "\(s.name) (활성)" : s.name).tag(s.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
             }
         }
     }
@@ -523,6 +574,181 @@ struct GwaTopNewCourseSheet: View {
             }
         }
     }
+}
+
+
+// MARK: - 새 학기 등록 시트
+
+struct GwaTopNewSemesterSheet: View {
+    var onCreated: (GwaTopSemesterDTO) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var name: String = defaultSemesterName()
+    @State private var startDate: Date = defaultStartDate()
+    @State private var endDate: Date = defaultEndDate()
+    @State private var isActive: Bool = true
+
+    @State private var isSubmitting: Bool = false
+    @State private var errorMessage: String? = nil
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    Text("새 학기 등록")
+                        .font(.system(size: 22, weight: .heavy, design: .rounded))
+                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        label("학기 이름")
+                        TextField("예: 2026-1학기", text: $name)
+                            .padding(14)
+                            .background(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        label("시작일")
+                        DatePicker("", selection: $startDate, displayedComponents: .date)
+                            .datePickerStyle(.compact)
+                            .labelsHidden()
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .environment(\.locale, Locale(identifier: "ko_KR"))
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        label("종료일")
+                        DatePicker("", selection: $endDate, in: startDate..., displayedComponents: .date)
+                            .datePickerStyle(.compact)
+                            .labelsHidden()
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .environment(\.locale, Locale(identifier: "ko_KR"))
+                    }
+
+                    Toggle(isOn: $isActive) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("현재 학기로 설정")
+                                .font(.system(size: 14, weight: .heavy))
+                                .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                            Text("켜면 기존에 활성인 학기는 자동으로 비활성으로 바뀝니다.")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                        }
+                    }
+                    .padding(14)
+                    .background(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                    if let msg = errorMessage {
+                        Text(msg)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.orange)
+                    }
+
+                    Button(action: submit) {
+                        HStack {
+                            if isSubmitting { ProgressView().tint(.white).padding(.trailing, 6) }
+                            Text(isSubmitting ? "등록 중…" : "등록하기")
+                                .font(.system(size: 16, weight: .heavy))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(canSubmit ? GwaTopHomeTheme.primary : Color.gray.opacity(0.4))
+                        .foregroundStyle(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                    }
+                    .disabled(!canSubmit)
+                }
+                .padding(20)
+            }
+            .navigationTitle("새 학기")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("취소") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func label(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 13, weight: .heavy))
+            .foregroundStyle(GwaTopHomeTheme.textPrimary)
+    }
+
+    private var canSubmit: Bool {
+        !isSubmitting &&
+        !name.trimmingCharacters(in: .whitespaces).isEmpty &&
+        endDate > startDate
+    }
+
+    private func submit() {
+        let trimmedName = name.trimmingCharacters(in: .whitespaces)
+        Task {
+            await MainActor.run {
+                self.isSubmitting = true
+                self.errorMessage = nil
+            }
+            do {
+                let newSem = try await GwaTopSemesterService.shared.create(
+                    name: trimmedName,
+                    startDate: startDate,
+                    endDate: endDate,
+                    isActive: isActive
+                )
+                await MainActor.run {
+                    onCreated(newSem)
+                    dismiss()
+                }
+            } catch {
+                let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                await MainActor.run {
+                    self.errorMessage = "등록 실패: \(msg)"
+                    self.isSubmitting = false
+                }
+            }
+        }
+    }
+}
+
+
+// MARK: - Defaults
+
+/// 오늘 날짜 기준 학기 이름 추정 (예: "2026-1학기" / "2026-2학기" / "여름 계절학기" / "겨울 계절학기")
+private func defaultSemesterName() -> String {
+    let cal = Calendar.current
+    let m = cal.component(.month, from: Date())
+    let y = cal.component(.year, from: Date())
+    switch m {
+    case 3...6:   return "\(y)-1학기"
+    case 9...12:  return "\(y)-2학기"
+    case 7...8:   return "\(y) 여름 계절학기"
+    default:      return "\(y) 겨울 계절학기"
+    }
+}
+
+private func defaultStartDate() -> Date {
+    // 보통 학기 시작은 월 초 — 오늘 날짜의 1일
+    let cal = Calendar.current
+    var c = cal.dateComponents([.year, .month], from: Date())
+    c.day = 1
+    return cal.date(from: c) ?? Date()
+}
+
+private func defaultEndDate() -> Date {
+    // 시작일 + 약 4개월 (정규 학기 길이)
+    let start = defaultStartDate()
+    return Calendar.current.date(byAdding: .month, value: 4, to: start) ?? start
 }
 
 
