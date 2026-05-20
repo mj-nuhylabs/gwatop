@@ -13,3 +13,4 @@ pydantic[email]
 pydantic-settings
 greenlet
 boto3
+pymupdf

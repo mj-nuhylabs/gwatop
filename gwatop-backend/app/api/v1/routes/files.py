@@ -11,7 +11,7 @@ from app.models.semester import Semester
 from app.models.file import File
 from app.schemas.file import PresignedUrlRequest, PresignedUrlResponse, FileResponse, FileConfirmResponse
 from app.services import s3
-from app.tasks.file_tasks import classify_file_task
+from app.tasks.pdf_tasks import extract_pdf_text_task
 
 router = APIRouter(tags=["Files"])
 
@@ -88,7 +88,7 @@ async def confirm_upload(
     if not file_record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
 
-    classify_file_task.delay(str(file_id))
+    extract_pdf_text_task.delay(str(file_id))
 
     return FileConfirmResponse(file=FileResponse.model_validate(file_record))
 

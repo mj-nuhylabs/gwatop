@@ -27,3 +27,8 @@ def generate_presigned_put_url(storage_key: str, content_type: str = "applicatio
 
 def get_public_url(storage_key: str) -> str:
     return f"https://{settings.S3_BUCKET_NAME}.s3.{settings.AWS_REGION}.amazonaws.com/{storage_key}"
+
+
+def download_object_bytes(storage_key: str) -> bytes:
+    obj = _client().get_object(Bucket=settings.S3_BUCKET_NAME, Key=storage_key)
+    return obj["Body"].read()
