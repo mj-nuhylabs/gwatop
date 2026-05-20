@@ -107,9 +107,20 @@ actor AuthService {
 
         let (data, response) = try await URLSession.shared.data(for: request)
 
-        guard let http = response as? HTTPURLResponse, http.statusCode == expectedStatus else {
-            let msg = parseErrorMessage(from: data) ?? fallbackErrorMessage
-            throw AuthError.serverError(msg)
+        guard let http = response as? HTTPURLResponse else {
+            throw AuthError.serverError("서버 응답이 올바르지 않습니다.")
+        }
+
+        guard http.statusCode == expectedStatus else {
+            let parsed = parseErrorMessage(from: data)
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            print("[AuthService] \(path) failed status=\(http.statusCode) body=\(raw)")
+
+            if let parsed {
+                throw AuthError.serverError(parsed)
+            }
+            let snippet = raw.isEmpty ? "" : " (\(raw.prefix(200)))"
+            throw AuthError.serverError("\(fallbackErrorMessage) [HTTP \(http.statusCode)]\(snippet)")
         }
 
         do {
@@ -121,14 +132,30 @@ actor AuthService {
     }
 
     private func parseErrorMessage(from data: Data) -> String? {
-        // {"detail": {"message": "..."}}  또는  {"detail": "..."}
-        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            if let detail = json["detail"] as? [String: Any],
-               let message = detail["message"] as? String {
-                return message
+        // 1) {"detail": {"message": "..."}}
+        // 2) {"detail": "..."}
+        // 3) {"detail": [{"msg": "...", "loc": [...]}, ...]}  (FastAPI 422)
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+
+        if let detail = json["detail"] as? [String: Any],
+           let message = detail["message"] as? String {
+            return message
+        }
+        if let detail = json["detail"] as? String {
+            return detail
+        }
+        if let detail = json["detail"] as? [[String: Any]] {
+            let messages = detail.compactMap { item -> String? in
+                let msg = item["msg"] as? String
+                if let loc = item["loc"] as? [Any], let field = loc.last {
+                    return "\(field): \(msg ?? "")"
+                }
+                return msg
             }
-            if let detail = json["detail"] as? String {
-                return detail
+            if messages.isEmpty == false {
+                return messages.joined(separator: "\n")
             }
         }
         return nil
