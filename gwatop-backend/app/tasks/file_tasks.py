@@ -21,7 +21,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import AsyncSessionLocal
+from app.core.database import make_celery_session_factory
 from app.models.course import Course
 from app.models.file import File
 from app.models.schedule import Schedule
@@ -37,20 +37,31 @@ logger = logging.getLogger(__name__)
 
 # ---------- Celery entry points ----------
 
+def _run_with_fresh_engine(coro_factory):
+    """Celery 태스크에서 async 코드 실행 — 매번 새 engine으로 dispose까지 책임진다."""
+    async def runner():
+        engine, SessionLocal = make_celery_session_factory()
+        try:
+            await coro_factory(SessionLocal)
+        finally:
+            await engine.dispose()
+    asyncio.run(runner())
+
+
 @celery_app.task(name="tasks.extract_text")
 def extract_text_task(file_id: str) -> None:
-    asyncio.run(_run_extract(file_id))
+    _run_with_fresh_engine(lambda Session: _run_extract(file_id, Session))
 
 
 @celery_app.task(name="tasks.parse_syllabus")
 def parse_syllabus_task(file_id: str) -> None:
-    asyncio.run(_run_parse_syllabus(file_id))
+    _run_with_fresh_engine(lambda Session: _run_parse_syllabus(file_id, Session))
 
 
 # ---------- Pipeline: text extraction ----------
 
-async def _run_extract(file_id: str) -> None:
-    async with AsyncSessionLocal() as session:
+async def _run_extract(file_id: str, SessionLocal) -> None:
+    async with SessionLocal() as session:
         file_row = await _load_file(session, UUID(file_id))
         if file_row is None:
             logger.warning("extract_text: file %s not found", file_id)
@@ -92,8 +103,8 @@ async def _run_extract(file_id: str) -> None:
 
 # ---------- Pipeline: syllabus parsing ----------
 
-async def _run_parse_syllabus(file_id: str) -> None:
-    async with AsyncSessionLocal() as session:
+async def _run_parse_syllabus(file_id: str, SessionLocal) -> None:
+    async with SessionLocal() as session:
         file_row = await _load_file(session, UUID(file_id))
         if file_row is None:
             logger.warning("parse_syllabus: file %s not found", file_id)
