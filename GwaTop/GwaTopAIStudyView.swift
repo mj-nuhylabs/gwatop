@@ -13,6 +13,7 @@ struct GwaTopAIStudyView: View {
     @State private var selectedFlashcardIndex: Int = 0
     @State private var isFlashcardFlipped: Bool = false
     @State private var tutorQuestion: String = ""
+    @State private var showMaterialUploadSheet: Bool = false
 
     private var currentQuiz: GwaTopQuizItem? {
         guard selectedContent.quizItems.indices.contains(selectedQuizIndex) else { return nil }
@@ -60,7 +61,7 @@ struct GwaTopAIStudyView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        // 추후 파일 선택, S3 업로드, AI 자동 분류 플로우로 연결합니다.
+                        showMaterialUploadSheet = true
                     } label: {
                         Image(systemName: "doc.badge.arrow.up")
                             .font(.system(size: 16, weight: .bold))
@@ -71,6 +72,10 @@ struct GwaTopAIStudyView: View {
                             .shadow(color: .black.opacity(0.05), radius: 10, x: 0, y: 5)
                     }
                 }
+            }
+            .sheet(isPresented: $showMaterialUploadSheet) {
+                GwaTopMaterialUploadSheet()
+                    .presentationDetents([.large])
             }
             .onChange(of: selectedContent.id) { _ in
                 resetInteractiveStates()

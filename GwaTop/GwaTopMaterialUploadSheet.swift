@@ -1,0 +1,342 @@
+//
+//  GwaTopMaterialUploadSheet.swift
+//  GwaTop
+//
+//  S-1 강의 자료 업로드 시트.
+//  과목을 선택하고 PDF/PPT/DOCX 파일을 업로드하면 백엔드에서 자동 분류된다.
+//  강의계획서가 아니라 일반 강의 자료 업로드 진입점이다.
+//
+
+import SwiftUI
+import UniformTypeIdentifiers
+
+struct GwaTopMaterialUploadSheet: View {
+    var onUploadCompleted: () -> Void = {}
+
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var courses: [GwaTopCourseDTO] = []
+    @State private var selectedCourseId: String? = nil
+    @State private var isLoadingCourses = false
+    @State private var loadError: String? = nil
+
+    @State private var showingFileImporter = false
+    @State private var isUploading = false
+    @State private var uploadMessage: String? = nil
+    @State private var uploadError: String? = nil
+
+    private static let allowedTypes: [UTType] = {
+        var t: [UTType] = [.pdf]
+        if let pptx = UTType(filenameExtension: "pptx") { t.append(pptx) }
+        if let docx = UTType(filenameExtension: "docx") { t.append(docx) }
+        return t
+    }()
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color(red: 0.96, green: 0.97, blue: 1.0).ignoresSafeArea()
+
+                ScrollView {
+                    VStack(spacing: 22) {
+                        header
+
+                        courseCard
+
+                        actionCard
+
+                        if let uploadMessage {
+                            successBanner(uploadMessage)
+                        }
+                        if let uploadError {
+                            errorBanner(uploadError)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 24)
+                }
+
+                if isUploading {
+                    Color.black.opacity(0.35).ignoresSafeArea()
+                    VStack(spacing: 12) {
+                        ProgressView().tint(.white).scaleEffect(1.4)
+                        Text("업로드 중…")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white)
+                    }
+                }
+            }
+            .navigationTitle("강의 자료 업로드")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("닫기") { dismiss() }
+                        .disabled(isUploading)
+                }
+            }
+            .task {
+                await loadCoursesIfNeeded()
+            }
+            .fileImporter(
+                isPresented: $showingFileImporter,
+                allowedContentTypes: Self.allowedTypes,
+                allowsMultipleSelection: false
+            ) { result in
+                handleFileImport(result: result)
+            }
+        }
+    }
+
+    // MARK: - Sections
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("AI 자동 분류")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(.blue)
+            Text("강의 자료를 업로드하면 주차별로 자동 정리돼요.")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(.primary)
+            Text("PDF / PPTX / DOCX 지원. 업로드 후 백엔드에서 텍스트 추출과 임베딩 기반 분류를 진행합니다.")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .background(.white)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .shadow(color: .black.opacity(0.05), radius: 10, x: 0, y: 4)
+    }
+
+    private var courseCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("어느 과목인가요?")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(.primary)
+
+            if isLoadingCourses {
+                HStack {
+                    ProgressView()
+                    Text("과목 불러오는 중…")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 12)
+            } else if let loadError {
+                Text(loadError)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.red)
+            } else if courses.isEmpty {
+                Text("등록된 과목이 없어요. 먼저 학기/과목을 추가해 주세요.")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(courses) { course in
+                    courseRow(course)
+                }
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.white)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .shadow(color: .black.opacity(0.05), radius: 10, x: 0, y: 4)
+    }
+
+    private func courseRow(_ course: GwaTopCourseDTO) -> some View {
+        let isSelected = selectedCourseId == course.id
+        return Button {
+            selectedCourseId = course.id
+        } label: {
+            HStack(spacing: 12) {
+                Circle()
+                    .fill(colorFromHex(course.color) ?? .gray.opacity(0.4))
+                    .frame(width: 14, height: 14)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(course.name)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    if let prof = course.professor, !prof.isEmpty {
+                        Text(prof)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Spacer()
+
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(isSelected ? .blue : .gray.opacity(0.4))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(isSelected ? Color.blue.opacity(0.08) : Color.gray.opacity(0.06))
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var actionCard: some View {
+        VStack(spacing: 12) {
+            Button {
+                showingFileImporter = true
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "doc.badge.plus")
+                        .font(.system(size: 18, weight: .bold))
+                    Text("파일 선택")
+                        .font(.system(size: 16, weight: .bold))
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 54)
+                .foregroundStyle(.white)
+                .background(selectedCourseId == nil || isUploading ? Color.gray.opacity(0.5) : Color.blue)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+            .disabled(selectedCourseId == nil || isUploading)
+
+            Text("강의계획서(syllabus)는 캘린더 탭에서 따로 업로드해 주세요.")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(18)
+        .background(.white)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .shadow(color: .black.opacity(0.05), radius: 10, x: 0, y: 4)
+    }
+
+    private func successBanner(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+                .font(.system(size: 18, weight: .bold))
+            Text(message)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.green.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func errorBanner(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.red)
+                .font(.system(size: 18, weight: .bold))
+            Text(message)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.red.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    // MARK: - Actions
+
+    @MainActor
+    private func loadCoursesIfNeeded() async {
+        guard courses.isEmpty, !isLoadingCourses else { return }
+        isLoadingCourses = true
+        loadError = nil
+        defer { isLoadingCourses = false }
+        do {
+            let fetched = try await GwaTopCourseService.shared.fetchAll()
+            courses = fetched
+            if selectedCourseId == nil {
+                selectedCourseId = fetched.first?.id
+            }
+        } catch {
+            loadError = "과목 목록을 불러오지 못했어요: \(error.localizedDescription)"
+        }
+    }
+
+    private func handleFileImport(result: Result<[URL], Error>) {
+        uploadError = nil
+        uploadMessage = nil
+        switch result {
+        case .failure(let error):
+            uploadError = "파일 선택 실패: \(error.localizedDescription)"
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            Task { @MainActor in
+                await uploadFile(url: url)
+            }
+        }
+    }
+
+    @MainActor
+    private func uploadFile(url: URL) async {
+        guard let courseId = selectedCourseId else {
+            uploadError = "과목을 먼저 선택해 주세요."
+            return
+        }
+
+        let needsSecurityScope = url.startAccessingSecurityScopedResource()
+        defer { if needsSecurityScope { url.stopAccessingSecurityScopedResource() } }
+
+        let filename = url.lastPathComponent
+        let fileType = inferFileType(from: url)
+
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            uploadError = "파일을 읽지 못했어요: \(error.localizedDescription)"
+            return
+        }
+
+        isUploading = true
+        defer { isUploading = false }
+
+        do {
+            let fileId = try await GwaTopFileUploadService.shared.upload(
+                courseId: courseId,
+                filename: filename,
+                fileType: fileType,
+                data: data,
+                isSyllabus: false
+            )
+            uploadMessage = "‘\(filename)’ 업로드 완료. AI가 주차 분류를 진행 중이에요. (file_id: \(fileId.prefix(8))…)"
+            onUploadCompleted()
+        } catch {
+            uploadError = "업로드 실패: \(error.localizedDescription)"
+        }
+    }
+
+    private func inferFileType(from url: URL) -> String {
+        switch url.pathExtension.lowercased() {
+        case "pdf":   return "pdf"
+        case "pptx":  return "pptx"
+        case "docx":  return "docx"
+        case "jpg", "jpeg", "png", "heic": return "image"
+        default:      return "other"
+        }
+    }
+
+    private func colorFromHex(_ hex: String?) -> Color? {
+        guard var s = hex?.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+        if s.hasPrefix("#") { s.removeFirst() }
+        guard s.count == 6, let rgb = UInt32(s, radix: 16) else { return nil }
+        return Color(
+            red: Double((rgb >> 16) & 0xFF) / 255.0,
+            green: Double((rgb >> 8) & 0xFF) / 255.0,
+            blue: Double(rgb & 0xFF) / 255.0
+        )
+    }
+}
+
+#Preview {
+    GwaTopMaterialUploadSheet()
+}
