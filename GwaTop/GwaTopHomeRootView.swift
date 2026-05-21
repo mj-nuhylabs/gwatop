@@ -61,8 +61,12 @@ struct GwaTopHomeRootView: View {
 struct GwaTopHomeView: View {
     let user: GwaTopSignedInUser
 
-    private let tasks: [GwaTopTodayTask] = GwaTopTodayTask.mockData
+    // 과목 진행률은 백엔드에 별도 컬럼이 아직 없어서 mock 유지 (Day 5 이후 교체 예정).
     private let subjects: [GwaTopSubject] = GwaTopSubject.mockData
+
+    @State private var dashboard: GwaTopHomeDashboardDTO? = nil
+    @State private var isLoading = false
+    @State private var loadError: String? = nil
 
     var body: some View {
         NavigationStack {
@@ -83,8 +87,10 @@ struct GwaTopHomeView: View {
                     .padding(.horizontal, 20)
                     .padding(.bottom, 30)
                 }
+                .refreshable { await load() }
             }
             .navigationBarTitleDisplayMode(.inline)
+            .task { if dashboard == nil { await load() } }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -107,6 +113,18 @@ struct GwaTopHomeView: View {
                     }
                 }
             }
+        }
+    }
+
+    @MainActor
+    private func load() async {
+        isLoading = true
+        loadError = nil
+        defer { isLoading = false }
+        do {
+            dashboard = try await GwaTopHomeService.shared.fetchDashboard(upcomingLimit: 5)
+        } catch {
+            loadError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
     }
 
@@ -134,14 +152,22 @@ struct GwaTopHomeView: View {
     }
 
     private var todaySummarySection: some View {
-        VStack(spacing: 16) {
+        let summary = dashboard?.thisWeekSummary
+        let total = summary?.total ?? 0
+        let done = summary?.done ?? 0
+        let remaining = max(0, total - done)
+        let rate = summary?.rate ?? 0
+        let percent = Int((rate * 100).rounded())
+        let examCount = (dashboard?.todaySchedules ?? []).filter { $0.type == "exam" }.count
+
+        return VStack(spacing: 16) {
             HStack {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("오늘의 학습 현황")
+                    Text("이번 주 학습 현황")
                         .font(.system(size: 20, weight: .bold))
                         .foregroundStyle(.white)
 
-                    Text("과제 2개 완료 · 집중 시간 1시간 40분")
+                    Text("이번 주 할 일 \(total)개 중 \(done)개 완료")
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(.white.opacity(0.82))
                 }
@@ -154,21 +180,22 @@ struct GwaTopHomeView: View {
                         .frame(width: 70, height: 70)
 
                     Circle()
-                        .trim(from: 0, to: 0.68)
+                        .trim(from: 0, to: rate)
                         .stroke(.white, style: StrokeStyle(lineWidth: 8, lineCap: .round))
                         .frame(width: 70, height: 70)
                         .rotationEffect(.degrees(-90))
+                        .animation(.spring(response: 0.5), value: rate)
 
-                    Text("68%")
+                    Text("\(percent)%")
                         .font(.system(size: 15, weight: .heavy))
                         .foregroundStyle(.white)
                 }
             }
 
             HStack(spacing: 10) {
-                GwaTopStatCard(title: "남은 과제", value: "3", unit: "개")
-                GwaTopStatCard(title: "이번 주 시험", value: "1", unit: "개")
-                GwaTopStatCard(title: "평균 진행률", value: "72", unit: "%")
+                GwaTopStatCard(title: "남은 할 일", value: "\(remaining)", unit: "개")
+                GwaTopStatCard(title: "오늘 시험", value: "\(examCount)", unit: "개")
+                GwaTopStatCard(title: "완료율", value: "\(percent)", unit: "%")
             }
         }
         .padding(20)
@@ -178,7 +205,27 @@ struct GwaTopHomeView: View {
     }
 
     private var aiRecommendationCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        let event = dashboard?.nextEvent
+        let labelText: String
+        let bodyText: String
+        if let event {
+            let typeName: String
+            switch event.type {
+            case "exam":       typeName = "시험"
+            case "assignment": typeName = "과제"
+            case "lecture":    typeName = "강의"
+            default:           typeName = "일정"
+            }
+            let dDay = event.dDay
+            let dDayLabel = dDay == 0 ? "D-Day" : (dDay > 0 ? "D-\(dDay)" : "D+\(abs(dDay))")
+            labelText = "다음 \(typeName) · \(dDayLabel)"
+            bodyText = "\(event.courseName) — \(event.title)"
+        } else {
+            labelText = "다음 일정"
+            bodyText = "예정된 일정이 없어요. 새 강의계획서를 업로드하면 자동으로 채워집니다."
+        }
+
+        return VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -191,11 +238,11 @@ struct GwaTopHomeView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("AI 추천 학습")
+                    Text(labelText)
                         .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(GwaTopHomeTheme.textPrimary)
 
-                    Text("\(user.firstDisplayName)님에게 맞춘 다음 행동")
+                    Text("\(user.firstDisplayName)님이 확인할 임박 일정")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(GwaTopHomeTheme.textSecondary)
                 }
@@ -203,26 +250,10 @@ struct GwaTopHomeView: View {
                 Spacer()
             }
 
-            Text("데이터베이스 과제 마감이 가까워요. 오늘은 SQL 정규화 개념을 30분 복습하고, ERD 초안을 먼저 완성하는 것을 추천합니다.")
+            Text(bodyText)
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(GwaTopHomeTheme.textPrimary)
                 .lineSpacing(4)
-
-            Button {
-                // 추후 AI 플래너 화면으로 이동
-            } label: {
-                HStack {
-                    Text("추천 계획 확인하기")
-                        .font(.system(size: 14, weight: .bold))
-                    Image(systemName: "arrow.right")
-                        .font(.system(size: 13, weight: .bold))
-                }
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 48)
-                .background(GwaTopHomeTheme.primary)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            }
         }
         .padding(18)
         .background(.white)
@@ -232,11 +263,32 @@ struct GwaTopHomeView: View {
 
     private var todayTaskSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            sectionHeader(title: "오늘 할 일", subtitle: "마감이 가까운 순서로 정리했어요")
+            sectionHeader(title: "급한 할 일", subtitle: "우선순위 높은 순서로 정리했어요")
 
             VStack(spacing: 10) {
-                ForEach(tasks) { task in
-                    GwaTopTodayTaskRow(task: task)
+                if let todos = dashboard?.upcomingTodos, !todos.isEmpty {
+                    ForEach(todos) { todo in
+                        GwaTopTodayTaskRow(task: GwaTopTodayTask(todo: todo))
+                    }
+                } else if isLoading {
+                    HStack {
+                        ProgressView()
+                        Text("불러오는 중...")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                    }
+                    .padding(20)
+                    .frame(maxWidth: .infinity)
+                    .background(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                } else {
+                    Text("표시할 할 일이 없어요.")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                        .padding(20)
+                        .frame(maxWidth: .infinity)
+                        .background(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
             }
         }
@@ -562,7 +614,7 @@ enum GwaTopTab {
 }
 
 struct GwaTopTodayTask: Identifiable {
-    let id = UUID()
+    let id: String
     let title: String
     let subject: String
     let dueText: String
@@ -570,6 +622,38 @@ struct GwaTopTodayTask: Identifiable {
     let iconName: String
     let color: Color
     let isDone: Bool
+
+    init(id: String = UUID().uuidString,
+         title: String, subject: String, dueText: String,
+         priorityText: String, iconName: String, color: Color, isDone: Bool) {
+        self.id = id
+        self.title = title
+        self.subject = subject
+        self.dueText = dueText
+        self.priorityText = priorityText
+        self.iconName = iconName
+        self.color = color
+        self.isDone = isDone
+    }
+
+    /// 백엔드 TodoDTO를 홈 화면용 row 모델로 변환.
+    init(todo: GwaTopTodoDTO) {
+        let (priorityText, icon, color): (String, String, Color) = {
+            switch todo.priority {
+            case "high":   return ("긴급", "exclamationmark", .red)
+            case "medium": return ("중요", "flag.fill", .orange)
+            default:       return ("일반", "circle", .gray)
+            }
+        }()
+        self.id = todo.id
+        self.title = todo.title
+        self.subject = todo.courseName
+        self.dueText = GwaTopDateFormatters.koMonthDayTime.string(from: todo.dueDate)
+        self.priorityText = todo.isDone ? "완료" : priorityText
+        self.iconName = todo.isDone ? "checkmark" : icon
+        self.color = todo.isDone ? .green : (todo.courseColor.map(Color.gwaTopHex) ?? color)
+        self.isDone = todo.isDone
+    }
 
     static let mockData: [GwaTopTodayTask] = [
         GwaTopTodayTask(title: "데이터베이스 과제 ERD 초안", subject: "데이터베이스", dueText: "오늘 23:59", priorityText: "긴급", iconName: "exclamationmark", color: .red, isDone: false),
