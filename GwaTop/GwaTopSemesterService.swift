@@ -47,13 +47,7 @@ struct GwaTopSemesterCreateRequest: Encodable {
 actor GwaTopSemesterService {
     static let shared = GwaTopSemesterService()
 
-    private static let dateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(identifier: "Asia/Seoul")
-        f.dateFormat = "yyyy-MM-dd"
-        return f
-    }()
+    private static var dateFormatter: DateFormatter { GwaTopDateFormatters.serverDateOnly }
 
     func fetchAll() async throws -> [GwaTopSemesterDTO] {
         try await GwaTopAPIClient.shared.get("/v1/semesters")

@@ -89,11 +89,11 @@ struct GwaTopFileNoteView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
-                    .background(badgeColor(for: badge))
+                    .background(badge.color)
                     .clipShape(Capsule())
 
                 if let src = file.classificationSource {
-                    Label(sourceLabel(src), systemImage: src == "embedding" ? "sparkles" : (src == "filename" ? "textformat" : "hand.tap"))
+                    Label(GwaTopClassificationSource.label(src), systemImage: src == "embedding" ? "sparkles" : (src == "filename" ? "textformat" : "hand.tap"))
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.secondary)
                 }
@@ -194,23 +194,4 @@ struct GwaTopFileNoteView: View {
         }
     }
 
-    private func badgeColor(for badge: GwaTopFileStatusBadge) -> Color {
-        switch badge {
-        case .classified: return .green
-        case .classifying, .processing: return .orange
-        case .extracted: return .blue
-        case .unclassified: return .gray
-        case .failed: return .red
-        case .other: return .gray
-        }
-    }
-
-    private func sourceLabel(_ src: String) -> String {
-        switch src {
-        case "filename":  return "파일명 기반"
-        case "embedding": return "AI 임베딩"
-        case "manual":    return "수동 지정"
-        default:          return src
-        }
-    }
 }

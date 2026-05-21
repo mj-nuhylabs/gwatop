@@ -1,11 +1,12 @@
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_current_user
+from app.api.v1.deps_owned import owned_course, owned_todo
 from app.core.database import get_db
 from app.models.course import Course
 from app.models.semester import Semester
@@ -14,31 +15,6 @@ from app.models.user import User
 from app.schemas.todo import TodoCreate, TodoResponse, TodoUpdate
 
 router = APIRouter(tags=["Todos"])
-
-
-async def _owned_course(course_id: uuid.UUID, user: User, db: AsyncSession) -> Course:
-    result = await db.execute(
-        select(Course)
-        .join(Semester, Course.semester_id == Semester.id)
-        .where(Course.id == course_id, Semester.user_id == user.id)
-    )
-    course = result.scalar_one_or_none()
-    if not course:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Course not found")
-    return course
-
-
-async def _owned_todo(todo_id: uuid.UUID, user: User, db: AsyncSession) -> tuple[Todo, Course]:
-    result = await db.execute(
-        select(Todo, Course)
-        .join(Course, Todo.course_id == Course.id)
-        .join(Semester, Course.semester_id == Semester.id)
-        .where(Todo.id == todo_id, Semester.user_id == user.id)
-    )
-    row = result.first()
-    if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Todo not found")
-    return row[0], row[1]
 
 
 def _to_response(todo: Todo, course: Course) -> TodoResponse:
@@ -113,7 +89,7 @@ async def create_todo(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    course = await _owned_course(body.course_id, current_user, db)
+    course = await owned_course(body.course_id, current_user, db)
 
     todo = Todo(
         course_id=body.course_id,
@@ -136,7 +112,7 @@ async def update_todo(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    todo, course = await _owned_todo(todo_id, current_user, db)
+    todo, course = await owned_todo(todo_id, current_user, db)
 
     for field in ("title", "due_date", "priority", "is_done"):
         value = getattr(body, field)
@@ -154,7 +130,7 @@ async def delete_todo(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    todo, _ = await _owned_todo(todo_id, current_user, db)
+    todo, _ = await owned_todo(todo_id, current_user, db)
     await db.delete(todo)
     await db.commit()
 

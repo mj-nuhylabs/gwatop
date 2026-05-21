@@ -151,7 +151,7 @@ struct GwaTopMaterialUploadSheet: View {
         } label: {
             HStack(spacing: 12) {
                 Circle()
-                    .fill(colorFromHex(course.color) ?? .gray.opacity(0.4))
+                    .fill(course.color.map(Color.gwaTopHex) ?? .gray.opacity(0.4))
                     .frame(width: 14, height: 14)
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -345,16 +345,6 @@ struct GwaTopMaterialUploadSheet: View {
         }
     }
 
-    private func colorFromHex(_ hex: String?) -> Color? {
-        guard var s = hex?.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
-        if s.hasPrefix("#") { s.removeFirst() }
-        guard s.count == 6, let rgb = UInt32(s, radix: 16) else { return nil }
-        return Color(
-            red: Double((rgb >> 16) & 0xFF) / 255.0,
-            green: Double((rgb >> 8) & 0xFF) / 255.0,
-            blue: Double(rgb & 0xFF) / 255.0
-        )
-    }
 }
 
 #Preview {

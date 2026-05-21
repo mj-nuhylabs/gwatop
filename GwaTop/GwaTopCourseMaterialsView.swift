@@ -144,7 +144,7 @@ struct GwaTopCourseMaterialsView: View {
         } label: {
             HStack(spacing: 8) {
                 Circle()
-                    .fill(colorFromHex(c.color) ?? .gray.opacity(0.4))
+                    .fill(c.color.map(Color.gwaTopHex) ?? .gray.opacity(0.4))
                     .frame(width: 8, height: 8)
                 Text(c.name.isEmpty ? "이름 없는 과목" : c.name)
                     .font(.system(size: 13, weight: .semibold))
@@ -175,16 +175,7 @@ struct GwaTopCourseMaterialsView: View {
 
     private func fileRow(_ f: GwaTopFileSummary) -> some View {
         let badge = GwaTopFileStatusBadge.from(f)
-        let badgeColor: Color = {
-            switch badge {
-            case .classified: return .green
-            case .classifying, .processing: return .orange
-            case .extracted: return .blue
-            case .unclassified: return .gray
-            case .failed: return .red
-            case .other: return .gray
-            }
-        }()
+        let badgeColor = badge.color
 
         return Button {
             selectedFileForNote = f
@@ -214,7 +205,7 @@ struct GwaTopCourseMaterialsView: View {
                             .clipShape(Capsule())
 
                         if let src = f.classificationSource {
-                            Text(sourceLabel(src))
+                            Text(GwaTopClassificationSource.label(src))
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundStyle(.secondary)
                         }
@@ -347,25 +338,6 @@ struct GwaTopCourseMaterialsView: View {
         }
     }
 
-    private func sourceLabel(_ src: String) -> String {
-        switch src {
-        case "filename":  return "파일명 기반"
-        case "embedding": return "AI 임베딩"
-        case "manual":    return "수동 지정"
-        default:          return src
-        }
-    }
-
-    private func colorFromHex(_ hex: String?) -> Color? {
-        guard var s = hex?.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
-        if s.hasPrefix("#") { s.removeFirst() }
-        guard s.count == 6, let rgb = UInt32(s, radix: 16) else { return nil }
-        return Color(
-            red: Double((rgb >> 16) & 0xFF) / 255.0,
-            green: Double((rgb >> 8) & 0xFF) / 255.0,
-            blue: Double(rgb & 0xFF) / 255.0
-        )
-    }
 }
 
 #Preview {

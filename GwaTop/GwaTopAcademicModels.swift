@@ -154,22 +154,15 @@ struct GwaTopAssignment: Identifiable, Codable, Equatable {
     }
 
     var dDayText: String {
-        let calendar = Calendar.current
-        let startOfToday = calendar.startOfDay(for: Date())
-        let startOfDue = calendar.startOfDay(for: dueDate)
-        let day = calendar.dateComponents([.day], from: startOfToday, to: startOfDue).day ?? 0
-
         if isCompleted { return "완료" }
+        let day = Date.gwaTopDDayFromToday(to: dueDate)
         if day == 0 { return "D-Day" }
         if day > 0 { return "D-\(day)" }
         return "D+\(abs(day))"
     }
 
     var dueDateText: String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ko_KR")
-        formatter.dateFormat = "M월 d일 E요일 HH:mm"
-        return formatter.string(from: dueDate)
+        GwaTopDateFormatters.koMonthDayWeekdayTime.string(from: dueDate)
     }
 
     static let sampleData: [GwaTopAssignment] = [
@@ -260,24 +253,15 @@ struct GwaTopCalendarEvent: Identifiable, Codable, Equatable {
     var source: String
 
     var timeText: String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ko_KR")
-        formatter.dateFormat = "HH:mm"
-        return formatter.string(from: startDate)
+        GwaTopDateFormatters.koTimeOnly.string(from: startDate)
     }
 
     var dateText: String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ko_KR")
-        formatter.dateFormat = "M월 d일 E요일"
-        return formatter.string(from: startDate)
+        GwaTopDateFormatters.koMonthDayShortWeekday.string(from: startDate)
     }
 
     var dDayText: String {
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-        let eventDay = calendar.startOfDay(for: startDate)
-        let day = calendar.dateComponents([.day], from: today, to: eventDay).day ?? 0
+        let day = Date.gwaTopDDayFromToday(to: startDate)
         if day == 0 { return "오늘" }
         if day > 0 { return "D-\(day)" }
         return "D+\(abs(day))"
@@ -354,10 +338,7 @@ struct GwaTopAIContent: Identifiable, Codable, Equatable {
     var status: String
 
     var generatedAtText: String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ko_KR")
-        formatter.dateFormat = "M월 d일 HH:mm"
-        return formatter.string(from: generatedAt)
+        GwaTopDateFormatters.koMonthDayTime.string(from: generatedAt)
     }
 
     static let sampleData: [GwaTopAIContent] = [
@@ -497,5 +478,14 @@ extension Date {
         components.hour = hour
         components.minute = minute
         return calendar.date(from: components) ?? base
+    }
+
+    /// 오늘 자정 기준 D-Day 일수를 반환. 양수면 미래, 0이면 오늘, 음수면 과거.
+    /// 시각은 모두 startOfDay로 정규화되므로 시간대 노이즈가 없다.
+    static func gwaTopDDayFromToday(to target: Date) -> Int {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let day = cal.startOfDay(for: target)
+        return cal.dateComponents([.day], from: today, to: day).day ?? 0
     }
 }

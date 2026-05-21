@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import SwiftUI  // GwaTopFileStatusBadge.color (Color 반환)
 
 struct GwaTopFileSummary: Decodable, Identifiable, Equatable {
     let id: String
@@ -151,6 +152,29 @@ enum GwaTopFileStatusBadge {
         case .unclassified:  return "미분류"
         case .failed(let r): return "실패\(r.map { " · \($0)" } ?? "")"
         case .other(let s):  return s
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .classified:                 return .green
+        case .classifying, .processing:   return .orange
+        case .extracted:                  return .blue
+        case .unclassified:               return .gray
+        case .failed:                     return .red
+        case .other:                      return .gray
+        }
+    }
+}
+
+/// 강의 자료 분류 출처 라벨 (`classification_source` 응답 값을 한국어로 변환).
+enum GwaTopClassificationSource {
+    static func label(_ src: String) -> String {
+        switch src {
+        case "filename":  return "파일명 기반"
+        case "embedding": return "AI 임베딩"
+        case "manual":    return "수동 지정"
+        default:          return src
         }
     }
 }

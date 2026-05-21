@@ -19,10 +19,7 @@ struct GwaTopCalendarView: View {
     private let weekdaySymbols = ["일", "월", "화", "수", "목", "금", "토"]
 
     private var monthTitle: String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ko_KR")
-        formatter.dateFormat = "yyyy년 M월"
-        return formatter.string(from: displayedMonth)
+        GwaTopDateFormatters.koYearMonth.string(from: displayedMonth)
     }
 
     private var monthDays: [GwaTopCalendarDay] {
@@ -140,13 +137,7 @@ struct GwaTopCalendarView: View {
         loadErrorMessage = nil
         do {
             let dtos = try await GwaTopScheduleService.shared.fetchAll()
-            let beforeCount = events.count
             events = dtos.map { GwaTopCalendarEvent(dto: $0) }
-
-            print("[Calendar] fetched \(dtos.count) schedules (before=\(beforeCount))")
-            for dto in dtos {
-                print("[Calendar]  • \(dto.type) \(dto.title) @ \(dto.dueDate) is_auto=\(dto.isAuto)")
-            }
 
             // 자동 점프 조건:
             //  1) 업로드 직후 (jumpToLatest=true) — 가장 가까운 자동 일정으로
@@ -454,10 +445,7 @@ struct GwaTopCalendarView: View {
     }
 
     private var selectedDateTitle: String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ko_KR")
-        formatter.dateFormat = "M월 d일 EEEE"
-        return formatter.string(from: selectedDate)
+        GwaTopDateFormatters.koMonthDayWeekday.string(from: selectedDate)
     }
 
     private func eventsForDate(_ date: Date) -> [GwaTopCalendarEvent] {

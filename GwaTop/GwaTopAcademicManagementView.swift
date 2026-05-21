@@ -145,9 +145,7 @@ struct GwaTopAcademicManagementView: View {
     }
 
     private func formatDateRange(_ a: Date, _ b: Date) -> String {
-        let fmt = DateFormatter()
-        fmt.locale = Locale(identifier: "ko_KR")
-        fmt.dateFormat = "yyyy.M.d"
+        let fmt = GwaTopDateFormatters.koShortDate
         return "\(fmt.string(from: a)) – \(fmt.string(from: b))"
     }
 }

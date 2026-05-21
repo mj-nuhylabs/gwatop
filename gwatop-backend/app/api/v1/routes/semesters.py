@@ -1,25 +1,16 @@
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
 from app.core.database import get_db
 from app.api.v1.dependencies import get_current_user
+from app.api.v1.deps_owned import owned_semester
 from app.models.user import User
 from app.models.semester import Semester
 from app.schemas.semester import SemesterCreate, SemesterUpdate, SemesterResponse
 
 router = APIRouter(prefix="/semesters", tags=["Semesters"])
-
-
-async def _owned_semester(semester_id: uuid.UUID, user: User, db: AsyncSession) -> Semester:
-    result = await db.execute(select(Semester).where(Semester.id == semester_id))
-    semester = result.scalar_one_or_none()
-    if not semester:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Semester not found")
-    if semester.user_id != user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-    return semester
 
 
 @router.get("", response_model=list[SemesterResponse])
@@ -67,7 +58,7 @@ async def get_semester(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await _owned_semester(semester_id, current_user, db)
+    return await owned_semester(semester_id, current_user, db)
 
 
 @router.put("/{semester_id}", response_model=SemesterResponse)
@@ -77,7 +68,7 @@ async def update_semester(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    semester = await _owned_semester(semester_id, current_user, db)
+    semester = await owned_semester(semester_id, current_user, db)
 
     if body.is_active is True:
         await db.execute(
@@ -100,7 +91,7 @@ async def delete_semester(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    semester = await _owned_semester(semester_id, current_user, db)
+    semester = await owned_semester(semester_id, current_user, db)
     await db.delete(semester)
     await db.commit()
 
@@ -111,7 +102,7 @@ async def set_active_semester(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    semester = await _owned_semester(semester_id, current_user, db)
+    semester = await owned_semester(semester_id, current_user, db)
 
     await db.execute(
         update(Semester)

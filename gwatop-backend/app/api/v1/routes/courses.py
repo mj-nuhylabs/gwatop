@@ -1,38 +1,17 @@
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.database import get_db
 from app.api.v1.dependencies import get_current_user
+from app.api.v1.deps_owned import owned_course, owned_semester
 from app.models.user import User
 from app.models.semester import Semester
 from app.models.course import Course
 from app.schemas.course import CourseCreate, CourseUpdate, CourseResponse
 
 router = APIRouter(tags=["Courses"])
-
-
-async def _owned_semester(semester_id: uuid.UUID, user: User, db: AsyncSession) -> Semester:
-    result = await db.execute(select(Semester).where(Semester.id == semester_id))
-    semester = result.scalar_one_or_none()
-    if not semester:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Semester not found")
-    if semester.user_id != user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-    return semester
-
-
-async def _owned_course(course_id: uuid.UUID, user: User, db: AsyncSession) -> Course:
-    result = await db.execute(
-        select(Course)
-        .join(Semester, Course.semester_id == Semester.id)
-        .where(Course.id == course_id, Semester.user_id == user.id)
-    )
-    course = result.scalar_one_or_none()
-    if not course:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Course not found")
-    return course
 
 
 @router.get("/courses", response_model=list[CourseResponse])
@@ -56,7 +35,7 @@ async def list_courses(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _owned_semester(semester_id, current_user, db)
+    await owned_semester(semester_id, current_user, db)
     result = await db.execute(
         select(Course).where(Course.semester_id == semester_id).order_by(Course.name)
     )
@@ -70,7 +49,7 @@ async def create_course(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _owned_semester(semester_id, current_user, db)
+    await owned_semester(semester_id, current_user, db)
 
     course = Course(
         semester_id=semester_id,
@@ -91,7 +70,7 @@ async def get_course(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await _owned_course(course_id, current_user, db)
+    return await owned_course(course_id, current_user, db)
 
 
 @router.put("/courses/{course_id}", response_model=CourseResponse)
@@ -101,7 +80,7 @@ async def update_course(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    course = await _owned_course(course_id, current_user, db)
+    course = await owned_course(course_id, current_user, db)
 
     for field, value in body.model_dump(exclude_none=True).items():
         setattr(course, field, value)
@@ -117,6 +96,6 @@ async def delete_course(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    course = await _owned_course(course_id, current_user, db)
+    course = await owned_course(course_id, current_user, db)
     await db.delete(course)
     await db.commit()

@@ -76,16 +76,8 @@ struct GwaTopTodoUpdateRequest: Encodable {
 actor GwaTopTodoService {
     static let shared = GwaTopTodoService()
 
-    private static let dateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(identifier: "Asia/Seoul")
-        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
-        return f
-    }()
-
     static func encode(_ date: Date) -> String {
-        dateFormatter.string(from: date)
+        GwaTopDateFormatters.serverDateTime.string(from: date)
     }
 
     func fetchAll(
