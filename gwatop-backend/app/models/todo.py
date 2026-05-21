@@ -1,7 +1,7 @@
 from sqlalchemy import String, Boolean, DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
-from app.core.database import Base
+from app.core.database import Base, kst_now_naive
 from datetime import datetime
 import uuid
 
@@ -17,7 +17,7 @@ class Todo(Base):
     priority: Mapped[str] = mapped_column(String, nullable=False, default="low")
     is_done: Mapped[bool] = mapped_column(Boolean, default=False)
     is_auto: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=kst_now_naive)
 
     schedule: Mapped["Schedule | None"] = relationship("Schedule", back_populates="todos")
     course: Mapped["Course"] = relationship("Course", back_populates="todos")

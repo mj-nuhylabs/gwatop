@@ -175,9 +175,20 @@ actor GwaTopAPIClient {
         guard let http = resp as? HTTPURLResponse else {
             throw GwaTopAPIError.server(-1, "Invalid response")
         }
-        if http.statusCode == 401 { throw GwaTopAPIError.unauthorized }
+        if http.statusCode == 401 {
+            Self.broadcastUnauthorized()
+            throw GwaTopAPIError.unauthorized
+        }
         guard (200..<300).contains(http.statusCode) else {
             throw GwaTopAPIError.server(http.statusCode, "Delete failed")
+        }
+    }
+
+    /// API 401 응답 시 ContentView에 신호를 보내 자동 로그아웃 트리거.
+    /// main thread 위에서 NotificationCenter post.
+    fileprivate static func broadcastUnauthorized() {
+        Task { @MainActor in
+            NotificationCenter.default.post(name: .gwaTopUnauthorized, object: nil)
         }
     }
 
@@ -247,7 +258,10 @@ actor GwaTopAPIClient {
         guard let http = resp as? HTTPURLResponse else {
             throw GwaTopAPIError.server(-1, "Invalid response")
         }
-        if http.statusCode == 401 { throw GwaTopAPIError.unauthorized }
+        if http.statusCode == 401 {
+            Self.broadcastUnauthorized()
+            throw GwaTopAPIError.unauthorized
+        }
         guard (200..<300).contains(http.statusCode) else {
             let msg = parseDetail(data) ?? String(data: data, encoding: .utf8) ?? "(no body)"
             throw GwaTopAPIError.server(http.statusCode, msg)

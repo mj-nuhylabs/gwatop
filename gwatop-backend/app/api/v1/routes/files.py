@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from app.core.database import get_db
 from app.api.v1.dependencies import get_current_user
+from app.api.v1.deps_owned import owned_course, owned_file
 from app.models.user import User
 from app.models.course import Course
 from app.models.semester import Semester
@@ -25,18 +26,6 @@ CONTENT_TYPES = {
 }
 
 
-async def _owned_course(course_id: uuid.UUID, user: User, db: AsyncSession) -> Course:
-    result = await db.execute(
-        select(Course)
-        .join(Semester, Course.semester_id == Semester.id)
-        .where(Course.id == course_id, Semester.user_id == user.id)
-    )
-    course = result.scalar_one_or_none()
-    if not course:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Course not found")
-    return course
-
-
 @router.post("/courses/{course_id}/files/presigned-url", response_model=PresignedUrlResponse, status_code=status.HTTP_201_CREATED)
 async def get_presigned_url(
     course_id: uuid.UUID,
@@ -44,7 +33,7 @@ async def get_presigned_url(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _owned_course(course_id, current_user, db)
+    await owned_course(course_id, current_user, db)
 
     storage_key = s3.build_storage_key(str(current_user.id), body.filename)
     content_type = CONTENT_TYPES.get(body.file_type, "application/octet-stream")
@@ -81,7 +70,7 @@ async def confirm_upload(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _owned_course(course_id, current_user, db)
+    await owned_course(course_id, current_user, db)
 
     result = await db.execute(
         select(File).where(File.id == file_id, File.course_id == course_id)
@@ -101,7 +90,7 @@ async def list_files(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _owned_course(course_id, current_user, db)
+    await owned_course(course_id, current_user, db)
     result = await db.execute(
         select(File).where(File.course_id == course_id).order_by(File.created_at.desc())
     )
@@ -121,13 +110,7 @@ async def file_debug(
     """
     from app.models.schedule import Schedule
 
-    file_row = (await db.execute(select(File).where(File.id == file_id))).scalar_one_or_none()
-    if not file_row:
-        raise HTTPException(status_code=404, detail="File not found")
-
-    course = (await db.execute(select(Course).where(Course.id == file_row.course_id))).scalar_one_or_none()
-    if not course:
-        raise HTTPException(status_code=404, detail="Course not found")
+    file_row, course = await owned_file(file_id, current_user, db)
 
     schedules_q = await db.execute(
         select(Schedule).where(Schedule.course_id == file_row.course_id, Schedule.is_auto.is_(True))
@@ -185,16 +168,7 @@ async def reclassify_file(
 ):
     """자동 분류를 다시 실행한다. 강의계획서가 새로 파싱되어 임베딩 캐시가
     갱신된 경우, 또는 분류 결과가 부정확할 때 사용한다."""
-    file_row = (
-        await db.execute(
-            select(File)
-            .join(Course, File.course_id == Course.id)
-            .join(Semester, Course.semester_id == Semester.id)
-            .where(File.id == file_id, Semester.user_id == current_user.id)
-        )
-    ).scalar_one_or_none()
-    if not file_row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+    file_row, _ = await owned_file(file_id, current_user, db)
     if file_row.is_syllabus:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -220,16 +194,7 @@ async def set_file_week(
 
     body.week=null 이면 미분류로 되돌린다.
     """
-    file_row = (
-        await db.execute(
-            select(File)
-            .join(Course, File.course_id == Course.id)
-            .join(Semester, Course.semester_id == Semester.id)
-            .where(File.id == file_id, Semester.user_id == current_user.id)
-        )
-    ).scalar_one_or_none()
-    if not file_row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+    file_row, _ = await owned_file(file_id, current_user, db)
 
     file_row.week = body.week
     if body.week is None:

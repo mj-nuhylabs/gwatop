@@ -8,6 +8,9 @@ struct GwaTopAssignmentsView: View {
     @State private var selectedFilter: GwaTopAssignmentFilter = .all
     @State private var isLoading = false
     @State private var loadError: String? = nil
+    /// 동시에 다중 토글이 일어나는 걸 막기 위한 진행중 id 집합. 빠른 더블탭 시
+    /// 두 번째 요청은 무시되어 응답 순서가 뒤집혀도 UI가 잘못 고정되지 않는다.
+    @State private var togglingIds: Set<String> = []
 
     /// priority 정렬 가중치 (high가 먼저)
     private static func priorityWeight(_ p: GwaTopAssignmentPriority) -> Int {
@@ -261,9 +264,14 @@ struct GwaTopAssignmentsView: View {
     }
 
     private func toggleAssignment(_ assignment: GwaTopAssignment) {
+        // 진행 중이면 무시 (빠른 더블탭 race 방지)
+        guard !togglingIds.contains(assignment.id) else { return }
+        togglingIds.insert(assignment.id)
+
         // optimistic update — 실패 시 롤백
         applyOptimisticToggle(assignment)
         Task {
+            defer { Task { @MainActor in togglingIds.remove(assignment.id) } }
             do {
                 let newIsDone = !assignment.isCompleted
                 let dto = try await GwaTopTodoService.shared.toggleDone(

@@ -40,7 +40,3 @@ def get_public_url(storage_key: str) -> str:
 def download_to_bytes(storage_key: str) -> bytes:
     obj = _client().get_object(Bucket=settings.S3_BUCKET_NAME, Key=storage_key)
     return obj["Body"].read()
-
-
-# hyunnow의 pdf_tasks.py에서 import 하는 이름과 호환되도록 별칭 제공.
-download_object_bytes = download_to_bytes

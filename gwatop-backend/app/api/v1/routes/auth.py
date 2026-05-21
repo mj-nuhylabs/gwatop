@@ -71,10 +71,11 @@ async def social_login(body: SocialLoginRequest, db: AsyncSession = Depends(get_
 
     google_sub = token_data.get("sub")
     email = token_data.get("email")
-    name = token_data.get("name") or email.split("@")[0]
 
     if not google_sub or not email:
         raise HTTPException(401, detail={"error": "invalid_token", "message": "Google 계정 정보를 가져올 수 없습니다."})
+
+    name = token_data.get("name") or email.split("@")[0]
 
     result = await db.execute(select(User).where(User.provider == "google", User.provider_id == google_sub))
     user = result.scalar_one_or_none()

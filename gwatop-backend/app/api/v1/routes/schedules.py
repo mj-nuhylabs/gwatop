@@ -1,12 +1,12 @@
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_current_user
-from app.api.v1.routes.todos import replace_auto_todos_for_schedule
+from app.api.v1.deps_owned import owned_course, owned_schedule
 from app.core.database import get_db
 from app.models.course import Course
 from app.models.schedule import Schedule
@@ -21,33 +21,6 @@ from app.schemas.schedule import (
 )
 
 router = APIRouter(tags=["Schedules"])
-
-
-async def _owned_course(course_id: uuid.UUID, user: User, db: AsyncSession) -> Course:
-    """주어진 course가 현재 유저 소유인지 확인."""
-    result = await db.execute(
-        select(Course)
-        .join(Semester, Course.semester_id == Semester.id)
-        .where(Course.id == course_id, Semester.user_id == user.id)
-    )
-    course = result.scalar_one_or_none()
-    if not course:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Course not found")
-    return course
-
-
-async def _owned_schedule(schedule_id: uuid.UUID, user: User, db: AsyncSession) -> tuple[Schedule, Course]:
-    """schedule이 현재 유저 소유인지 (course → semester → user) 확인."""
-    result = await db.execute(
-        select(Schedule, Course)
-        .join(Course, Schedule.course_id == Course.id)
-        .join(Semester, Course.semester_id == Semester.id)
-        .where(Schedule.id == schedule_id, Semester.user_id == user.id)
-    )
-    row = result.first()
-    if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
-    return row[0], row[1]
 
 
 def _to_response(schedule: Schedule, course: Course) -> ScheduleResponse:
@@ -146,7 +119,10 @@ async def create_schedule(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    course = await _owned_course(body.course_id, current_user, db)
+    # lazy import: schedules <-> todos 양방향 import 회피
+    from app.api.v1.routes.todos import replace_auto_todos_for_schedule
+
+    course = await owned_course(body.course_id, current_user, db)
 
     schedule = Schedule(
         course_id=body.course_id,
@@ -171,11 +147,13 @@ async def update_schedule(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    schedule, course = await _owned_schedule(schedule_id, current_user, db)
+    from app.api.v1.routes.todos import replace_auto_todos_for_schedule  # lazy
+
+    schedule, course = await owned_schedule(schedule_id, current_user, db)
 
     # course_id를 바꾸려면 새 course도 유저 소유여야 함
     if body.course_id is not None and body.course_id != schedule.course_id:
-        course = await _owned_course(body.course_id, current_user, db)
+        course = await owned_course(body.course_id, current_user, db)
         schedule.course_id = body.course_id
 
     for field in ("title", "type", "due_date", "description"):
@@ -199,7 +177,7 @@ async def delete_schedule(
     from app.models.todo import Todo
     from sqlalchemy import delete as sa_delete
 
-    schedule, _ = await _owned_schedule(schedule_id, current_user, db)
+    schedule, _ = await owned_schedule(schedule_id, current_user, db)
     # auto todos는 함께 삭제, 수동 todos는 FK ondelete=SET NULL로 유지 (link만 끊김)
     await db.execute(
         sa_delete(Todo).where(

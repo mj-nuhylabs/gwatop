@@ -1,5 +1,10 @@
 import SwiftUI
 
+extension Notification.Name {
+    /// API 401 응답 등 토큰 무효화 시 앱 루트가 로그아웃 처리하도록 신호 전달.
+    static let gwaTopUnauthorized = Notification.Name("gwaTopUnauthorized")
+}
+
 struct ContentView: View {
     @AppStorage("accessToken") private var accessToken: String = ""
     @AppStorage("signedInUserJSON") private var signedInUserJSON: String = ""
@@ -14,6 +19,7 @@ struct ContentView: View {
                 }
             } else {
                 GwaTopLoginView { user in
+                    persist(user)
                     withAnimation(.spring(response: 0.45, dampingFraction: 0.86)) {
                         signedInUser = user
                     }
@@ -22,9 +28,16 @@ struct ContentView: View {
         }
         .onAppear {
             restoreLoginSessionIfNeeded()
-            print("=====ACCESS_TOKEN_BEGIN=====")
-            print(accessToken)
-            print("=====ACCESS_TOKEN_END=====")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .gwaTopUnauthorized)) { _ in
+            logout()
+        }
+    }
+
+    private func persist(_ user: GwaTopSignedInUser) {
+        if let data = try? JSONEncoder().encode(user),
+           let s = String(data: data, encoding: .utf8) {
+            signedInUserJSON = s
         }
     }
 

@@ -1,7 +1,7 @@
 from sqlalchemy import String, Boolean, DateTime
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID
-from app.core.database import Base
+from app.core.database import Base, kst_now_naive
 from datetime import datetime
 import uuid
 
@@ -15,4 +15,4 @@ class User(Base):
     provider: Mapped[str] = mapped_column(String, default="email")  # email | apple | google
     provider_id: Mapped[str | None] = mapped_column(String, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=kst_now_naive)

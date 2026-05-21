@@ -1,7 +1,25 @@
+from datetime import datetime, timezone, timedelta
+
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from sqlalchemy.pool import NullPool
 from app.core.config import settings
+
+
+_KST = timezone(timedelta(hours=9))
+
+
+def utc_now_naive() -> datetime:
+    """SQL TIMESTAMP(WITHOUT TZ) 컬럼용 — Python 3.12+ deprecated `datetime.utcnow()` 대체.
+    참고: iOS 클라이언트가 KST 기준으로 해석하므로 신규 코드에선 `kst_now_naive()` 사용 권장.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def kst_now_naive() -> datetime:
+    """KST 기준 현재 시각의 naive datetime. iOS naive datetime 디코더가 KST로 해석하므로
+    응답 datetime 컬럼이 사용자 화면 시간대와 일치하게 된다."""
+    return datetime.now(_KST).replace(tzinfo=None)
 
 # ----- FastAPI 요청용 (장수명 풀, 단일 이벤트루프) -----
 engine = create_async_engine(

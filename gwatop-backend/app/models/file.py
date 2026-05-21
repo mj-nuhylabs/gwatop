@@ -1,7 +1,7 @@
 from sqlalchemy import String, Integer, Float, DateTime, ForeignKey, Boolean, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
-from app.core.database import Base
+from app.core.database import Base, kst_now_naive
 from datetime import datetime
 import uuid
 
@@ -25,8 +25,8 @@ class File(Base):
     extract_error: Mapped[str | None] = mapped_column(String, nullable=True)
     # Day 4: 어떤 경로로 주차가 정해졌는지 — "filename" | "embedding" | "manual" | null
     classification_source: Mapped[str | None] = mapped_column(String, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=kst_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=kst_now_naive, onupdate=kst_now_naive)
 
     course: Mapped["Course"] = relationship("Course", back_populates="files")
     ai_contents: Mapped[list["AIContent"]] = relationship("AIContent", back_populates="file", cascade="all, delete-orphan")

@@ -1,7 +1,7 @@
 from sqlalchemy import String, DateTime, ForeignKey, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
-from app.core.database import Base
+from app.core.database import Base, kst_now_naive
 from datetime import datetime
 import uuid
 
@@ -21,7 +21,7 @@ class Course(Base):
     # 위 weekly_topics를 OpenAI 임베딩한 벡터 캐시. classify 시 재계산을 피한다.
     # [{"week_number": int, "vector": [float, ...]}, ...]
     weekly_topic_embeddings: Mapped[list | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=kst_now_naive)
 
     semester: Mapped["Semester"] = relationship("Semester", back_populates="courses")
     files: Mapped[list["File"]] = relationship("File", back_populates="course", cascade="all, delete-orphan")

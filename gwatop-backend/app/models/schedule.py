@@ -1,7 +1,7 @@
 from sqlalchemy import String, Boolean, DateTime, ForeignKey, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
-from app.core.database import Base
+from app.core.database import Base, kst_now_naive
 from datetime import datetime
 import uuid
 
@@ -16,7 +16,7 @@ class Schedule(Base):
     due_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_auto: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=kst_now_naive)
 
     course: Mapped["Course"] = relationship("Course", back_populates="schedules")
     todos: Mapped[list["Todo"]] = relationship("Todo", back_populates="schedule")
