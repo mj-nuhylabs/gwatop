@@ -22,7 +22,9 @@ class PresignedUrlResponse(BaseModel):
 
 class FileResponse(BaseModel):
     id: UUID
-    course_id: UUID
+    # 강의계획서가 과목 미선택으로 업로드된 직후엔 course_id가 NULL이고
+    # 파싱이 끝나면 course_matcher가 채운다.
+    course_id: UUID | None
     filename: str
     file_type: str
     s3_key: str
