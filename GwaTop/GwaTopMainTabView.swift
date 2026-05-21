@@ -51,50 +51,6 @@ struct GwaTopMainTabView: View {
     }
 }
 
-// MARK: - Optional Four-Tab Root
-// 앱 구조 정의서의 4개 탭(홈/캘린더/학습/설정)을 엄격히 따르고 싶다면 아래 뷰를 사용하세요.
-// 과제 화면은 학습 탭 또는 홈 화면의 하위 화면으로 연결할 수 있습니다.
-
-struct GwaTopFourTabMainView: View {
-    let user: GwaTopSignedInUser
-    var onLogout: (() -> Void)? = nil
-
-    @State private var selectedTab: GwaTopTab = .home
-
-    var body: some View {
-        TabView(selection: $selectedTab) {
-            GwaTopHomeView(user: user)
-                .tabItem {
-                    Image(systemName: "house.fill")
-                    Text("홈")
-                }
-                .tag(GwaTopTab.home)
-
-            GwaTopCalendarView()
-                .tabItem {
-                    Image(systemName: "calendar")
-                    Text("캘린더")
-                }
-                .tag(GwaTopTab.calendar)
-
-            GwaTopAIStudyView()
-                .tabItem {
-                    Image(systemName: "book.closed.fill")
-                    Text("학습")
-                }
-                .tag(GwaTopTab.ai)
-
-            GwaTopSettingsView(user: user, onLogout: onLogout)
-                .tabItem {
-                    Image(systemName: "gearshape.fill")
-                    Text("설정")
-                }
-                .tag(GwaTopTab.settings)
-        }
-        .tint(GwaTopHomeTheme.primary)
-    }
-}
-
 #Preview {
     GwaTopMainTabView(user: .guest)
 }

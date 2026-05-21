@@ -62,3 +62,14 @@ fastlane/screenshots/**/*.png
 fastlane/test_output
 .claude/
 .DS_Store
+
+# Python (gwatop-backend)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+gwatop-backend/celery.log
+gwatop-backend/uvicorn.log
+gwatop-backend/server.log
