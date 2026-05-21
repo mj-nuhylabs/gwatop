@@ -39,3 +39,15 @@ class ScheduleResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class CalendarDaySummary(BaseModel):
+    date: str  # YYYY-MM-DD
+    total: int
+    by_type: dict[str, int]  # {"exam": 1, "assignment": 2, ...}
+
+
+class CalendarSummaryResponse(BaseModel):
+    start: datetime
+    end: datetime
+    days: list[CalendarDaySummary]

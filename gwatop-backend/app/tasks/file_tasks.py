@@ -34,6 +34,7 @@ from app.models.course import Course
 from app.models.file import File
 from app.models.schedule import Schedule
 from app.models.semester import Semester
+from app.models.todo import Todo
 from app.schemas.syllabus import ParsedAssignment, ParsedExam, ParsedSyllabus, ParsedWeek
 from app.services import s3
 from app.services.classification import classify_file
@@ -45,6 +46,7 @@ from app.services.embedding_classifier import (
 )
 from app.services.pdf_text import extract_text_from_pdf_bytes
 from app.services.syllabus_parser import SyllabusParseError, parse_syllabus
+from app.services.todo_generator import build_auto_todos
 from app.tasks.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -193,6 +195,19 @@ async def _run_parse_syllabus(file_id: str, SessionLocal) -> None:
             logger.info("[PARSE_DEBUG] warning: %s", w)
 
         # 같은 course의 기존 AI 자동 일정 정리 (재파싱/재업로드 시 중복 방지)
+        # 먼저 그 schedules에 매달린 auto todos를 같이 지운다 (FK ondelete=SET NULL이라
+        # schedule만 지우면 orphaned auto todo가 남는다).
+        await session.execute(
+            delete(Todo).where(
+                Todo.is_auto.is_(True),
+                Todo.schedule_id.in_(
+                    select(Schedule.id).where(
+                        Schedule.course_id == course.id,
+                        Schedule.is_auto.is_(True),
+                    )
+                ),
+            )
+        )
         deleted = await session.execute(
             delete(Schedule).where(
                 Schedule.course_id == course.id,
@@ -205,6 +220,18 @@ async def _run_parse_syllabus(file_id: str, SessionLocal) -> None:
         )
 
         inserted_rows = _insert_schedules(session, course.id, syllabus, semester.start_date)
+
+        # schedule.id 확보를 위해 flush 후 auto todos 생성 (시험 D-14/7/3/1, 과제 D-7/3/1)
+        await session.flush()
+        todos_added = 0
+        for sched in inserted_rows:
+            for spec in build_auto_todos(sched):
+                session.add(Todo(**spec))
+                todos_added += 1
+        logger.info(
+            "[PARSE_DEBUG] generated %d auto todos for %d schedules",
+            todos_added, len(inserted_rows),
+        )
 
         # Day 4: 주차별 토픽을 Course에 캐시. 자료 자동 분류의 기준 데이터가 된다.
         course.weekly_topics = [

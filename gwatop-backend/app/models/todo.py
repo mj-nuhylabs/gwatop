@@ -16,6 +16,7 @@ class Todo(Base):
     due_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     priority: Mapped[str] = mapped_column(String, nullable=False, default="low")
     is_done: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_auto: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     schedule: Mapped["Schedule | None"] = relationship("Schedule", back_populates="todos")
