@@ -157,6 +157,8 @@ struct GwaTopAssignmentsView: View {
             let dtos = try await GwaTopTodoService.shared.fetchAll(start: start, end: end)
             assignments = dtos.map(GwaTopAssignment.init(dto:))
         } catch {
+            // SwiftUI 라이프사이클로 task가 취소된 경우는 무시 (이전 데이터 유지)
+            if isCancellation(error) { return }
             loadError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
     }
@@ -285,6 +287,7 @@ struct GwaTopAssignmentsView: View {
                 }
             } catch {
                 await MainActor.run {
+                    if isCancellation(error) { return }
                     applyOptimisticToggle(assignment)  // 롤백
                     loadError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                 }

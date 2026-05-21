@@ -28,6 +28,27 @@ enum GwaTopAPIError: LocalizedError {
     }
 }
 
+/// SwiftUI의 `.task` modifier는 view가 사라지거나 ID가 바뀔 때 진행 중인 Task를 자동
+/// 취소한다. URLSession이나 Swift Concurrency가 던지는 cancellation 에러를 일반 에러로
+/// 취급하면 "연동 오류"처럼 잘못 표시되므로, 호출 측에서 이 헬퍼로 한 번 걸러낸다.
+///
+/// - 사용 예:
+///   ```
+///   } catch {
+///       if isCancellation(error) { return }
+///       loadError = ...   // 진짜 실패만 표시
+///   }
+///   ```
+func isCancellation(_ error: Error) -> Bool {
+    if error is CancellationError { return true }
+    if let urlErr = error as? URLError, urlErr.code == .cancelled { return true }
+    // GwaTopAPIError.transport(URLError.cancelled) 같이 한 번 감싸진 케이스도 처리
+    if let api = error as? GwaTopAPIError, case .transport(let inner) = api {
+        return isCancellation(inner)
+    }
+    return false
+}
+
 enum GwaTopAPI {
     static let baseURL: String = "http://100.55.22.248:8000"
 

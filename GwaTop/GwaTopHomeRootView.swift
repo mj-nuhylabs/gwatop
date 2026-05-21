@@ -124,6 +124,7 @@ struct GwaTopHomeView: View {
         do {
             dashboard = try await GwaTopHomeService.shared.fetchDashboard(upcomingLimit: 5)
         } catch {
+            if isCancellation(error) { return }
             loadError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
     }

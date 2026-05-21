@@ -149,8 +149,11 @@ struct GwaTopCalendarView: View {
                 jumpToFirstUpcomingOrAuto()
             }
         } catch {
-            if events.isEmpty {
-                events = GwaTopCalendarEvent.sampleData   // 첫 로드 실패 시만 샘플 폴백
+            // SwiftUI 라이프사이클로 인한 task 취소는 정상 동작이므로 무시.
+            // 이전에 로드된 events 는 그대로 유지된다.
+            if isCancellation(error) {
+                isLoading = false
+                return
             }
             loadErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             print("[Calendar] reload failed: \(error)")
@@ -392,7 +395,7 @@ struct GwaTopCalendarView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
             VStack(alignment: .leading, spacing: 4) {
-                Text("연동 오류 — 샘플 데이터 표시 중")
+                Text("일정을 불러오지 못했어요")
                     .font(.system(size: 13, weight: .heavy))
                     .foregroundStyle(GwaTopHomeTheme.textPrimary)
                 Text(message)
