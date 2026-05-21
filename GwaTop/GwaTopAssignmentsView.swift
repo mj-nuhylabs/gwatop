@@ -1,18 +1,38 @@
 import SwiftUI
 
 // MARK: - GwaTop Assignments View
-// H-2 주간 할 일(ToDo)을 별도 과제 탭으로 확장한 화면입니다.
+// 주간 할 일(ToDo) 화면. 백엔드 /v1/todos 와 연동.
 
 struct GwaTopAssignmentsView: View {
-    @State private var assignments: [GwaTopAssignment] = GwaTopAssignment.sampleData
+    @State private var assignments: [GwaTopAssignment] = []
     @State private var selectedFilter: GwaTopAssignmentFilter = .all
+    @State private var isLoading = false
+    @State private var loadError: String? = nil
+
+    /// priority 정렬 가중치 (high가 먼저)
+    private static func priorityWeight(_ p: GwaTopAssignmentPriority) -> Int {
+        switch p {
+        case .high: return 0
+        case .medium: return 1
+        case .low: return 2
+        }
+    }
+
+    private func sortedByPriorityThenDate(_ list: [GwaTopAssignment]) -> [GwaTopAssignment] {
+        list.sorted { lhs, rhs in
+            let lw = Self.priorityWeight(lhs.priority)
+            let rw = Self.priorityWeight(rhs.priority)
+            if lw != rw { return lw < rw }
+            return lhs.dueDate < rhs.dueDate
+        }
+    }
 
     private var filteredAssignments: [GwaTopAssignment] {
         switch selectedFilter {
         case .all:
-            return assignments.sorted { $0.dueDate < $1.dueDate }
+            return sortedByPriorityThenDate(assignments)
         case .active:
-            return assignments.filter { !$0.isCompleted }.sorted { $0.dueDate < $1.dueDate }
+            return sortedByPriorityThenDate(assignments.filter { !$0.isCompleted })
         case .completed:
             return assignments.filter { $0.isCompleted }.sorted { $0.dueDate < $1.dueDate }
         }
@@ -44,38 +64,105 @@ struct GwaTopAssignmentsView: View {
 
                         filterSegment
 
-                        VStack(spacing: 12) {
-                            ForEach(filteredAssignments) { assignment in
-                                GwaTopAssignmentCard(
-                                    assignment: assignment,
-                                    onToggle: { toggleAssignment(assignment) }
-                                )
+                        if let err = loadError {
+                            errorState(err)
+                        } else if isLoading && assignments.isEmpty {
+                            loadingState
+                        } else {
+                            VStack(spacing: 12) {
+                                ForEach(filteredAssignments) { assignment in
+                                    GwaTopAssignmentCard(
+                                        assignment: assignment,
+                                        onToggle: { toggleAssignment(assignment) }
+                                    )
+                                }
                             }
-                        }
 
-                        if filteredAssignments.isEmpty {
-                            emptyState
+                            if filteredAssignments.isEmpty {
+                                emptyState
+                            }
                         }
                     }
                     .padding(.horizontal, 20)
                     .padding(.bottom, 30)
                 }
-            }
-            .navigationTitle("과제")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        // 추후 C-3 일정/과제 추가 화면 또는 API 생성 화면으로 연결합니다.
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 38, height: 38)
-                            .background(GwaTopHomeTheme.primary)
-                            .clipShape(Circle())
-                    }
+                .refreshable {
+                    await load()
                 }
             }
+            .navigationTitle("과제")
+            .task {
+                if assignments.isEmpty { await load() }
+            }
+        }
+    }
+
+    private var loadingState: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+            Text("불러오는 중...")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+        }
+        .padding(40)
+        .frame(maxWidth: .infinity)
+        .background(.white)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+    }
+
+    private func errorState(_ message: String) -> some View {
+        VStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 32))
+                .foregroundStyle(.orange)
+            Text("불러오기 실패")
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(GwaTopHomeTheme.textPrimary)
+            Text(message)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                .multilineTextAlignment(.center)
+            Button("다시 시도") {
+                Task { await load() }
+            }
+            .font(.system(size: 14, weight: .bold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 10)
+            .background(GwaTopHomeTheme.primary)
+            .clipShape(Capsule())
+        }
+        .padding(28)
+        .frame(maxWidth: .infinity)
+        .background(.white)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+    }
+
+    @MainActor
+    private func load() async {
+        isLoading = true
+        loadError = nil
+        defer { isLoading = false }
+
+        // 기본: "이번 주 + 다음 2주" 까지 (시험 D-14 todo가 포함될 수 있도록)
+        let now = Date()
+        let cal = Calendar(identifier: .gregorian)
+        let start = cal.startOfDay(for: now)
+        let end = cal.date(byAdding: .day, value: 21, to: start) ?? start.addingTimeInterval(21 * 86400)
+
+        do {
+            let dtos = try await GwaTopTodoService.shared.fetchAll(start: start, end: end)
+            assignments = dtos.map(GwaTopAssignment.init(dto:))
+        } catch {
+            loadError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func applyOptimisticToggle(_ assignment: GwaTopAssignment) {
+        guard let index = assignments.firstIndex(where: { $0.id == assignment.id }) else { return }
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+            assignments[index].status = assignments[index].isCompleted ? .pending : .completed
         }
     }
 
@@ -174,9 +261,26 @@ struct GwaTopAssignmentsView: View {
     }
 
     private func toggleAssignment(_ assignment: GwaTopAssignment) {
-        guard let index = assignments.firstIndex(where: { $0.id == assignment.id }) else { return }
-        withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
-            assignments[index].status = assignments[index].isCompleted ? .inProgress : .completed
+        // optimistic update — 실패 시 롤백
+        applyOptimisticToggle(assignment)
+        Task {
+            do {
+                let newIsDone = !assignment.isCompleted
+                let dto = try await GwaTopTodoService.shared.toggleDone(
+                    id: assignment.id,
+                    isDone: newIsDone
+                )
+                await MainActor.run {
+                    if let idx = assignments.firstIndex(where: { $0.id == dto.id }) {
+                        assignments[idx] = GwaTopAssignment(dto: dto)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    applyOptimisticToggle(assignment)  // 롤백
+                    loadError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                }
+            }
         }
     }
 }
@@ -268,11 +372,13 @@ private struct GwaTopAssignmentCard: View {
                         .foregroundStyle(GwaTopHomeTheme.textPrimary)
                         .strikethrough(assignment.isCompleted, color: GwaTopHomeTheme.textSecondary)
 
-                    Text(assignment.description)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                        .lineSpacing(3)
-                        .lineLimit(2)
+                    if !assignment.description.isEmpty {
+                        Text(assignment.description)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                            .lineSpacing(3)
+                            .lineLimit(2)
+                    }
                 }
 
                 Spacer(minLength: 6)
@@ -291,25 +397,32 @@ private struct GwaTopAssignmentCard: View {
 
             HStack(spacing: 12) {
                 Label(assignment.dueDateText, systemImage: "clock.fill")
-                Label("예상 \(assignment.estimatedMinutes)분", systemImage: "timer")
+                if assignment.estimatedMinutes > 0 {
+                    Label("예상 \(assignment.estimatedMinutes)분", systemImage: "timer")
+                }
+                if assignment.isAuto {
+                    Label("AI 자동", systemImage: "sparkles")
+                }
             }
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(GwaTopHomeTheme.textSecondary)
 
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(GwaTopHomeTheme.primary)
-                    .padding(.top, 2)
+            if !assignment.recommendedAction.isEmpty {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(GwaTopHomeTheme.primary)
+                        .padding(.top, 2)
 
-                Text(assignment.recommendedAction)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                    .lineSpacing(3)
+                    Text(assignment.recommendedAction)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                        .lineSpacing(3)
+                }
+                .padding(12)
+                .background(GwaTopHomeTheme.primary.opacity(0.07))
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
-            .padding(12)
-            .background(GwaTopHomeTheme.primary.opacity(0.07))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .padding(16)
         .background(.white)

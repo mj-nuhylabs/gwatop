@@ -158,6 +158,16 @@ actor GwaTopAPIClient {
         return try await perform(req)
     }
 
+    func patch<Body: Encodable, Response: Decodable>(
+        _ path: String,
+        body: Body,
+        requiresAuth: Bool = true
+    ) async throws -> Response {
+        let req = try buildRequest(path: path, method: "PATCH",
+                                   body: body, requiresAuth: requiresAuth)
+        return try await perform(req)
+    }
+
     func deleteNoContent(_ path: String, requiresAuth: Bool = true) async throws {
         let req = try buildRequest(path: path, method: "DELETE",
                                    body: nil as EmptyBody?, requiresAuth: requiresAuth)

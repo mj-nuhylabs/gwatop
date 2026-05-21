@@ -18,16 +18,12 @@ struct GwaTopHomeRootView: View {
                 }
                 .tag(GwaTopTab.home)
 
-            GwaTopPlaceholderTabView(
-                title: "과제",
-                subtitle: "과제 목록과 마감일 관리는 다음 단계에서 연결합니다.",
-                iconName: "checklist.checked"
-            )
-            .tabItem {
-                Image(systemName: "checklist")
-                Text("과제")
-            }
-            .tag(GwaTopTab.tasks)
+            GwaTopAssignmentsView()
+                .tabItem {
+                    Image(systemName: "checklist")
+                    Text("과제")
+                }
+                .tag(GwaTopTab.tasks)
 
             GwaTopPlaceholderTabView(
                 title: "AI 플래너",

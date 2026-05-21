@@ -94,11 +94,63 @@ struct GwaTopAssignment: Identifiable, Codable, Equatable {
     var dueDate: Date
     var priority: GwaTopAssignmentPriority
     var status: GwaTopAssignmentStatus
-    var estimatedMinutes: Int
-    var recommendedAction: String
+    var estimatedMinutes: Int      // 0이면 UI 숨김
+    var recommendedAction: String  // 비어있으면 UI 숨김
+    var scheduleId: String? = nil  // 백엔드 schedule 연결 (auto todo면 source schedule)
+    var isAuto: Bool = false
 
     var isCompleted: Bool {
         status == .completed
+    }
+
+    /// 백엔드 TodoDTO에서 화면용 모델로 변환.
+    /// description / estimatedMinutes / recommendedAction은 백엔드에 없으므로 비움.
+    init(dto: GwaTopTodoDTO) {
+        self.id = dto.id
+        self.course = GwaTopCourseSummary(
+            id: dto.courseId,
+            name: dto.courseName,
+            professor: "",
+            colorHex: dto.courseColor ?? "#4F8EF7",
+            iconName: "book.closed.fill",
+            currentWeek: 0,
+            progress: 0.0
+        )
+        self.title = dto.title
+        self.description = ""
+        self.dueDate = dto.dueDate
+        self.priority = GwaTopAssignmentPriority(rawValue: dto.priority) ?? .low
+        self.status = dto.isDone ? .completed : .pending
+        self.estimatedMinutes = 0
+        self.recommendedAction = ""
+        self.scheduleId = dto.scheduleId
+        self.isAuto = dto.isAuto
+    }
+
+    init(
+        id: String,
+        course: GwaTopCourseSummary,
+        title: String,
+        description: String,
+        dueDate: Date,
+        priority: GwaTopAssignmentPriority,
+        status: GwaTopAssignmentStatus,
+        estimatedMinutes: Int,
+        recommendedAction: String,
+        scheduleId: String? = nil,
+        isAuto: Bool = false
+    ) {
+        self.id = id
+        self.course = course
+        self.title = title
+        self.description = description
+        self.dueDate = dueDate
+        self.priority = priority
+        self.status = status
+        self.estimatedMinutes = estimatedMinutes
+        self.recommendedAction = recommendedAction
+        self.scheduleId = scheduleId
+        self.isAuto = isAuto
     }
 
     var dDayText: String {
