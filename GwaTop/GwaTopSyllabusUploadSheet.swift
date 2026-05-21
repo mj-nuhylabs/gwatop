@@ -126,6 +126,9 @@ struct GwaTopSyllabusUploadSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 sectionTitle("1. 과목 선택")
+                Text("(선택)")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
                 Spacer()
                 Button {
                     showingNewCourseSheet = true
@@ -139,6 +142,11 @@ struct GwaTopSyllabusUploadSheet: View {
                 }
             }
 
+            Text("과목을 선택하지 않으면 AI가 강의계획서를 분석해서 자동으로 매칭하거나 새 과목을 만들어 줍니다.")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                .lineSpacing(2)
+
             if isLoadingCourses {
                 HStack { ProgressView(); Text("과목 목록 불러오는 중…").font(.system(size: 13)) }
             } else if let err = courseLoadError {
@@ -149,8 +157,8 @@ struct GwaTopSyllabusUploadSheet: View {
                         .font(.system(size: 14, weight: .heavy))
                         .foregroundStyle(GwaTopHomeTheme.textPrimary)
                     Text(semesters.isEmpty
-                         ? "먼저 학기를 등록해 주세요."
-                         : "오른쪽 위 '새 과목 추가' 버튼으로 시작하세요.")
+                         ? "먼저 학기를 등록해 주세요. (강의계획서 자동 매칭은 학기가 1개 이상 있어야 동작합니다.)"
+                         : "그대로 업로드하면 AI가 새 과목을 자동 생성합니다.")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(GwaTopHomeTheme.textSecondary)
                 }
@@ -159,10 +167,18 @@ struct GwaTopSyllabusUploadSheet: View {
                 .background(.white)
                 .clipShape(RoundedRectangle(cornerRadius: 14))
             } else {
+                // "AI 자동 매칭" + 기존 과목 리스트를 함께 Picker 선택지로
                 Picker("과목", selection: Binding(
-                    get: { selectedCourseId ?? courses.first?.id ?? "" },
-                    set: { selectedCourseId = $0 }
+                    get: { selectedCourseId ?? "" },  // "" 면 자동 매칭 모드
+                    set: { selectedCourseId = $0.isEmpty ? nil : $0 }
                 )) {
+                    HStack {
+                        Image(systemName: "sparkles")
+                            .foregroundStyle(GwaTopHomeTheme.primary)
+                        Text("AI 자동 매칭/생성")
+                    }
+                    .tag("")
+
                     ForEach(courses) { c in
                         HStack {
                             Circle()
@@ -227,7 +243,8 @@ struct GwaTopSyllabusUploadSheet: View {
 
     private var canSubmit: Bool {
         if case .uploading = phase { return false }
-        return selectedCourseId != nil && pickedFileData != nil
+        // 과목 선택은 optional — 파일만 있으면 업로드 가능
+        return pickedFileData != nil
     }
 
     private var actionButtonTitle: String {
@@ -278,7 +295,8 @@ struct GwaTopSyllabusUploadSheet: View {
             await MainActor.run {
                 self.courses = courseList
                 self.semesters = semesterList
-                if self.selectedCourseId == nil { self.selectedCourseId = courseList.first?.id }
+                // 기본값은 "AI 자동 매칭" 모드 (selectedCourseId = nil). 사용자가 명시적으로
+                // Picker에서 특정 과목을 고를 때만 selectedCourseId가 채워진다.
             }
         } catch {
             let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -316,8 +334,7 @@ struct GwaTopSyllabusUploadSheet: View {
     }
 
     private func runUpload() async {
-        guard let courseId = selectedCourseId, let data = pickedFileData,
-              let filename = pickedFileName else { return }
+        guard let data = pickedFileData, let filename = pickedFileName else { return }
 
         await MainActor.run {
             self.phase = .uploading
@@ -325,17 +342,31 @@ struct GwaTopSyllabusUploadSheet: View {
         }
 
         do {
-            let fileId = try await GwaTopFileUploadService.shared.upload(
-                courseId: courseId,
-                filename: filename,
-                fileType: "pdf",
-                data: data,
-                isSyllabus: true
-            )
+            let fileId: String
+            if let courseId = selectedCourseId {
+                fileId = try await GwaTopFileUploadService.shared.upload(
+                    courseId: courseId,
+                    filename: filename,
+                    fileType: "pdf",
+                    data: data,
+                    isSyllabus: true
+                )
+            } else {
+                // 과목 미선택 — 백엔드가 파싱 결과로 자동 매칭/생성
+                fileId = try await GwaTopFileUploadService.shared.uploadSyllabusWithoutCourse(
+                    filename: filename,
+                    data: data
+                )
+            }
+
+            let parseMsg = selectedCourseId == nil
+                ? "AI가 강의계획서를 분석하고 과목을 자동 매칭하고 있어요… (최대 45초)"
+                : "AI가 강의계획서를 분석하고 있어요… (최대 45초)"
+
             await MainActor.run {
                 self.uploadedFileId = fileId
                 self.phase = .waitingForParse
-                self.phaseMessage = "AI가 강의계획서를 분석하고 있어요… (최대 45초)"
+                self.phaseMessage = parseMsg
             }
 
             // Celery 파싱 완료까지 실제로 폴링 (이전 4초 sleep은 너무 짧아 일정이 안 들어와 보였음)

@@ -111,6 +111,39 @@ actor GwaTopFileUploadService {
         return presigned.fileId
     }
 
+    /// 과목을 미리 선택하지 않고 강의계획서만 업로드. 백엔드가 파싱 결과로 자동
+    /// 과목 매칭/생성 후 file.course_id 를 채운다.
+    /// - Returns: 업로드된 file_id (파싱 진행 중인 동안엔 course_id 는 NULL)
+    func uploadSyllabusWithoutCourse(
+        filename: String,
+        data: Data,
+        fileType: String = "pdf"
+    ) async throws -> String {
+        let req = GwaTopPresignedRequest(
+            filename: filename,
+            fileType: fileType,
+            fileSizeBytes: data.count,
+            isSyllabus: true
+        )
+        let presigned: GwaTopPresignedResponse = try await GwaTopAPIClient.shared.post(
+            "/v1/files/syllabus/presigned-url",
+            body: req
+        )
+
+        let contentType = Self.contentType(for: fileType)
+        try await GwaTopAPIClient.shared.uploadPUT(
+            toAbsoluteURL: presigned.uploadUrl,
+            body: data,
+            contentType: contentType
+        )
+
+        let _: GwaTopFileConfirmResponse = try await GwaTopAPIClient.shared.postEmpty(
+            "/v1/files/syllabus/\(presigned.fileId)/confirm"
+        )
+
+        return presigned.fileId
+    }
+
     /// 파일 파싱 완료까지 폴링.
     /// - Returns: (성공 여부, 마지막 status, 에러 메시지, 최종 schedules_count)
     func waitForParseCompletion(

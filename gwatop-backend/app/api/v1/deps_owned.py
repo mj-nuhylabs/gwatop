@@ -73,14 +73,35 @@ async def owned_todo(
 
 async def owned_file(
     file_id: uuid.UUID, user: User, db: AsyncSession
-) -> tuple[File, Course]:
-    result = await db.execute(
-        select(File, Course)
-        .join(Course, File.course_id == Course.id)
-        .join(Semester, Course.semester_id == Semester.id)
-        .where(File.id == file_id, Semester.user_id == user.id)
-    )
-    row = result.first()
-    if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
-    return row[0], row[1]
+) -> tuple[File, Course | None]:
+    """파일 소유권 확인.
+
+    1) course가 연결된 일반 자료 → (file, course) 반환
+    2) 강의계획서가 과목 미선택으로 업로드되어 아직 course가 없는 경우 →
+       uploaded_by_user_id 로 검증하여 (file, None) 반환
+    """
+    # 1차: course 가 있는 자료 (대부분의 경우)
+    row = (
+        await db.execute(
+            select(File, Course)
+            .join(Course, File.course_id == Course.id)
+            .join(Semester, Course.semester_id == Semester.id)
+            .where(File.id == file_id, Semester.user_id == user.id)
+        )
+    ).first()
+    if row:
+        return row[0], row[1]
+
+    # 2차: course 가 아직 없는 강의계획서 (파싱 진행 중)
+    file_row = (
+        await db.execute(
+            select(File).where(
+                File.id == file_id,
+                File.uploaded_by_user_id == user.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if file_row:
+        return file_row, None
+
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")

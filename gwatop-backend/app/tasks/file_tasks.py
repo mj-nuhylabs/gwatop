@@ -35,6 +35,7 @@ from app.models.file import File
 from app.models.schedule import Schedule
 from app.models.semester import Semester
 from app.models.todo import Todo
+from app.models.user import User
 from app.schemas.syllabus import ParsedAssignment, ParsedExam, ParsedSyllabus, ParsedWeek
 from app.services import s3
 from app.services.classification import classify_file
@@ -44,6 +45,7 @@ from app.services.embedding_classifier import (
     deserialize_week_embeddings,
     serialize_week_embeddings,
 )
+from app.services.course_matcher import CourseMatchError, match_or_create_course
 from app.services.pdf_text import extract_text_from_pdf_bytes
 from app.services.syllabus_parser import SyllabusParseError, parse_syllabus
 from app.services.todo_generator import build_auto_todos
@@ -143,14 +145,42 @@ async def _run_parse_syllabus(file_id: str, SessionLocal) -> None:
             await _mark_failed(session, file_row, "No extracted_text to parse")
             return
 
-        course = await session.get(Course, file_row.course_id)
-        if course is None:
-            await _mark_failed(session, file_row, "Course not found")
-            return
-        semester = await session.get(Semester, course.semester_id)
-        if semester is None:
-            await _mark_failed(session, file_row, "Semester not found")
-            return
+        # ----- 학기/유저 컨텍스트 결정 -----
+        # 경로 A) course가 이미 결정된 일반 흐름 → 그 course의 semester 사용
+        # 경로 B) 과목 미선택으로 업로드된 강의계획서 → uploaded_by_user_id 의 active semester
+        course: Course | None = None
+        semester: Semester | None = None
+        user_id = file_row.uploaded_by_user_id
+
+        if file_row.course_id is not None:
+            course = await session.get(Course, file_row.course_id)
+            if course is None:
+                await _mark_failed(session, file_row, "Course not found")
+                return
+            semester = await session.get(Semester, course.semester_id)
+            if semester is None:
+                await _mark_failed(session, file_row, "Semester not found")
+                return
+            if user_id is None:
+                # 과거 데이터 호환: uploaded_by_user_id 가 비어 있으면 course→semester→user 로 채워둠
+                user_id = semester.user_id
+                file_row.uploaded_by_user_id = user_id
+        else:
+            # 경로 B — semester 결정은 course_matcher 가 파싱 후 일괄 처리하지만,
+            # parser 호출엔 year/term이 필요하므로 미리 같은 semester picker를 한 번 돌린다.
+            if user_id is None:
+                await _mark_failed(session, file_row, "Owner not recorded for syllabus")
+                return
+            user = await session.get(User, user_id)
+            if user is None:
+                await _mark_failed(session, file_row, "Owner user not found")
+                return
+            try:
+                from app.services.course_matcher import _pick_target_semester  # type: ignore
+                semester = await _pick_target_semester(session, user)
+            except CourseMatchError as exc:
+                await _mark_failed(session, file_row, str(exc))
+                return
 
         year, term = _derive_year_term(semester)
         file_row.status = "parsing"
@@ -162,6 +192,29 @@ async def _run_parse_syllabus(file_id: str, SessionLocal) -> None:
             logger.exception("parse_syllabus failed for %s", file_id)
             await _mark_failed(session, file_row, f"Syllabus parse failed: {exc}")
             return
+
+        # ----- 경로 B 후처리: 파싱된 강의명으로 course 매칭/생성 -----
+        if course is None:
+            parsed_course_name = result.syllabus.course.name.strip()
+            if not parsed_course_name:
+                await _mark_failed(session, file_row, "Syllabus has no course name to match")
+                return
+            user = await session.get(User, user_id)  # type: ignore[arg-type]
+            try:
+                course, semester, created = await match_or_create_course(
+                    session,
+                    user=user,
+                    course_name=parsed_course_name,
+                    professor=result.syllabus.course.professor,
+                )
+            except CourseMatchError as exc:
+                await _mark_failed(session, file_row, str(exc))
+                return
+            file_row.course_id = course.id
+            logger.info(
+                "[PARSE_DEBUG] auto-bound file=%s → course=%s (%r) %s",
+                file_id, course.id, course.name, "(created)" if created else "(matched)",
+            )
 
         # === DEBUG: 파싱 결과 전체 덤프 ===
         syllabus = result.syllabus

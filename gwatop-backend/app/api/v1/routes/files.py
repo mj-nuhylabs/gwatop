@@ -84,6 +84,80 @@ async def confirm_upload(
     return FileConfirmResponse(file=FileResponse.model_validate(file_record))
 
 
+# ---------- 강의계획서 전용 업로드 (과목 미선택) ----------
+# 사용자는 과목을 모르고도 syllabus PDF만 업로드할 수 있다. 백엔드는 파싱이 끝난 뒤
+# 파싱 결과의 강의명으로 (1) active semester 안 같은 이름 course에 매칭하거나
+# (2) 없으면 새 course를 자동 생성한 다음 file.course_id 를 채운다.
+
+
+@router.post(
+    "/files/syllabus/presigned-url",
+    response_model=PresignedUrlResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def get_syllabus_presigned_url(
+    body: PresignedUrlRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """과목 선택 없이 강의계획서 업로드용 presigned URL 발급.
+
+    file row의 course_id는 NULL 상태로 만들어지고, parse 단계에서 자동 결정된다.
+    is_syllabus 는 항상 True로 강제 (이 경로는 syllabus 전용).
+    """
+    storage_key = s3.build_storage_key(str(current_user.id), body.filename)
+    content_type = CONTENT_TYPES.get(body.file_type, "application/octet-stream")
+
+    try:
+        upload_url = s3.generate_presigned_put_url(storage_key, content_type)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Failed to generate upload URL",
+        )
+
+    file_record = File(
+        course_id=None,
+        uploaded_by_user_id=current_user.id,
+        filename=body.filename,
+        file_type=body.file_type,
+        s3_key=storage_key,
+        size_bytes=body.file_size_bytes,
+        is_syllabus=True,
+        status="pending",
+    )
+    db.add(file_record)
+    await db.commit()
+    await db.refresh(file_record)
+
+    return PresignedUrlResponse(
+        upload_url=upload_url,
+        storage_key=storage_key,
+        file_id=file_record.id,
+    )
+
+
+@router.post(
+    "/files/syllabus/{file_id}/confirm",
+    response_model=FileConfirmResponse,
+)
+async def confirm_syllabus_upload(
+    file_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """syllabus 업로드(과목 미선택) 후 S3 업로드 완료 신호. parse 트리거."""
+    file_record, _ = await owned_file(file_id, current_user, db)
+    if not file_record.is_syllabus:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="이 엔드포인트는 강의계획서 전용입니다. /v1/courses/.../confirm 을 사용하세요.",
+        )
+
+    extract_text_task.delay(str(file_id))
+    return FileConfirmResponse(file=FileResponse.model_validate(file_record))
+
+
 @router.get("/courses/{course_id}/files", response_model=list[FileResponse])
 async def list_files(
     course_id: uuid.UUID,
@@ -112,20 +186,36 @@ async def file_debug(
 
     file_row, course = await owned_file(file_id, current_user, db)
 
-    schedules_q = await db.execute(
-        select(Schedule).where(Schedule.course_id == file_row.course_id, Schedule.is_auto.is_(True))
-        .order_by(Schedule.created_at.desc()).limit(50)
-    )
-    schedules = schedules_q.scalars().all()
+    # course가 아직 결정되지 않은 강의계획서(파싱 중)는 schedules도 없음.
+    schedules = []
+    if file_row.course_id is not None:
+        schedules_q = await db.execute(
+            select(Schedule)
+            .where(Schedule.course_id == file_row.course_id, Schedule.is_auto.is_(True))
+            .order_by(Schedule.created_at.desc())
+            .limit(50)
+        )
+        schedules = schedules_q.scalars().all()
 
     text = file_row.extracted_text or ""
-    weekly_topics = course.weekly_topics or []
+    course_block: dict | None = None
+    if course is not None:
+        weekly_topics = course.weekly_topics or []
+        course_block = {
+            "id": str(course.id),
+            "name": course.name,
+            "weekly_topics_count": len(weekly_topics),
+            "weekly_topics_preview": weekly_topics[:3],
+            "has_week_embeddings": bool(course.weekly_topic_embeddings),
+        }
+
     return {
         "file": {
             "id": str(file_row.id),
             "filename": file_row.filename,
             "status": file_row.status,
             "is_syllabus": file_row.is_syllabus,
+            "course_id": str(file_row.course_id) if file_row.course_id else None,
             "week": file_row.week,
             "ai_confidence": file_row.ai_confidence,
             "classification_source": file_row.classification_source,
@@ -135,13 +225,7 @@ async def file_debug(
             "created_at": file_row.created_at.isoformat(),
             "updated_at": file_row.updated_at.isoformat(),
         },
-        "course": {
-            "id": str(course.id),
-            "name": course.name,
-            "weekly_topics_count": len(weekly_topics),
-            "weekly_topics_preview": weekly_topics[:3],
-            "has_week_embeddings": bool(course.weekly_topic_embeddings),
-        },
+        "course": course_block,
         "schedules_auto": [
             {
                 "id": str(s.id),
