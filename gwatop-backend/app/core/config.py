@@ -28,4 +28,13 @@ class Settings(BaseSettings):
     # 임베딩 비교에 사용할 파일 텍스트 앞부분 길이(자).
     CLASSIFY_EMBEDDING_INPUT_CHARS: int = 4000
 
+    # --- Day 7: APNs 푸시 알림 ---
+    # 키가 비어 있으면 services/apns.py가 placeholder mode (로그만, 네트워크 호출 없음)로 동작.
+    # 4개 모두 채우면 실제 APNs HTTP/2 push 활성화.
+    APNS_KEY_ID: str = ""           # AuthKey 파일명에서 추출한 10자 식별자
+    APNS_TEAM_ID: str = ""          # Apple Developer Team ID (10자)
+    APNS_KEY_PATH: str = ""         # AuthKey_*.p8 파일 절대 경로
+    APNS_BUNDLE_ID: str = "com.gwatop.app"  # iOS 앱 Bundle ID
+    APNS_PRODUCTION: bool = False   # True면 api.push.apple.com, False면 api.sandbox.push.apple.com
+
 settings = Settings()

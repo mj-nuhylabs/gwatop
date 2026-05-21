@@ -80,14 +80,8 @@ def classify_file_task(file_id: str) -> None:
     _run_with_fresh_engine(lambda Session: _run_classify(file_id, Session))
 
 
-@celery_app.task(name="tasks.notify_classified")
-def notify_classified_task(file_id: str) -> None:
-    """분류 완료 알림 placeholder.
-
-    Day 7에서 APNs로 실제 푸시를 보내도록 교체한다. 지금은 로그만.
-    """
-    logger.info("notify_classified: file=%s (APNs not wired yet)", file_id)
-
+# notify_classified 는 Day 7 이후 app/tasks/notify_tasks.py 로 이관됨.
+# 호출은 .delay(...)로 같은 이름 ("tasks.notify_classified")으로 발송하므로 변경 없음.
 
 # ---------- Pipeline: text extraction ----------
 
@@ -485,4 +479,6 @@ async def _run_classify(file_id: str, SessionLocal) -> None:
         await session.commit()
 
     # 분류 결과와 무관하게 알림은 한 번 — UI에서 "미분류 폴더" 안내에도 쓰임.
-    notify_classified_task.delay(file_id)
+    # notify_classified 태스크는 app/tasks/notify_tasks.py 로 이관됨. 이름 기반으로
+    # send_task 호출 (import 회피).
+    celery_app.send_task("tasks.notify_classified", args=[file_id])
