@@ -280,6 +280,17 @@ async def _run_parse_syllabus(file_id: str, SessionLocal) -> None:
             todos_added, len(inserted_rows),
         )
 
+        # 강의 정기 시간표(요일/시작/종료) — 시간표 뷰의 데이터 소스.
+        # ParsedClassTime 은 time 타입이라 isoformat 으로 직렬화한다.
+        course.schedule = [
+            {
+                "day": ct.day,
+                "start_time": ct.start_time.strftime("%H:%M"),
+                "end_time": ct.end_time.strftime("%H:%M"),
+            }
+            for ct in syllabus.course.class_times
+        ] or None
+
         # Day 4: 주차별 토픽을 Course에 캐시. 자료 자동 분류의 기준 데이터가 된다.
         course.weekly_topics = [
             {"week_number": w.week_number, "topic": w.topic, "notes": w.notes}

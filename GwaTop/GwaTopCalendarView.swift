@@ -4,7 +4,16 @@ import SwiftUI
 // C-1 월간 캘린더, C-2 일정 상세, C-3 일정 추가/편집 진입 버튼, C-4 강의계획서 업로드 진입 버튼을 포함합니다.
 
 struct GwaTopCalendarView: View {
+    enum TopTab: String, CaseIterable, Identifiable {
+        case calendar
+        case timetable
+        var id: String { rawValue }
+        var label: String { self == .calendar ? "캘린더" : "시간표" }
+        var icon: String { self == .calendar ? "calendar" : "tablecells" }
+    }
+
     @State private var events: [GwaTopCalendarEvent] = []
+    @State private var courses: [GwaTopCourseDTO] = []
     @State private var displayedMonth: Date = Date()
     @State private var selectedDate: Date = Date()
     @State private var selectedEvent: GwaTopCalendarEvent? = nil
@@ -14,6 +23,7 @@ struct GwaTopCalendarView: View {
     @State private var didInitialLoad: Bool = false
     @State private var showingCreateSheet: Bool = false
     @State private var editingEvent: GwaTopCalendarEvent? = nil
+    @State private var selectedTopTab: TopTab = .calendar
 
     private let calendar = Calendar.current
     private let weekdaySymbols = ["일", "월", "화", "수", "목", "금", "토"]
@@ -52,25 +62,21 @@ struct GwaTopCalendarView: View {
                     .ignoresSafeArea()
 
                 ScrollView(showsIndicators: false) {
-                    VStack(spacing: 18) {
-                        calendarHeader
-                            .padding(.top, 14)
+                    VStack(spacing: 16) {
+                        topTabSwitcher
+                            .padding(.top, 12)
 
-                        if isLoading {
-                            loadingBanner
-                        } else if let msg = loadErrorMessage {
-                            errorBanner(message: msg)
+                        if selectedTopTab == .calendar {
+                            calendarTabContent
+                        } else {
+                            timetableTabContent
                         }
-
-                        monthGrid
-                        selectedDaySection
-                        syllabusUploadCard
                     }
                     .padding(.horizontal, 20)
                     .padding(.bottom, 32)
                 }
             }
-            .navigationTitle("캘린더")
+            .navigationTitle(selectedTopTab.label)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -115,7 +121,10 @@ struct GwaTopCalendarView: View {
             }
             .sheet(isPresented: $showUploadPreview) {
                 GwaTopSyllabusUploadSheet(onUploadCompleted: {
-                    Task { await reload(jumpToLatest: true) }
+                    Task {
+                        await reload(jumpToLatest: true)
+                        await loadCoursesIfNeeded(force: true)
+                    }
                 })
                 .presentationDetents([.large])
             }
@@ -128,6 +137,99 @@ struct GwaTopCalendarView: View {
             .refreshable {
                 await reload()
             }
+        }
+    }
+
+    // MARK: - 상단 탭 전환
+
+    private var topTabSwitcher: some View {
+        HStack(spacing: 6) {
+            ForEach(TopTab.allCases) { tab in
+                let isSelected = selectedTopTab == tab
+                Button {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                        selectedTopTab = tab
+                    }
+                    if tab == .timetable {
+                        Task { await loadCoursesIfNeeded() }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: tab.icon)
+                            .font(.system(size: 13, weight: .bold))
+                        Text(tab.label)
+                            .font(.system(size: 14, weight: .bold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 40)
+                    .foregroundStyle(isSelected ? .white : GwaTopHomeTheme.primary)
+                    .background(isSelected ? GwaTopHomeTheme.primary : Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(GwaTopHomeTheme.primary.opacity(0.25), lineWidth: isSelected ? 0 : 1)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(4)
+        .background(Color.white.opacity(0.45))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private var calendarTabContent: some View {
+        VStack(spacing: 18) {
+            calendarHeader
+
+            if isLoading {
+                loadingBanner
+            } else if let msg = loadErrorMessage {
+                errorBanner(message: msg)
+            }
+
+            monthGrid
+            selectedDaySection
+            syllabusUploadCard
+        }
+    }
+
+    private var timetableTabContent: some View {
+        VStack(spacing: 16) {
+            timetableHeader
+
+            if let msg = loadErrorMessage {
+                errorBanner(message: msg)
+            }
+
+            GwaTopTimetableView(courses: courses)
+        }
+    }
+
+    private var timetableHeader: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("주간 시간표")
+                .font(.system(size: 22, weight: .heavy, design: .rounded))
+                .foregroundStyle(.white)
+            Text("강의계획서에서 추출한 강의 시간을 한눈에 확인하세요.")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.white.opacity(0.84))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(GwaTopHomeTheme.primaryGradient)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .shadow(color: GwaTopHomeTheme.primary.opacity(0.20), radius: 14, x: 0, y: 8)
+    }
+
+    @MainActor
+    private func loadCoursesIfNeeded(force: Bool = false) async {
+        if !force, !courses.isEmpty { return }
+        do {
+            courses = try await GwaTopCourseService.shared.fetchAll()
+        } catch {
+            if isCancellation(error) { return }
+            loadErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
     }
 

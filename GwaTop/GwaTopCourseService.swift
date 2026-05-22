@@ -5,12 +5,25 @@
 
 import Foundation
 
+struct GwaTopClassTimeDTO: Decodable, Equatable, Hashable {
+    let day: String        // MON/TUE/WED/THU/FRI/SAT/SUN
+    let startTime: String  // "HH:MM"
+    let endTime: String    // "HH:MM"
+
+    enum CodingKeys: String, CodingKey {
+        case day
+        case startTime = "start_time"
+        case endTime   = "end_time"
+    }
+}
+
 struct GwaTopCourseDTO: Decodable, Identifiable, Equatable {
     let id: String
     let semesterId: String
     let name: String
     let professor: String?
     let color: String?
+    let schedule: [GwaTopClassTimeDTO]?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -18,6 +31,7 @@ struct GwaTopCourseDTO: Decodable, Identifiable, Equatable {
         case name
         case professor
         case color
+        case schedule
     }
 }
 
