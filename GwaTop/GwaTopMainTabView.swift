@@ -46,6 +46,16 @@ struct GwaTopMainTabView: View {
                     Text("설정")
                 }
                 .tag(GwaTopTab.settings)
+
+            // 출시 전 테스트용 임시 탭. 백엔드의 ADMIN_EMAILS 화이트리스트로 게이트되며,
+            // 현재 사용자가 admin 이 아니면 화면 안에서 "권한 없음" 메시지가 나온다.
+            // 출시 직전에 이 탭과 GwaTopAdminView/Service 를 함께 제거하면 됨.
+            GwaTopAdminView()
+                .tabItem {
+                    Image(systemName: "lock.shield.fill")
+                    Text("관리자")
+                }
+                .tag(GwaTopTab.admin)
         }
         .tint(GwaTopHomeTheme.primary)
     }

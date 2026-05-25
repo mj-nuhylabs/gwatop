@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     # 허용 file_type (앱 화이트리스트와 일치해야 함).
     ALLOWED_FILE_TYPES: str = "pdf,pptx,docx,image"
 
+    # --- 관리자 (출시 전 테스트용) ---
+    # 이 이메일 목록의 사용자만 /v1/admin/* 엔드포인트 접근 가능. 콤마 구분.
+    # 예: "hyunnow28@gmail.com,admin@gwatop.com"
+    ADMIN_EMAILS: str = ""
+
     DATABASE_URL: str
     REDIS_URL: str
     SECRET_KEY: str
@@ -39,6 +44,10 @@ class Settings(BaseSettings):
     @property
     def allowed_file_types_set(self) -> set[str]:
         return {t.strip().lower() for t in self.ALLOWED_FILE_TYPES.split(",") if t.strip()}
+
+    @property
+    def admin_emails_set(self) -> set[str]:
+        return {e.strip().lower() for e in self.ADMIN_EMAILS.split(",") if e.strip()}
     GOOGLE_CLIENT_ID: str = "166115611136-d42e728kfojf7resv9um0fcpgeffo8lp.apps.googleusercontent.com"
     OPENAI_API_KEY: str = ""
     # 강의계획서 파싱 모델. 속도 우선이면 gpt-4.1-nano (빠르지만 약간 떨어질 수 있음),

@@ -597,6 +597,7 @@ enum GwaTopTab {
     case ai
     case calendar
     case settings
+    case admin  // 출시 전 테스트용 임시 탭
 }
 
 struct GwaTopTodayTask: Identifiable {
