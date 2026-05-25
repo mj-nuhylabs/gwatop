@@ -196,30 +196,28 @@ extension Notification.Name {
 
 /// 강의계획서 파싱 진행 상태를 백그라운드에서 추적하는 글로벌 ObservableObject.
 ///
-/// 왜 필요한가:
-///  - 업로드 시트는 confirm 직후 즉시 닫힘 (사용자가 30~45초 멍 때리지 않게).
-///  - 그 후에도 사용자는 캘린더/홈 어디에서나 "지금 분석 중인지" 알 수 있어야 함.
-///  - 완료되면 캘린더가 자동 새로고침되어야 함.
+/// 설계: 업로드 시트가 confirm 받자마자 notifyUploaded(fileId:) 로 추적 ID 를
+/// 등록. watcher 가 각 ID 마다 GET /v1/files/{id}/debug 로 status 폴링.
+/// status 가 "parsed" 또는 "failed" 가 되면 추적에서 빼고 .syllabusParseCompleted 발행.
 ///
-/// 동작:
-///  - 앱이 foreground 일 때만 폴링 (background 진입 시 task 취소).
-///  - 8초 간격으로 GET /v1/files/in-flight-syllabi.
-///  - 직전 폴 결과와 비교해서 사라진 file_id 가 있으면 "완료(또는 실패)" 로 간주하고
-///    NotificationCenter 로 .syllabusParseCompleted 발행.
-///  - 캘린더/홈 뷰가 그 알림을 받아 자동 reload.
+/// EC2 의 라우트 등록 상태와 무관하게 동작 — fetchDebug 는 Day 4 부터 있던 안정된
+/// endpoint 라 어떤 배포 상태에서도 작동.
+///
+/// 한계: 앱 재시작 시 trackedIds 가 메모리에서 사라짐 → 백그라운드 진행 중 작업은
+/// 다음 reload 때 (예: 캘린더 진입 시 events 조회) 자연스럽게 반영.
 @MainActor
 final class GwaTopSyllabusWatcher: ObservableObject {
     static let shared = GwaTopSyllabusWatcher()
 
-    /// UI 가 표시할 진행 중 syllabus 목록. 캘린더 배너의 데이터 소스.
-    @Published private(set) var inFlight: [GwaTopFileSummary] = []
+    /// 추적 중인 file_id 집합. 시트가 notifyUploaded 로 추가하고, pollOnce 가 완료 시 제거.
+    @Published private(set) var inFlightFileIds: Set<String> = []
     /// 마지막 폴 시간. 디버그/UI 표시용.
     @Published private(set) var lastPolledAt: Date? = nil
 
     private var pollingTask: Task<Void, Never>? = nil
-    /// 폴 간격. 너무 짧으면 서버/배터리 부담, 너무 길면 사용자 체감 latency 증가.
-    /// 8초면 30초 파싱 기준 평균 12초 지연으로 완료 감지.
-    private let pollInterval: TimeInterval = 8.0
+    /// 폴 간격. fileId 기반은 호출 수가 N(보통 1-2)으로 한정되어 4초도 부담 없음.
+    /// 사용자 체감 latency 단축.
+    private let pollInterval: TimeInterval = 4.0
 
     private init() {
         print("[SyllabusWatcher] init — singleton created")
@@ -244,58 +242,62 @@ final class GwaTopSyllabusWatcher: ObservableObject {
         pollingTask = nil
     }
 
-    /// 업로드 시트가 confirm 직후 호출. 즉시 1회 폴해서 inFlight 에 새 파일 추가.
-    /// (그냥 polling 다음 tick 기다리면 최대 8초 늦게 보임 — 즉시성 위해 즉발 폴.)
-    ///
-    /// 폴링이 어떤 이유로든 멈춰있어도 업로드 시점에 자동 시작되도록 startWatching 동반.
+    /// 업로드 시트가 confirm 직후 호출. fileId 를 추적 시작.
     func notifyUploaded(fileId: String) {
         print("[SyllabusWatcher] notifyUploaded: \(fileId)")
-        startWatching()  // idempotent — 이미 도는 중이면 무시됨
+        inFlightFileIds.insert(fileId)
+        startWatching()  // idempotent
         Task { await pollOnce(reason: "after-upload") }
     }
 
     // MARK: - 내부
 
     private func pollLoop() async {
-        // 첫 폴은 즉시 (앱 시작 시 진행 중 작업이 이미 있을 수 있음).
         await pollOnce(reason: "loop-start")
         while !Task.isCancelled {
             try? await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))
             if Task.isCancelled { break }
-            await pollOnce(reason: "loop-tick")
+            // 추적할 ID 가 없으면 폴 스킵 — 네트워크 호출 0
+            if !inFlightFileIds.isEmpty {
+                await pollOnce(reason: "loop-tick")
+            }
         }
         print("[SyllabusWatcher] pollLoop exited")
     }
 
     private func pollOnce(reason: String) async {
-        print("[SyllabusWatcher] pollOnce(\(reason)) — calling fetchInFlightSyllabi")
-        do {
-            let fresh = try await GwaTopFileService.shared.fetchInFlightSyllabi()
-            let previousIds = Set(inFlight.map(\.id))
-            let freshIds = Set(fresh.map(\.id))
-
-            // previous 에 있었는데 fresh 에 없는 = 완료(parsed) 또는 실패(failed) 로 빠진 것.
-            let completed = previousIds.subtracting(freshIds)
-            let added = freshIds.subtracting(previousIds)
-            self.inFlight = fresh
+        let ids = inFlightFileIds
+        guard !ids.isEmpty else {
             self.lastPolledAt = Date()
+            return
+        }
+        print("[SyllabusWatcher] pollOnce(\(reason)) — checking \(ids.count) id(s)")
 
-            print("[SyllabusWatcher] poll done — inFlight=\(fresh.count) (prev=\(previousIds.count), added=\(added.count), completed=\(completed.count))")
-            for fileId in completed {
-                print("[SyllabusWatcher] >>> COMPLETED: \(fileId) — posting .syllabusParseCompleted")
-                NotificationCenter.default.post(
-                    name: .syllabusParseCompleted,
-                    object: nil,
-                    userInfo: ["file_id": fileId]
-                )
+        var completed: Set<String> = []
+        for id in ids {
+            do {
+                let debug = try await GwaTopFileService.shared.fetchDebug(fileId: id)
+                let status = debug.file.status
+                print("[SyllabusWatcher]   id=\(id) status=\(status)")
+                if status == "parsed" || status == "failed" {
+                    completed.insert(id)
+                }
+            } catch {
+                if isCancellation(error) { return }
+                print("[SyllabusWatcher]   id=\(id) fetchDebug failed: \(error.localizedDescription)")
+                // 호출 실패는 그냥 다음 폴 때 재시도. 일시적 네트워크 끊김 대비.
             }
-        } catch {
-            // 폴 실패는 silent — 다음 tick 에서 다시 시도. 네트워크 일시 끊김 대비.
-            if isCancellation(error) {
-                print("[SyllabusWatcher] poll cancelled")
-                return
-            }
-            print("[SyllabusWatcher] !!! poll FAILED: \(error.localizedDescription) (\(error))")
+        }
+
+        self.lastPolledAt = Date()
+        for id in completed {
+            inFlightFileIds.remove(id)
+            print("[SyllabusWatcher] >>> COMPLETED: \(id) — posting .syllabusParseCompleted")
+            NotificationCenter.default.post(
+                name: .syllabusParseCompleted,
+                object: nil,
+                userInfo: ["file_id": id]
+            )
         }
     }
 }

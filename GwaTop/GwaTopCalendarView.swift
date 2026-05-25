@@ -199,7 +199,7 @@ struct GwaTopCalendarView: View {
 
     private var calendarTabContent: some View {
         VStack(spacing: 18) {
-            if !syllabusWatcher.inFlight.isEmpty {
+            if !syllabusWatcher.inFlightFileIds.isEmpty {
                 syllabusInFlightBanner
             }
 
@@ -216,12 +216,9 @@ struct GwaTopCalendarView: View {
     }
 
     /// 백그라운드에서 파싱 중인 강의계획서가 있을 때 보여주는 카드.
-    /// 사용자가 시트를 닫고 나서도 "지금 분석 중" 상태를 인식할 수 있게 한다.
     private var syllabusInFlightBanner: some View {
-        let count = syllabusWatcher.inFlight.count
-        let firstName = syllabusWatcher.inFlight.first?.filename ?? ""
+        let count = syllabusWatcher.inFlightFileIds.count
         return HStack(spacing: 12) {
-            // 살짝 회전하는 sparkles 로 "처리 중" 느낌만.
             Image(systemName: "sparkles")
                 .font(.system(size: 18, weight: .bold))
                 .foregroundStyle(.white)
@@ -235,9 +232,7 @@ struct GwaTopCalendarView: View {
                      : "강의계획서 \(count)개 분석 중")
                     .font(.system(size: 14, weight: .heavy))
                     .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                Text(count == 1
-                     ? firstName
-                     : "끝나면 이 화면에 자동으로 일정이 추가돼요")
+                Text("끝나면 자동으로 일정이 추가돼요")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(GwaTopHomeTheme.textSecondary)
                     .lineLimit(1)
