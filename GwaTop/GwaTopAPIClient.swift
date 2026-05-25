@@ -50,7 +50,7 @@ func isCancellation(_ error: Error) -> Bool {
 }
 
 enum GwaTopAPI {
-    static let baseURL: String = "http://100.55.22.248:8000"
+    static let baseURL: String = "http://54.160.132.244:8000"
 
     static func currentAccessToken() -> String? {
         let t = UserDefaults.standard.string(forKey: "accessToken") ?? ""
