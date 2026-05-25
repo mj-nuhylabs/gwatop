@@ -50,7 +50,10 @@ func isCancellation(_ error: Error) -> Bool {
 }
 
 enum GwaTopAPI {
-    static let baseURL: String = "http://54.160.132.244:8000"
+    // EC2 us-east-1 인스턴스. Public IP는 인스턴스 재시작 시 바뀌므로 DNS 형태로 적어두면
+    // 콘솔 재할당 후 ec2-...-...-compute-1.amazonaws.com 형태가 그대로 유효한 경우가 많다.
+    // Elastic IP를 붙이면 영구 고정. Info.plist ATS 예외도 같은 도메인으로 등록되어 있음.
+    static let baseURL: String = "http://ec2-54-160-132-244.compute-1.amazonaws.com:8000"
 
     static func currentAccessToken() -> String? {
         let t = UserDefaults.standard.string(forKey: "accessToken") ?? ""
@@ -190,6 +193,16 @@ actor GwaTopAPIClient {
     ) async throws -> Response {
         let req = try buildRequest(path: path, method: "PATCH",
                                    body: body, requiresAuth: requiresAuth)
+        return try await perform(req)
+    }
+
+    /// DELETE with JSON body response (for admin endpoints that return counts).
+    func deleteJSON<Response: Decodable>(
+        _ path: String,
+        requiresAuth: Bool = true
+    ) async throws -> Response {
+        let req = try buildRequest(path: path, method: "DELETE",
+                                   body: nil as EmptyBody?, requiresAuth: requiresAuth)
         return try await perform(req)
     }
 

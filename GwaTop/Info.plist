@@ -26,9 +26,24 @@
 				<key>NSExceptionAllowsInsecureHTTPLoads</key>
 				<true/>
 			</dict>
-			<key>100.55.22.248</key>
+			<!--
+			  EC2 Public DNS 형식: ec2-N-N-N-N.compute-1.amazonaws.com
+			  IP가 바뀌어도 도메인 suffix 는 유지되므로 상위 도메인 한 번에 예외 처리.
+			  운영 출시 전에는 HTTPS + 자체 도메인으로 교체 권장 — Apple 심사 시 ATS 예외에
+			  대해 사유서 요구 가능.
+			-->
+			<key>compute-1.amazonaws.com</key>
 			<dict>
 				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+			</dict>
+			<key>compute.amazonaws.com</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
 				<true/>
 			</dict>
 		</dict>

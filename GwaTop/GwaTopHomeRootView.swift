@@ -244,35 +244,40 @@ struct GwaTopHomeView: View {
     }
 
     private var todayTaskSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            sectionHeader(title: "급한 할 일", subtitle: "우선순위 높은 순서로 정리했어요")
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader(title: "급한 할 일", subtitle: "우선순위 높은 순서로")
 
-            VStack(spacing: 10) {
+            // 모든 행을 하나의 카드에 모으고 hairline divider로 구분.
+            // 카드의 시각적 노이즈를 줄이고 정보 위계를 분명히 한다 (애플 리스트 스타일).
+            VStack(spacing: 0) {
                 if let todos = dashboard?.upcomingTodos, !todos.isEmpty {
-                    ForEach(todos) { todo in
+                    ForEach(Array(todos.enumerated()), id: \.element.id) { index, todo in
                         GwaTopTodayTaskRow(task: GwaTopTodayTask(todo: todo))
+                        if index < todos.count - 1 {
+                            Divider()
+                                .padding(.leading, 32)  // priority dot 영역 들여쓰기
+                        }
                     }
                 } else if isLoading {
-                    HStack {
+                    HStack(spacing: 8) {
                         ProgressView()
-                        Text("불러오는 중...")
+                        Text("불러오는 중…")
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(GwaTopHomeTheme.textSecondary)
                     }
-                    .padding(20)
+                    .padding(.vertical, 22)
                     .frame(maxWidth: .infinity)
-                    .background(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 } else {
                     Text("표시할 할 일이 없어요.")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                        .padding(20)
+                        .padding(.vertical, 26)
                         .frame(maxWidth: .infinity)
-                        .background(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
             }
+            .background(.white)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .shadow(color: .black.opacity(0.03), radius: 6, x: 0, y: 2)
         }
     }
 
@@ -460,42 +465,45 @@ struct GwaTopTodayTaskRow: View {
     let task: GwaTopTodayTask
 
     var body: some View {
-        HStack(spacing: 13) {
-            ZStack {
-                Circle()
-                    .fill(task.isDone ? GwaTopHomeTheme.success.opacity(0.14) : task.color.opacity(0.13))
-                    .frame(width: 44, height: 44)
+        HStack(spacing: 14) {
+            // 좌측 priority indicator — 작은 컬러 점 하나.
+            // 컬러 채도를 카드 전체가 아니라 한 점에만 모아두면 시선이 정리되고
+            // 시스템 리스트(Apple Reminders/Mail)와 비슷한 무게감이 된다.
+            Circle()
+                .fill(task.isDone
+                      ? Color.gray.opacity(0.35)
+                      : task.color)
+                .frame(width: 8, height: 8)
+                .padding(.leading, 2)
 
-                Image(systemName: task.isDone ? "checkmark" : task.iconName)
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(task.isDone ? GwaTopHomeTheme.success : task.color)
-            }
-
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(task.title)
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(GwaTopHomeTheme.textPrimary)
                     .strikethrough(task.isDone, color: GwaTopHomeTheme.textSecondary)
+                    .opacity(task.isDone ? 0.55 : 1)
+                    .lineLimit(1)
 
                 Text("\(task.subject) · \(task.dueText)")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 12, weight: .regular))
                     .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                    .lineLimit(1)
             }
 
-            Spacer()
+            Spacer(minLength: 8)
 
+            // 우선순위 라벨 — 컬러 캡슐 대신 단정한 텍스트.
             Text(task.priorityText)
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(task.color)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 6)
-                .background(task.color.opacity(0.10))
-                .clipShape(Capsule())
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(task.isDone ? GwaTopHomeTheme.textSecondary : task.color)
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color.gray.opacity(0.4))
         }
-        .padding(14)
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .shadow(color: .black.opacity(0.04), radius: 10, x: 0, y: 5)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 13)
+        .contentShape(Rectangle())
     }
 }
 
@@ -589,6 +597,7 @@ enum GwaTopTab {
     case ai
     case calendar
     case settings
+    case admin  // 출시 전 테스트용 임시 탭
 }
 
 struct GwaTopTodayTask: Identifiable {
