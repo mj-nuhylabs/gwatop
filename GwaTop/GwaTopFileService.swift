@@ -90,6 +90,12 @@ actor GwaTopFileService {
         try await GwaTopAPIClient.shared.get("/v1/files/\(fileId)/debug")
     }
 
+    /// 현재 진행 중인 강의계획서 파일 목록 (status in pending/uploading/processing/extracted/parsing).
+    /// GwaTopSyllabusWatcher 가 사용 — 시트가 닫힌 뒤에도 백그라운드로 완료 시점 감지.
+    func fetchInFlightSyllabi() async throws -> [GwaTopFileSummary] {
+        try await GwaTopAPIClient.shared.get("/v1/files/in-flight-syllabi")
+    }
+
     /// 분류 결과가 부정확할 때 다시 자동 분류를 실행한다.
     func reclassify(fileId: String) async throws {
         let _: ReclassifyResponse = try await GwaTopAPIClient.shared.postEmpty(

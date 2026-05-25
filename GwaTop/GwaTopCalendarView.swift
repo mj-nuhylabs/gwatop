@@ -25,6 +25,9 @@ struct GwaTopCalendarView: View {
     @State private var editingEvent: GwaTopCalendarEvent? = nil
     @State private var selectedTopTab: TopTab = .calendar
 
+    /// 강의계획서 파싱 진행 상태 — 배너 표시 + 완료 시 자동 reload 용.
+    @ObservedObject private var syllabusWatcher = GwaTopSyllabusWatcher.shared
+
     private let calendar = Calendar.current
     private let weekdaySymbols = ["일", "월", "화", "수", "목", "금", "토"]
 
@@ -136,6 +139,15 @@ struct GwaTopCalendarView: View {
             }
             .refreshable {
                 await reload()
+                await loadCoursesIfNeeded(force: true)
+            }
+            // 강의계획서 파싱이 끝나면 watcher 가 알림. 사용자가 캘린더에 있던 없던
+            // 다음 진입 시점에 최신 데이터가 보이도록 reload + courses 도 새로 로드.
+            .onReceive(NotificationCenter.default.publisher(for: .syllabusParseCompleted)) { _ in
+                Task {
+                    await reload(jumpToLatest: true)
+                    await loadCoursesIfNeeded(force: true)
+                }
             }
         }
     }
@@ -180,6 +192,10 @@ struct GwaTopCalendarView: View {
 
     private var calendarTabContent: some View {
         VStack(spacing: 18) {
+            if !syllabusWatcher.inFlight.isEmpty {
+                syllabusInFlightBanner
+            }
+
             if isLoading {
                 loadingBanner
             } else if let msg = loadErrorMessage {
@@ -190,6 +206,50 @@ struct GwaTopCalendarView: View {
             selectedDaySection
             syllabusUploadCard
         }
+    }
+
+    /// 백그라운드에서 파싱 중인 강의계획서가 있을 때 보여주는 카드.
+    /// 사용자가 시트를 닫고 나서도 "지금 분석 중" 상태를 인식할 수 있게 한다.
+    private var syllabusInFlightBanner: some View {
+        let count = syllabusWatcher.inFlight.count
+        let firstName = syllabusWatcher.inFlight.first?.filename ?? ""
+        return HStack(spacing: 12) {
+            // 살짝 회전하는 sparkles 로 "처리 중" 느낌만.
+            Image(systemName: "sparkles")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 40, height: 40)
+                .background(GwaTopHomeTheme.primary)
+                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(count == 1
+                     ? "강의계획서 분석 중"
+                     : "강의계획서 \(count)개 분석 중")
+                    .font(.system(size: 14, weight: .heavy))
+                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                Text(count == 1
+                     ? firstName
+                     : "끝나면 이 화면에 자동으로 일정이 추가돼요")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            ProgressView()
+                .controlSize(.small)
+                .tint(GwaTopHomeTheme.primary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(.white)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(GwaTopHomeTheme.primary.opacity(0.22), lineWidth: 1)
+        )
     }
 
     private var timetableTabContent: some View {

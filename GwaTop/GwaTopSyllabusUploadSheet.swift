@@ -6,8 +6,11 @@
 //   - 과목 선택 / 새 과목 추가 (백엔드 GET /v1/courses, POST /v1/semesters/{id}/courses)
 //   - PDF 파일 선택 (.fileImporter)
 //   - presigned-url → S3 PUT → confirm
-//   - 백엔드 Celery가 비동기로 PyMuPDF + GPT-4o-mini 파싱 → schedules INSERT
-//   - 시트 닫히면 캘린더 자동 새로고침
+//   - confirm 응답 직후 시트 즉시 닫음 + GwaTopSyllabusWatcher 에 등록
+//   - 백엔드 Celery 가 비동기 파싱 (보통 5~30초). 완료되면 watcher 가 캘린더 자동 새로고침.
+//
+//  이전엔 시트가 45초간 폴링해서 사용자가 화면에 묶여 있었음 (status=pending 타임아웃 빈발).
+//  지금은 업로드 자체(3~5초)만 시트가 잡고, 파싱은 백그라운드로 빠진다.
 //
 
 import SwiftUI
@@ -35,9 +38,10 @@ struct GwaTopSyllabusUploadSheet: View {
 
     enum Phase: Equatable {
         case idle
+        /// presigned URL 발급 → S3 PUT → confirm 진행 중. 사용자가 화면에 잡혀 있는 유일한 구간.
         case uploading
-        case waitingForParse
-        case success
+        /// confirm 완료 — 파싱은 백그라운드로 빠졌고 시트는 곧 닫힘. 0.6초 토스트 표시용.
+        case dispatched
         case failed(String)
     }
 
@@ -74,7 +78,6 @@ struct GwaTopSyllabusUploadSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("닫기") {
-                        if case .success = phase { onUploadCompleted() }
                         dismiss()
                     }
                 }
@@ -231,10 +234,8 @@ struct GwaTopSyllabusUploadSheet: View {
                 statusRow(icon: "circle.dashed", text: "대기 중", tint: .gray)
             case .uploading:
                 statusRow(icon: "arrow.up.circle.fill", text: phaseMessage, tint: GwaTopHomeTheme.primary)
-            case .waitingForParse:
-                statusRow(icon: "sparkles", text: phaseMessage, tint: .purple)
-            case .success:
-                statusRow(icon: "checkmark.seal.fill", text: phaseMessage, tint: .green)
+            case .dispatched:
+                statusRow(icon: "sparkles", text: phaseMessage, tint: .green)
             case .failed(let msg):
                 statusRow(icon: "exclamationmark.triangle.fill", text: msg, tint: .orange)
             }
@@ -249,11 +250,10 @@ struct GwaTopSyllabusUploadSheet: View {
 
     private var actionButtonTitle: String {
         switch phase {
-        case .idle:              return "업로드 시작"
-        case .uploading:         return "업로드 중…"
-        case .waitingForParse:   return "AI 파싱 진행 중…"
-        case .success:           return "캘린더에서 확인하기"
-        case .failed:            return "다시 시도"
+        case .idle:        return "업로드 시작"
+        case .uploading:   return "업로드 중…"
+        case .dispatched:  return "잠시 후 닫힙니다…"
+        case .failed:      return "다시 시도"
         }
     }
 
@@ -325,11 +325,6 @@ struct GwaTopSyllabusUploadSheet: View {
     }
 
     private func uploadTapped() {
-        if case .success = phase {
-            onUploadCompleted()
-            dismiss()
-            return
-        }
         Task { await runUpload() }
     }
 
@@ -359,34 +354,26 @@ struct GwaTopSyllabusUploadSheet: View {
                 )
             }
 
-            let parseMsg = selectedCourseId == nil
-                ? "AI가 강의계획서를 분석하고 과목을 자동 매칭하고 있어요… (최대 45초)"
-                : "AI가 강의계획서를 분석하고 있어요… (최대 45초)"
+            // confirm 완료 — 이제 파싱은 백그라운드 Celery 가 처리한다.
+            // 시트는 잠깐 "분석 시작했어요" 토스트만 보여주고 즉시 닫는다.
+            let dispatchMsg = selectedCourseId == nil
+                ? "분석을 시작했어요. 끝나면 자동으로 캘린더에 등록됩니다."
+                : "분석을 시작했어요. 끝나면 자동으로 일정이 추가됩니다."
 
             await MainActor.run {
                 self.uploadedFileId = fileId
-                self.phase = .waitingForParse
-                self.phaseMessage = parseMsg
+                self.phase = .dispatched
+                self.phaseMessage = dispatchMsg
             }
 
-            // Celery 파싱 완료까지 실제로 폴링 (이전 4초 sleep은 너무 짧아 일정이 안 들어와 보였음)
-            let result = await GwaTopFileUploadService.shared.waitForParseCompletion(
-                fileId: fileId,
-                timeoutSeconds: 45,
-                pollIntervalSeconds: 2.0
-            )
+            // 글로벌 watcher 에 등록 — 완료 시 캘린더가 알아서 reload.
+            await GwaTopSyllabusWatcher.shared.notifyUploaded(fileId: fileId)
 
-            if result.succeeded {
-                await MainActor.run {
-                    self.phase = .success
-                    self.phaseMessage = "분석 완료! \(result.schedulesCount)개의 일정이 등록되었습니다."
-                }
+            // 0.6초만 success 토스트 노출 후 닫음 (사용자에게 "처리됐다" 시각 피드백).
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            await MainActor.run {
                 onUploadCompleted()
-            } else {
-                let detail = result.error.map { " (\($0))" } ?? ""
-                await MainActor.run {
-                    self.phase = .failed("AI 파싱 실패: status=\(result.status)\(detail)")
-                }
+                dismiss()
             }
         } catch {
             let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription

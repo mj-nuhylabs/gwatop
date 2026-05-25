@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, or_
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -190,6 +190,42 @@ async def confirm_syllabus_upload(
 
     extract_text_task.delay(str(file_id))
     return FileConfirmResponse(file=FileResponse.model_validate(file_record))
+
+
+# 진행 중으로 간주할 status 값들. parsing 끝나면 "parsed" 또는 "failed" 로 전환.
+_IN_FLIGHT_STATUSES = ("pending", "uploading", "processing", "extracted", "parsing")
+
+
+@router.get("/files/in-flight-syllabi", response_model=list[FileResponse])
+async def list_in_flight_syllabi(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """현재 사용자에게 속한, 아직 파싱이 끝나지 않은 강의계획서 목록.
+
+    iOS 측에서 업로드 시트를 즉시 닫고 나서도 "지금 분석 중인 게 뭔지" 보여주거나
+    완료 시점에 자동 새로고침을 트리거하는 데 사용.
+
+    소유권은 두 경로로 확인:
+      - course가 결정된 syllabus: course → semester → user
+      - course 미결정 syllabus: uploaded_by_user_id 직접 매칭
+    """
+    stmt = (
+        select(File)
+        .outerjoin(Course, File.course_id == Course.id)
+        .outerjoin(Semester, Course.semester_id == Semester.id)
+        .where(
+            File.is_syllabus.is_(True),
+            File.status.in_(_IN_FLIGHT_STATUSES),
+            or_(
+                File.uploaded_by_user_id == current_user.id,
+                Semester.user_id == current_user.id,
+            ),
+        )
+        .order_by(File.created_at.desc())
+    )
+    result = await db.execute(stmt)
+    return result.scalars().all()
 
 
 @router.get("/courses/{course_id}/files", response_model=list[FileResponse])

@@ -10,6 +10,10 @@ import GoogleSignIn
 
 @main
 struct GwaTopApp: App {
+    /// 강의계획서 파싱 진행 상태를 전역에서 추적 (시트 닫혀도 백그라운드 폴링).
+    @StateObject private var syllabusWatcher = GwaTopSyllabusWatcher.shared
+    @Environment(\.scenePhase) private var scenePhase
+
     init() {
         configureGoogleSignIn()
     }
@@ -19,6 +23,14 @@ struct GwaTopApp: App {
             ContentView()
                 .onOpenURL { url in
                     GIDSignIn.sharedInstance.handle(url)
+                }
+                .onChange(of: scenePhase) { _, newPhase in
+                    // foreground 일 때만 폴링 — 배터리/네트워크 절약.
+                    if newPhase == .active {
+                        syllabusWatcher.startWatching()
+                    } else {
+                        syllabusWatcher.stopWatching()
+                    }
                 }
         }
     }
