@@ -57,7 +57,10 @@ final class GwaTopSyllabusWatcher: ObservableObject {
 
     /// 업로드 시트가 confirm 직후 호출. 즉시 1회 폴해서 inFlight 에 새 파일 추가.
     /// (그냥 polling 다음 tick 기다리면 최대 8초 늦게 보임 — 즉시성 위해 즉발 폴.)
+    ///
+    /// 폴링이 어떤 이유로든 멈춰있어도 업로드 시점에 자동 시작되도록 startWatching 동반.
     func notifyUploaded(fileId: String) {
+        startWatching()  // idempotent — 이미 도는 중이면 무시됨
         Task { await pollOnce() }
     }
 

@@ -24,8 +24,14 @@ struct GwaTopApp: App {
                 .onOpenURL { url in
                     GIDSignIn.sharedInstance.handle(url)
                 }
+                .task {
+                    // 첫 부팅 시 .onChange(of: scenePhase) 는 값이 "변하지" 않으므로
+                    // 트리거되지 않는다 (앱 시작 시 scenePhase 가 처음부터 .active).
+                    // 따라서 첫 시작 폴은 여기서 명시적으로 띄운다.
+                    syllabusWatcher.startWatching()
+                }
                 .onChange(of: scenePhase) { _, newPhase in
-                    // foreground 일 때만 폴링 — 배터리/네트워크 절약.
+                    // background ↔ foreground 전환 처리 — 배터리/네트워크 절약.
                     if newPhase == .active {
                         syllabusWatcher.startWatching()
                     } else {
