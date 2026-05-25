@@ -67,7 +67,11 @@ enum GwaTopAPI {
         // FastAPI 네이브 datetime을 KST로 해석.
         // DateFormatter는 `SSS`(밀리초)까지만 안정적으로 파싱하므로
         // 마이크로초(6자리) 같은 더 긴 fractional은 stripping 후 파싱한다.
-        let kst = TimeZone(identifier: "Asia/Seoul")!
+        // tzdata에 Asia/Seoul이 없는 비정상 상황은 사실상 없지만, 강제 언래핑은 크래시
+        // 위험이라 KST = UTC+9로 폴백한다.
+        let kst = TimeZone(identifier: "Asia/Seoul")
+            ?? TimeZone(secondsFromGMT: 9 * 3600)
+            ?? .current
 
         d.dateDecodingStrategy = .custom { decoder in
             let c = try decoder.singleValueContainer()

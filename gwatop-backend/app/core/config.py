@@ -1,7 +1,22 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
+
+    # --- 운영 플래그 ---
+    # DEBUG=True 일 때만 디버그 전용 엔드포인트(/files/{id}/debug 등) 노출.
+    DEBUG: bool = False
+    # CORS 허용 origin. 콤마 구분 문자열. "*" 면 와일드카드 (Bearer 토큰 API에는 비권장).
+    # 예: "https://app.gwatop.com,http://localhost:3000"
+    ALLOWED_ORIGINS: str = "*"
+
+    # --- 업로드 정책 ---
+    # presigned URL 발급 시 허용할 최대 파일 크기(바이트). 기본 50MB.
+    MAX_UPLOAD_BYTES: int = 50 * 1024 * 1024
+    # 허용 file_type (앱 화이트리스트와 일치해야 함).
+    ALLOWED_FILE_TYPES: str = "pdf,pptx,docx,image"
 
     DATABASE_URL: str
     REDIS_URL: str
@@ -13,6 +28,17 @@ class Settings(BaseSettings):
     AWS_SECRET_ACCESS_KEY: str
     AWS_REGION: str = "ap-northeast-2"
     S3_BUCKET_NAME: str
+
+    @property
+    def allowed_origins_list(self) -> list[str]:
+        raw = self.ALLOWED_ORIGINS.strip()
+        if raw == "*":
+            return ["*"]
+        return [o.strip() for o in raw.split(",") if o.strip()]
+
+    @property
+    def allowed_file_types_set(self) -> set[str]:
+        return {t.strip().lower() for t in self.ALLOWED_FILE_TYPES.split(",") if t.strip()}
     GOOGLE_CLIENT_ID: str = "166115611136-d42e728kfojf7resv9um0fcpgeffo8lp.apps.googleusercontent.com"
     OPENAI_API_KEY: str = ""
     OPENAI_SYLLABUS_MODEL: str = "gpt-4o-mini"

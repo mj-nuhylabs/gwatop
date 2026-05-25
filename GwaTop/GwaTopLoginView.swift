@@ -332,7 +332,7 @@ struct GwaTopTextField: View {
             }
             .padding(.horizontal, 14)
             .frame(height: 52)
-            .background(Color(red: 0.96, green: 0.97, blue: 1.0))
+            .background(GwaTopHomeTheme.background)
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
     }
@@ -377,7 +377,7 @@ struct GwaTopPasswordField: View {
             }
             .padding(.horizontal, 14)
             .frame(height: 52)
-            .background(Color(red: 0.96, green: 0.97, blue: 1.0))
+            .background(GwaTopHomeTheme.background)
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
     }

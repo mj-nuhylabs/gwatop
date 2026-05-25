@@ -92,26 +92,7 @@ struct GwaTopHomeView: View {
             .navigationBarTitleDisplayMode(.inline)
             .task { if dashboard == nil { await load() } }
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        // 추후 알림 화면으로 연결
-                    } label: {
-                        ZStack(alignment: .topTrailing) {
-                            Image(systemName: "bell.fill")
-                                .font(.system(size: 18, weight: .bold))
-                                .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                                .frame(width: 42, height: 42)
-                                .background(.white)
-                                .clipShape(Circle())
-                                .shadow(color: .black.opacity(0.06), radius: 10, x: 0, y: 6)
-
-                            Circle()
-                                .fill(.red)
-                                .frame(width: 9, height: 9)
-                                .offset(x: -5, y: 6)
-                        }
-                    }
-                }
+                // 추후 알림 기능 구현 시 toolbar 버튼 복구. 동작 없는 종 아이콘 + 가짜 빨간 점은 오해 소지가 있어 제거.
             }
         }
     }
@@ -321,11 +302,7 @@ struct GwaTopHomeView: View {
 
             Spacer()
 
-            Button("전체보기") {
-                // 추후 목록 화면으로 이동
-            }
-            .font(.system(size: 13, weight: .bold))
-            .foregroundStyle(GwaTopHomeTheme.primary)
+            // 전체보기 라우팅이 아직 없어 빈 클로저 버튼이었음 — 동작 추가 전까지 숨김.
         }
     }
 

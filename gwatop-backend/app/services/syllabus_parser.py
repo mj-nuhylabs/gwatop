@@ -369,30 +369,23 @@ def _extract_time_range(text: str) -> tuple[str | None, str | None]:
 
 
 def _already_has_exam(syllabus: ParsedSyllabus, title_hint: str, d: date) -> bool:
+    """제목 정규화 일치만으로 중복 판정. 같은 날 다른 종류의 시험(예: 퀴즈+중간)이
+    함께 적혀 있으면 둘 다 보존해야 한다."""
     title_norm = re.sub(r"\s+", "", title_hint).lower()
     for e in syllabus.exams:
         if e.exam_date == d and re.sub(r"\s+", "", e.title).lower() == title_norm:
-            return True
-        # title이 약간 달라도 같은 날짜의 시험이 이미 있다면 중복으로 간주
-        if e.exam_date == d:
             return True
     return False
 
 
 def _already_has_assignment(syllabus: ParsedSyllabus, title_hint: str, d: date) -> bool:
+    """제목 정규화 일치만으로 중복 판정. 같은 날짜라도 다른 과제(과제1 마감 + 과제2 출제 등)는
+    별개로 보존한다."""
     title_norm = re.sub(r"\s+", "", title_hint).lower()
     for a in syllabus.assignments:
         a_norm = re.sub(r"\s+", "", a.title).lower()
         if a.due_date == d and a_norm == title_norm:
             return True
-        # 같은 날짜 + 같은 종류(출제 vs 마감)의 과제가 이미 있으면 중복 — 한쪽 키워드만 일치해도 동일 취급
-        if a.due_date == d:
-            same_kind = (
-                ("출제" in title_hint and "출제" in a.title)
-                or ("마감" in title_hint and "마감" in a.title)
-            )
-            if same_kind:
-                return True
     return False
 
 
