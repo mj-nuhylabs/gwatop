@@ -14,7 +14,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_current_user
@@ -325,3 +325,187 @@ async def admin_list_todos(
             "user_email": row.user_email,
         })
     return out
+
+
+# ---------- 삭제 / 리셋 ----------
+# 출시 전 테스트용. S3 객체 자체는 지우지 않고 DB row만 제거한다.
+# (S3 cleanup은 별도 batch 작업으로 처리 — 운영에서 필요해지면 추가)
+
+
+async def _delete_files_by_ids(session: AsyncSession, file_ids: list[uuid.UUID]) -> int:
+    if not file_ids:
+        return 0
+    result = await session.execute(delete(File).where(File.id.in_(file_ids)))
+    return int(result.rowcount or 0)
+
+
+async def _delete_auto_schedules_for_courses(
+    session: AsyncSession, course_ids: list[uuid.UUID]
+) -> tuple[int, int]:
+    """course_ids 의 auto schedules + 거기 매달린 auto todos 모두 삭제. (todos, schedules) 개수 반환."""
+    if not course_ids:
+        return 0, 0
+    # FK ondelete=SET NULL이라 schedule만 지우면 auto todo가 orphan으로 남으니 먼저 todo 제거.
+    todo_q = await session.execute(
+        delete(Todo).where(
+            Todo.is_auto.is_(True),
+            Todo.schedule_id.in_(
+                select(Schedule.id).where(
+                    Schedule.course_id.in_(course_ids),
+                    Schedule.is_auto.is_(True),
+                )
+            ),
+        )
+    )
+    sched_q = await session.execute(
+        delete(Schedule).where(
+            Schedule.course_id.in_(course_ids),
+            Schedule.is_auto.is_(True),
+        )
+    )
+    return int(todo_q.rowcount or 0), int(sched_q.rowcount or 0)
+
+
+@router.delete("/files/{file_id}")
+async def admin_delete_file(
+    file_id: uuid.UUID,
+    _admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """단일 파일 row 삭제. 강의계획서면 거기서 만들어진 auto schedules/todos도 함께 정리."""
+    file_row = (await db.execute(select(File).where(File.id == file_id))).scalar_one_or_none()
+    if file_row is None:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    counts = {"files_deleted": 0, "schedules_deleted": 0, "todos_deleted": 0}
+
+    # syllabus였다면 그 course의 auto 일정/할 일도 함께 비워주는 게 사용자 의도에 맞다.
+    if file_row.is_syllabus and file_row.course_id is not None:
+        todos_n, sched_n = await _delete_auto_schedules_for_courses(db, [file_row.course_id])
+        counts["todos_deleted"] = todos_n
+        counts["schedules_deleted"] = sched_n
+        # course 메타도 초기화 (다시 파싱하기 좋게)
+        await db.execute(
+            update(Course)
+            .where(Course.id == file_row.course_id)
+            .values(weekly_topics=None, weekly_topic_embeddings=None, schedule=None)
+        )
+
+    counts["files_deleted"] = await _delete_files_by_ids(db, [file_id])
+    await db.commit()
+    return counts
+
+
+@router.post("/users/{user_id}/syllabus-reset")
+async def admin_syllabus_reset(
+    user_id: uuid.UUID,
+    _admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """한 사용자의 '강의계획서 업로드 흔적'만 정리.
+    - 강의계획서 파일(is_syllabus=true) 모두 삭제
+    - 자동 생성된 schedules / todos 삭제
+    - course.weekly_topics, weekly_topic_embeddings, schedule (정규 시간) NULL 초기화
+    - Course/Semester 자체는 유지, 사용자가 직접 만든 일정/할 일도 유지
+    """
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # 이 user의 모든 course id 수집
+    course_ids = (await db.execute(
+        select(Course.id)
+        .join(Semester, Course.semester_id == Semester.id)
+        .where(Semester.user_id == user_id)
+    )).scalars().all()
+
+    todos_n, sched_n = await _delete_auto_schedules_for_courses(db, list(course_ids))
+
+    # syllabus files (course가 있는 것 + uploaded_by_user_id만 있는 것 모두)
+    syllabus_ids = (await db.execute(
+        select(File.id).where(
+            File.is_syllabus.is_(True),
+            ((File.uploaded_by_user_id == user_id) | (File.course_id.in_(course_ids))),
+        )
+    )).scalars().all()
+    files_n = await _delete_files_by_ids(db, list(syllabus_ids))
+
+    courses_reset = 0
+    if course_ids:
+        r = await db.execute(
+            update(Course)
+            .where(Course.id.in_(course_ids))
+            .values(weekly_topics=None, weekly_topic_embeddings=None, schedule=None)
+        )
+        courses_reset = int(r.rowcount or 0)
+
+    await db.commit()
+    return {
+        "user_email": user.email,
+        "syllabus_files_deleted": files_n,
+        "auto_schedules_deleted": sched_n,
+        "auto_todos_deleted": todos_n,
+        "courses_reset": courses_reset,
+    }
+
+
+@router.post("/users/{user_id}/full-reset")
+async def admin_full_reset(
+    user_id: uuid.UUID,
+    _admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """한 사용자의 학습 데이터 전체 리셋 (위험).
+    - 모든 파일 삭제 (강의계획서 + 일반 자료)
+    - 모든 schedules / todos 삭제 (auto/수동 모두)
+    - course.weekly_topics 등 메타 NULL
+    - Course/Semester/User 자체는 유지 (재로그인하지 않게)
+    """
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    course_ids = (await db.execute(
+        select(Course.id)
+        .join(Semester, Course.semester_id == Semester.id)
+        .where(Semester.user_id == user_id)
+    )).scalars().all()
+    course_ids = list(course_ids)
+
+    todos_n = sched_n = files_n = 0
+
+    if course_ids:
+        # cascade 의존성: todos → schedules → files
+        r = await db.execute(delete(Todo).where(Todo.course_id.in_(course_ids)))
+        todos_n = int(r.rowcount or 0)
+        r = await db.execute(delete(Schedule).where(Schedule.course_id.in_(course_ids)))
+        sched_n = int(r.rowcount or 0)
+        r = await db.execute(delete(File).where(File.course_id.in_(course_ids)))
+        files_n = int(r.rowcount or 0)
+
+    # course 미할당 syllabus (uploaded_by_user_id만 있는 것)
+    r = await db.execute(
+        delete(File).where(
+            File.uploaded_by_user_id == user_id,
+            File.course_id.is_(None),
+        )
+    )
+    files_n += int(r.rowcount or 0)
+
+    courses_reset = 0
+    if course_ids:
+        r = await db.execute(
+            update(Course)
+            .where(Course.id.in_(course_ids))
+            .values(weekly_topics=None, weekly_topic_embeddings=None, schedule=None)
+        )
+        courses_reset = int(r.rowcount or 0)
+
+    await db.commit()
+    return {
+        "user_email": user.email,
+        "files_deleted": files_n,
+        "schedules_deleted": sched_n,
+        "todos_deleted": todos_n,
+        "courses_reset": courses_reset,
+    }

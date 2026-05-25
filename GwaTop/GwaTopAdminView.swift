@@ -395,6 +395,44 @@ struct GwaTopAdminUserDetailSheet: View {
     @State private var isLoading = false
     @State private var errorMessage: String? = nil
 
+    // 위험 작업 상태
+    @State private var pendingDestructive: DestructiveAction? = nil
+    @State private var deletingFileId: String? = nil
+    @State private var resultMessage: String? = nil
+
+    enum DestructiveAction: Identifiable {
+        case syllabusReset
+        case fullReset
+        case deleteFile(file: GwaTopAdminFile)
+
+        var id: String {
+            switch self {
+            case .syllabusReset:        return "syllabus-reset"
+            case .fullReset:            return "full-reset"
+            case .deleteFile(let f):    return "delete-\(f.id)"
+            }
+        }
+
+        var title: String {
+            switch self {
+            case .syllabusReset:        return "강의계획서 데이터 리셋"
+            case .fullReset:            return "전체 학습 데이터 리셋"
+            case .deleteFile(let f):    return "파일 삭제: \(f.filename)"
+            }
+        }
+
+        var description: String {
+            switch self {
+            case .syllabusReset:
+                return "강의계획서 파일과 그로부터 자동 생성된 일정/할 일을 삭제하고 과목의 시간표/주차 메타를 비웁니다. 사용자가 직접 만든 일정/할 일은 유지돼요."
+            case .fullReset:
+                return "이 사용자의 모든 파일/일정/할 일을 삭제합니다. 학기/과목/계정 자체는 유지돼요. 되돌릴 수 없어요."
+            case .deleteFile:
+                return "이 파일 하나만 DB에서 제거합니다. 강의계획서면 거기서 만든 auto 일정/할 일도 함께 정리돼요."
+            }
+        }
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -445,13 +483,26 @@ struct GwaTopAdminUserDetailSheet: View {
                             }
                             section(title: "파일") {
                                 ForEach(d.files) { f in
-                                    HStack {
+                                    HStack(spacing: 8) {
                                         Text(f.filename).font(.system(size: 12, weight: .semibold))
                                             .lineLimit(1).truncationMode(.middle)
                                         Spacer()
                                         Text("\(f.status)\(f.week.map { " · \($0)w" } ?? "")")
                                             .font(.system(size: 10, weight: .semibold))
                                             .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                                        Button(role: .destructive) {
+                                            pendingDestructive = .deleteFile(file: f)
+                                        } label: {
+                                            if deletingFileId == f.id {
+                                                ProgressView().scaleEffect(0.7)
+                                            } else {
+                                                Image(systemName: "trash")
+                                                    .font(.system(size: 12, weight: .semibold))
+                                            }
+                                        }
+                                        .buttonStyle(.plain)
+                                        .foregroundStyle(.red)
+                                        .disabled(deletingFileId != nil)
                                     }
                                     .padding(.horizontal, 12).padding(.vertical, 8)
                                 }
@@ -500,6 +551,12 @@ struct GwaTopAdminUserDetailSheet: View {
                                     }
                                 }
                             }
+
+                            if let msg = resultMessage {
+                                resultBanner(msg)
+                            }
+
+                            dangerZone
                         }
                     }
                     .padding(.horizontal, 16)
@@ -514,7 +571,141 @@ struct GwaTopAdminUserDetailSheet: View {
                 }
             }
             .task { await load() }
+            .confirmationDialog(
+                pendingDestructive?.title ?? "",
+                isPresented: Binding(
+                    get: { pendingDestructive != nil },
+                    set: { if !$0 { pendingDestructive = nil } }
+                ),
+                titleVisibility: .visible,
+                presenting: pendingDestructive
+            ) { action in
+                Button(action.title, role: .destructive) {
+                    Task { await performDestructive(action) }
+                }
+                Button("취소", role: .cancel) { pendingDestructive = nil }
+            } message: { action in
+                Text(action.description)
+            }
         }
+    }
+
+    // MARK: - 위험 영역
+
+    private var dangerZone: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("위험 영역")
+                .font(.system(size: 13, weight: .heavy))
+                .foregroundStyle(.red)
+
+            VStack(spacing: 10) {
+                destructiveButton(
+                    label: "강의계획서 데이터 리셋",
+                    subtitle: "강의계획서 파일 + 자동 일정·할 일 + 시간표 메타",
+                    icon: "doc.text.magnifyingglass",
+                    action: { pendingDestructive = .syllabusReset }
+                )
+                destructiveButton(
+                    label: "전체 학습 데이터 리셋",
+                    subtitle: "모든 파일·일정·할 일 삭제 (학기/과목/계정은 유지)",
+                    icon: "trash.fill",
+                    action: { pendingDestructive = .fullReset }
+                )
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.red.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.red.opacity(0.18), lineWidth: 1)
+        )
+    }
+
+    private func destructiveButton(label: String, subtitle: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.red)
+                    .frame(width: 32, height: 32)
+                    .background(Color.red.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(label)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(.red)
+                    Text(subtitle)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.red.opacity(0.6))
+            }
+            .padding(12)
+            .background(.white)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func resultBanner(_ msg: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            Text(msg)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.green.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    @MainActor
+    private func performDestructive(_ action: DestructiveAction) async {
+        pendingDestructive = nil
+        resultMessage = nil
+        errorMessage = nil
+        do {
+            switch action {
+            case .syllabusReset:
+                let result = try await GwaTopAdminService.shared.syllabusReset(userId: user.id)
+                resultMessage = summary("강의계획서 리셋 완료", from: result)
+            case .fullReset:
+                let result = try await GwaTopAdminService.shared.fullReset(userId: user.id)
+                resultMessage = summary("전체 리셋 완료", from: result)
+            case .deleteFile(let file):
+                deletingFileId = file.id
+                defer { deletingFileId = nil }
+                let counts = try await GwaTopAdminService.shared.deleteFile(fileId: file.id)
+                let pieces = counts.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: " · ")
+                resultMessage = "파일 삭제 완료 — \(pieces)"
+            }
+            // 상세 데이터 다시 불러오기
+            await load(silent: true)
+        } catch {
+            errorMessage = "작업 실패: \(error.localizedDescription)"
+        }
+    }
+
+    private func summary(_ prefix: String, from result: [String: GwaTopAdminResetValue]) -> String {
+        // 카운트 필드만 정렬해서 합치기 (user_email 같은 string은 한쪽에)
+        let order = ["files_deleted", "syllabus_files_deleted",
+                     "schedules_deleted", "auto_schedules_deleted",
+                     "todos_deleted", "auto_todos_deleted",
+                     "courses_reset"]
+        let parts = order.compactMap { key -> String? in
+            guard let v = result[key] else { return nil }
+            return "\(key)=\(v.summary)"
+        }
+        return "\(prefix) — \(parts.joined(separator: " · "))"
     }
 
     private var userHeader: some View {
@@ -563,9 +754,9 @@ struct GwaTopAdminUserDetailSheet: View {
     }
 
     @MainActor
-    private func load() async {
-        isLoading = true
-        defer { isLoading = false }
+    private func load(silent: Bool = false) async {
+        if !silent { isLoading = true }
+        defer { if !silent { isLoading = false } }
         do {
             detail = try await GwaTopAdminService.shared.fetchUserDetail(userId: user.id)
         } catch {

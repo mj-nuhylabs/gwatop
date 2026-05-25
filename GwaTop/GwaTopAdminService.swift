@@ -191,4 +191,45 @@ actor GwaTopAdminService {
     func fetchAllTodos() async throws -> [GwaTopAdminTodo] {
         try await GwaTopAPIClient.shared.get("/v1/admin/todos")
     }
+
+    // MARK: - 삭제 / 리셋
+
+    @discardableResult
+    func deleteFile(fileId: String) async throws -> [String: Int] {
+        try await GwaTopAPIClient.shared.deleteJSON("/v1/admin/files/\(fileId)")
+    }
+
+    @discardableResult
+    func syllabusReset(userId: String) async throws -> [String: GwaTopAdminResetValue] {
+        try await GwaTopAPIClient.shared.postEmpty("/v1/admin/users/\(userId)/syllabus-reset")
+    }
+
+    @discardableResult
+    func fullReset(userId: String) async throws -> [String: GwaTopAdminResetValue] {
+        try await GwaTopAPIClient.shared.postEmpty("/v1/admin/users/\(userId)/full-reset")
+    }
+}
+
+/// 백엔드 리셋 응답에 `user_email` 같은 문자열과 `*_deleted` 같은 정수가 섞여 있어
+/// 단일 Decodable로 받기 위한 유연한 값 컨테이너.
+enum GwaTopAdminResetValue: Decodable {
+    case int(Int)
+    case string(String)
+    case null
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if c.decodeNil() { self = .null; return }
+        if let v = try? c.decode(Int.self) { self = .int(v); return }
+        if let v = try? c.decode(String.self) { self = .string(v); return }
+        self = .null
+    }
+
+    var summary: String {
+        switch self {
+        case .int(let n):    return "\(n)"
+        case .string(let s): return s
+        case .null:          return "-"
+        }
+    }
 }

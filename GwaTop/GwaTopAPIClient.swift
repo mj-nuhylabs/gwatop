@@ -193,6 +193,16 @@ actor GwaTopAPIClient {
         return try await perform(req)
     }
 
+    /// DELETE with JSON body response (for admin endpoints that return counts).
+    func deleteJSON<Response: Decodable>(
+        _ path: String,
+        requiresAuth: Bool = true
+    ) async throws -> Response {
+        let req = try buildRequest(path: path, method: "DELETE",
+                                   body: nil as EmptyBody?, requiresAuth: requiresAuth)
+        return try await perform(req)
+    }
+
     func deleteNoContent(_ path: String, requiresAuth: Bool = true) async throws {
         let req = try buildRequest(path: path, method: "DELETE",
                                    body: nil as EmptyBody?, requiresAuth: requiresAuth)
