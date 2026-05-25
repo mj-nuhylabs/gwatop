@@ -10,6 +10,7 @@ LLM이 그 중 한두 개만 뽑고 나머지를 누락하는 경우다.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -24,9 +25,12 @@ from app.schemas.syllabus import (
     ParsedAssignment,
     ParsedExam,
     ParsedSyllabus,
+    ParsedWeek,
     SyllabusParseResult,
     SyllabusParseUsage,
 )
+from app.services import syllabus_cache
+from app.services.pdf_text import clean_syllabus_text
 
 logger = logging.getLogger(__name__)
 
@@ -244,14 +248,73 @@ async def parse_syllabus(
 ) -> SyllabusParseResult:
     """강의계획서 텍스트를 파싱하여 구조화 결과를 반환한다.
 
+    파이프라인:
+      1) clean_syllabus_text: 페이지 헤더/푸터 + 일정 이후 섹션 제거 (입력 토큰 ↓)
+      2) Redis 캐시 hit 시 즉시 반환 (SYLLABUS_CACHE_ENABLED)
+      3) OpenAI 호출:
+         - SYLLABUS_PARSE_PARALLEL=False (기본): 단일 호출
+         - SYLLABUS_PARSE_PARALLEL=True: course+weeks / exams+assignments 분리 후
+           asyncio.gather 로 병렬 (40% latency ↓, 정확도 회귀 위험 있음)
+      4) _recover_missing_events: weeks.notes 기반 누락 회수
+      5) 캐시 저장
+
     Raises:
         SyllabusParseError: API 호출 실패, JSON 파싱 실패, 스키마 검증 실패.
     """
-    cleaned = text.strip()
+    cleaned = clean_syllabus_text(text).strip()
     if not cleaned:
         raise SyllabusParseError("Empty syllabus text")
 
-    user_prompt = _build_user_prompt(_truncate(cleaned), year, term)
+    truncated = _truncate(cleaned)
+    logger.info(
+        "[PARSE] input cleaned: %d → %d chars (cleaner saved %d)",
+        len(text), len(truncated), max(0, len(text) - len(truncated)),
+    )
+
+    # 캐시 조회 — 같은 (텍스트, 학기) 조합이 최근 파싱됐으면 즉시 반환.
+    cache_key: str | None = None
+    if settings.SYLLABUS_CACHE_ENABLED:
+        cache_key = syllabus_cache.make_cache_key(truncated, year, term)
+        cached = await syllabus_cache.get_cached(cache_key)
+        if cached is not None:
+            logger.info("[PARSE] cache HIT — saved OpenAI call entirely")
+            return cached
+
+    # OpenAI 호출 (single or parallel)
+    if settings.SYLLABUS_PARSE_PARALLEL:
+        syllabus, usage = await _call_openai_parallel(truncated, year, term)
+    else:
+        syllabus, usage = await _call_openai_single(truncated, year, term)
+
+    # 누락 보완: weeks.notes 안에 시험/과제 키워드+날짜가 있는데 exams/assignments에
+    # 옮겨지지 않은 항목이 있으면 정규식으로 회수한다.
+    added_exams, added_assignments, leftovers = _recover_missing_events(syllabus, year)
+    if added_exams or added_assignments:
+        logger.info(
+            "[PARSE_RECOVERY] exams +%d, assignments +%d (GPT가 놓친 항목 보완)",
+            len(added_exams), len(added_assignments),
+        )
+        syllabus.exams.extend(added_exams)
+        syllabus.assignments.extend(added_assignments)
+    if leftovers:
+        syllabus.warnings.extend(leftovers)
+
+    result = SyllabusParseResult(syllabus=syllabus, usage=usage)
+
+    # 캐시 저장 — 다음 같은 입력은 0초.
+    if cache_key is not None:
+        await syllabus_cache.set_cached(cache_key, result)
+
+    return result
+
+
+async def _call_openai_single(
+    truncated: str,
+    year: int,
+    term: str,
+) -> tuple[ParsedSyllabus, SyllabusParseUsage]:
+    """기존 단일 호출 — 가장 안전한 경로."""
+    user_prompt = _build_user_prompt(truncated, year, term)
     client = _get_client()
 
     try:
@@ -272,40 +335,122 @@ async def parse_syllabus(
         logger.exception("OpenAI syllabus parse failed")
         raise SyllabusParseError(f"OpenAI request failed: {exc}") from exc
 
-    raw = response.choices[0].message.content or ""
+    syllabus = _validate_response_content(response.choices[0].message.content)
+    return syllabus, _usage_from_response(response)
+
+
+# 병렬 호출 시 각 호출에 덧붙이는 지시. 같은 SYSTEM_PROMPT + FEWSHOT 을 공유하되
+# user prompt 끝에서 출력 범위를 좁힌다. R1-R9 규칙은 SYSTEM_PROMPT 에서 이미 강제.
+_PARALLEL_HINT_A = (
+    "\n\n[이번 호출 한정 지시]\n"
+    "- course 와 weeks 만 정확히 채우시오.\n"
+    "- exams 와 assignments 는 반드시 빈 배열 [].\n"
+    "- weeks.notes 에는 시험/퀴즈/과제 관련 원문을 빠짐없이 보존하시오 (별도 호출에서 활용)."
+)
+_PARALLEL_HINT_B = (
+    "\n\n[이번 호출 한정 지시]\n"
+    "- exams 와 assignments 만 정확히 채우시오. R3, R4 규칙을 엄수.\n"
+    "- course 는 name 만 채우고 나머지는 null, class_times 빈 배열, total_weeks 는 16.\n"
+    "- weeks 는 반드시 빈 배열 []."
+)
+
+
+async def _call_openai_parallel(
+    truncated: str,
+    year: int,
+    term: str,
+) -> tuple[ParsedSyllabus, SyllabusParseUsage]:
+    """호출을 둘로 쪼개 asyncio.gather 로 병렬 실행.
+
+    A: course + weeks (notes 에 원문 보존)
+    B: exams + assignments + confidence + warnings
+
+    출력 토큰을 분산해 latency = max(A, B) 가 된다. 두 호출이 같은 입력을 보지만
+    서로의 결과를 모르므로 작은 불일치 가능성 있음 — recovery 가 안전망 역할.
+    """
+    user_prompt_base = _build_user_prompt(truncated, year, term)
+    client = _get_client()
+
+    async def call(extra_hint: str):
+        return await client.chat.completions.create(
+            model=settings.OPENAI_SYLLABUS_MODEL,
+            temperature=settings.OPENAI_SYLLABUS_TEMPERATURE,
+            max_tokens=settings.OPENAI_SYLLABUS_MAX_TOKENS,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": FEWSHOT_USER},
+                {"role": "assistant", "content": FEWSHOT_ASSISTANT},
+                {"role": "user", "content": user_prompt_base + extra_hint},
+            ],
+        )
+
+    try:
+        resp_a, resp_b = await asyncio.gather(
+            call(_PARALLEL_HINT_A),
+            call(_PARALLEL_HINT_B),
+        )
+    except OpenAIError as exc:
+        logger.exception("OpenAI syllabus parallel parse failed")
+        raise SyllabusParseError(f"OpenAI request failed: {exc}") from exc
+
+    syl_a = _validate_response_content(resp_a.choices[0].message.content)
+    syl_b = _validate_response_content(resp_b.choices[0].message.content)
+
+    # 병합 — course/weeks 는 A, exams/assignments 는 B. confidence 는 둘 중 낮은 쪽.
+    merged = ParsedSyllabus(
+        course=syl_a.course,
+        weeks=syl_a.weeks,
+        exams=syl_b.exams,
+        assignments=syl_b.assignments,
+        confidence=min(syl_a.confidence, syl_b.confidence),
+        warnings=list(dict.fromkeys(syl_a.warnings + syl_b.warnings)),  # 순서 보존 dedup
+    )
+
+    merged_usage = SyllabusParseUsage(
+        model=resp_a.model,
+        prompt_tokens=_safe_tok(resp_a, "prompt_tokens") + _safe_tok(resp_b, "prompt_tokens"),
+        completion_tokens=_safe_tok(resp_a, "completion_tokens") + _safe_tok(resp_b, "completion_tokens"),
+        total_tokens=_safe_tok(resp_a, "total_tokens") + _safe_tok(resp_b, "total_tokens"),
+    )
+
+    logger.info(
+        "[PARSE_PARALLEL] A(weeks=%d) + B(exams=%d, assignments=%d), tokens total=%d",
+        len(merged.weeks), len(merged.exams), len(merged.assignments), merged_usage.total_tokens,
+    )
+    return merged, merged_usage
+
+
+def _validate_response_content(raw: str | None) -> ParsedSyllabus:
+    """OpenAI 응답 content → ParsedSyllabus 검증. JSON 파싱/스키마 양쪽 다 여기서."""
+    raw = raw or ""
     try:
         payload: Any = json.loads(raw)
     except json.JSONDecodeError as exc:
         logger.error("Syllabus parser returned non-JSON: %s", raw[:500])
         raise SyllabusParseError("Model returned invalid JSON") from exc
-
     try:
-        syllabus = ParsedSyllabus.model_validate(payload)
+        return ParsedSyllabus.model_validate(payload)
     except ValidationError as exc:
         logger.error("Syllabus schema validation failed: %s", exc)
         raise SyllabusParseError(f"Schema validation failed: {exc}") from exc
 
-    # 누락 보완: weeks.notes 안에 시험/과제 키워드+날짜가 있는데 exams/assignments에
-    # 옮겨지지 않은 항목이 있으면 정규식으로 회수한다.
-    added_exams, added_assignments, leftovers = _recover_missing_events(syllabus, year)
-    if added_exams or added_assignments:
-        logger.info(
-            "[PARSE_RECOVERY] exams +%d, assignments +%d (GPT가 놓친 항목 보완)",
-            len(added_exams), len(added_assignments),
-        )
-        syllabus.exams.extend(added_exams)
-        syllabus.assignments.extend(added_assignments)
-    if leftovers:
-        syllabus.warnings.extend(leftovers)
 
-    usage = SyllabusParseUsage(
+def _usage_from_response(response) -> SyllabusParseUsage:
+    return SyllabusParseUsage(
         model=response.model,
-        prompt_tokens=response.usage.prompt_tokens if response.usage else 0,
-        completion_tokens=response.usage.completion_tokens if response.usage else 0,
-        total_tokens=response.usage.total_tokens if response.usage else 0,
+        prompt_tokens=_safe_tok(response, "prompt_tokens"),
+        completion_tokens=_safe_tok(response, "completion_tokens"),
+        total_tokens=_safe_tok(response, "total_tokens"),
     )
 
-    return SyllabusParseResult(syllabus=syllabus, usage=usage)
+
+def _safe_tok(response, attr: str) -> int:
+    """response.usage 가 None 일 때 0 으로 안전 처리."""
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return 0
+    return getattr(usage, attr, 0) or 0
 
 
 # ---------- 누락 일정 회수 (정규식 후처리) ----------

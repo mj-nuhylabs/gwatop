@@ -15,9 +15,17 @@ class Settings(BaseSettings):
     S3_BUCKET_NAME: str
     GOOGLE_CLIENT_ID: str = "166115611136-d42e728kfojf7resv9um0fcpgeffo8lp.apps.googleusercontent.com"
     OPENAI_API_KEY: str = ""
+    # 강의계획서 파싱 모델. 속도 우선이면 gpt-4.1-nano (빠르지만 약간 떨어질 수 있음),
+    # 정확도/안정성 우선이면 gpt-4o-mini (현재 기본). 둘 다 JSON mode 지원.
+    # EC2 .env 에 OPENAI_SYLLABUS_MODEL=gpt-4.1-nano 로 변경 후 워커 재시작하면 즉시 적용.
     OPENAI_SYLLABUS_MODEL: str = "gpt-4o-mini"
     OPENAI_SYLLABUS_TEMPERATURE: float = 0.1
     OPENAI_SYLLABUS_MAX_TOKENS: int = 4096
+    # 강의계획서 파싱을 course-meta / weeks+events 두 호출로 분할하여 asyncio.gather 로 병렬 실행.
+    # 출력 토큰이 분산되어 latency 30-40% 감소. 정확도 회귀 가능성이 있어 기본 OFF.
+    SYLLABUS_PARSE_PARALLEL: bool = False
+    # 동일 (extracted_text, year, term) 조합 재파싱 시 Redis 캐시 사용. 재업로드/디버그 시 0초.
+    SYLLABUS_CACHE_ENABLED: bool = True
 
     # --- Day 4: 강의 자료 자동 분류 ---
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
