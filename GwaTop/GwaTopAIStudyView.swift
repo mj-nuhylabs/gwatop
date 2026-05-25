@@ -97,7 +97,7 @@ struct GwaTopAIStudyView: View {
                 GwaTopCourseMaterialsView()
                     .presentationDetents([.large])
             }
-            .onChange(of: selectedContent.id) { _ in
+            .onChange(of: selectedContent.id) { _, _ in
                 resetInteractiveStates()
             }
         }
@@ -344,7 +344,9 @@ struct GwaTopAIStudyView: View {
                             )
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-                        .rotation3DEffect(.degrees(isFlashcardFlipped ? 0 : 0), axis: (x: 0, y: 1, z: 0))
+                        // 카드 뒤집기 — 0° (앞면) / 180° (뒷면)
+                        .rotation3DEffect(.degrees(isFlashcardFlipped ? 180 : 0), axis: (x: 0, y: 1, z: 0))
+                        .animation(.easeInOut(duration: 0.45), value: isFlashcardFlipped)
                     }
                     .buttonStyle(.plain)
 
@@ -407,11 +409,13 @@ struct GwaTopAIStudyView: View {
                     // 추후 POST /ai/chat API로 연결합니다.
                 } label: {
                     HStack {
-                        Text("AI 튜터에게 질문하기")
+                        Text("AI 튜터 (준비 중)")
                         Image(systemName: "paperplane.fill")
                     }
                 }
                 .buttonStyle(GwaTopPrimaryButtonStyle())
+                .disabled(true)
+                .opacity(0.5)
             }
             .padding(16)
             .background(.white)

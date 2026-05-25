@@ -55,16 +55,26 @@ async def social_login(body: SocialLoginRequest, db: AsyncSession = Depends(get_
     if body.provider != "google":
         raise HTTPException(400, detail={"error": "unsupported_provider", "message": "Google 로그인만 지원합니다."})
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
-        resp = await client.get(
-            "https://oauth2.googleapis.com/tokeninfo",
-            params={"id_token": body.id_token},
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+            resp = await client.get(
+                "https://oauth2.googleapis.com/tokeninfo",
+                params={"id_token": body.id_token},
+            )
+    except httpx.HTTPError:
+        # 네트워크 오류/타임아웃 — 우리 책임은 아니지만 사용자에게는 401처럼 보이게 한다.
+        raise HTTPException(
+            503,
+            detail={"error": "google_unreachable", "message": "Google 인증 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요."},
         )
 
     if resp.status_code != 200:
         raise HTTPException(401, detail={"error": "invalid_token", "message": "Google 토큰이 유효하지 않습니다."})
 
-    token_data = resp.json()
+    try:
+        token_data = resp.json()
+    except ValueError:
+        raise HTTPException(502, detail={"error": "google_response", "message": "Google 응답을 해석하지 못했어요."})
 
     if settings.GOOGLE_CLIENT_ID and token_data.get("aud") != settings.GOOGLE_CLIENT_ID:
         raise HTTPException(401, detail={"error": "invalid_token", "message": "토큰의 대상 앱이 올바르지 않습니다."})

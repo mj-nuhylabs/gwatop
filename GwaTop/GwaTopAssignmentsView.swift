@@ -262,6 +262,15 @@ struct GwaTopAssignmentsView: View {
         }
     }
 
+    /// 원래 status로 명시 복원 — 외부 reload 등으로 중간에 상태가 바뀌어도 toggle 누적 오차 없음.
+    @MainActor
+    private func restoreStatus(id: String, status: GwaTopAssignmentStatus) {
+        guard let index = assignments.firstIndex(where: { $0.id == id }) else { return }
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+            assignments[index].status = status
+        }
+    }
+
     private var headerCard: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top) {
@@ -361,7 +370,8 @@ struct GwaTopAssignmentsView: View {
         guard !togglingIds.contains(assignment.id) else { return }
         togglingIds.insert(assignment.id)
 
-        // optimistic update — 실패 시 롤백
+        // optimistic update — 실패 시 원래 status로 복원.
+        let originalStatus = assignment.status
         applyOptimisticToggle(assignment)
         Task {
             defer { Task { @MainActor in togglingIds.remove(assignment.id) } }
@@ -379,7 +389,7 @@ struct GwaTopAssignmentsView: View {
             } catch {
                 await MainActor.run {
                     if isCancellation(error) { return }
-                    applyOptimisticToggle(assignment)  // 롤백
+                    restoreStatus(id: assignment.id, status: originalStatus)
                     loadError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                 }
             }

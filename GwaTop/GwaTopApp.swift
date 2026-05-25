@@ -6,21 +6,10 @@
 //
 
 import SwiftUI
-import SwiftData
 import GoogleSignIn
 
 @main
 struct GwaTopApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([Item.self])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
-
     init() {
         configureGoogleSignIn()
     }
@@ -32,7 +21,6 @@ struct GwaTopApp: App {
                     GIDSignIn.sharedInstance.handle(url)
                 }
         }
-        .modelContainer(sharedModelContainer)
     }
 
     private func configureGoogleSignIn() {

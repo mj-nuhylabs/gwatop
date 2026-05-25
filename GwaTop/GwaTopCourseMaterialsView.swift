@@ -24,7 +24,7 @@ struct GwaTopCourseMaterialsView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(red: 0.96, green: 0.97, blue: 1.0).ignoresSafeArea()
+                GwaTopHomeTheme.background.ignoresSafeArea()
 
                 ScrollView {
                     VStack(spacing: 18) {
@@ -70,7 +70,7 @@ struct GwaTopCourseMaterialsView: View {
             .task {
                 await loadCoursesIfNeeded()
             }
-            .onChange(of: selectedCourseId) { _ in
+            .onChange(of: selectedCourseId) { _, _ in
                 Task { await reloadFiles() }
             }
             .sheet(item: $selectedFileForNote) { file in

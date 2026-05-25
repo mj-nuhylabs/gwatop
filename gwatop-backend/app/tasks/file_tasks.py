@@ -116,6 +116,15 @@ async def _run_extract(file_id: str, SessionLocal) -> None:
                 return
 
         file_row.extracted_text = text
+        # 강의계획서인데 텍스트가 비어 있으면(=PyMuPDF가 빈 결과 반환) parse를 트리거할 수 없다.
+        # 그대로 'extracted' 로 두면 사용자가 영원히 "처리 중"으로 보게 되니 명시적으로 실패 처리.
+        if file_row.is_syllabus and not (text and text.strip()):
+            await _mark_failed(
+                session, file_row,
+                "강의계획서에서 텍스트를 추출하지 못했어요. PDF가 이미지로만 이루어져 있는지 확인해 주세요.",
+            )
+            return
+
         file_row.status = "extracted"
         await session.commit()
 
@@ -529,6 +538,13 @@ async def _run_classify(file_id: str, SessionLocal) -> None:
             logger.info("classify_file: skip syllabus file %s", file_id)
             return
 
+        # course_id가 None인 케이스 방어 — syllabus 외 일반 자료는 보통 course_id가 채워져 있지만,
+        # race condition 또는 데이터 정합성 이슈로 None이 들어오면 session.get(Course, None) 이
+        # InvalidRequestError 를 던진다. 미리 막는다.
+        if file_row.course_id is None:
+            await _mark_failed(session, file_row, "course_id가 비어 있어 자동 분류를 진행할 수 없습니다.")
+            return
+
         course = await session.get(Course, file_row.course_id)
         if course is None:
             await _mark_failed(session, file_row, "Course not found")
@@ -541,11 +557,19 @@ async def _run_classify(file_id: str, SessionLocal) -> None:
             course.weekly_topic_embeddings or []
         )
 
-        result = await classify_file(
-            filename=file_row.filename or "",
-            extracted_text=file_row.extracted_text,
-            week_embeddings=week_embeddings,
-        )
+        # OpenAI 호출이 실패해도 task 자체는 죽지 않도록 wrap. classify_by_embedding 은
+        # 내부에서 EmbeddingClassifierError를 swallow하지만, 다른 경로에서 raw OpenAIError가
+        # 새는 것을 대비한 안전망.
+        try:
+            result = await classify_file(
+                filename=file_row.filename or "",
+                extracted_text=file_row.extracted_text,
+                week_embeddings=week_embeddings,
+            )
+        except Exception as exc:
+            logger.exception("classify_file: 예상치 못한 오류 file=%s", file_id)
+            await _mark_failed(session, file_row, f"자동 분류 실패: {exc}")
+            return
 
         logger.info(
             "[CLASSIFY] file=%s filename=%r source=%s week=%s confidence=%.3f detail=%s",

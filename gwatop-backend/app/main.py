@@ -10,12 +10,18 @@ from app.api.v1.routes.schedules import router as schedules_router
 from app.api.v1.routes.todos import router as todos_router
 from app.api.v1.routes.home import router as home_router
 from app.api.v1.routes.devices import router as devices_router
+from app.core.config import settings
 
 app = FastAPI(title="GwaTop API", version="1.0.0", docs_url="/docs", redoc_url="/redoc")
 
+# CORS: 와일드카드를 쓰면 allow_credentials=False가 강제됨. 운영에서는
+# settings.ALLOWED_ORIGINS 에 도메인 화이트리스트를 명시해야 한다.
+_origins = settings.allowed_origins_list
+_allow_credentials = _origins != ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_origins,
+    allow_credentials=_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )

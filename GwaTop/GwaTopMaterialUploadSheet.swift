@@ -35,7 +35,7 @@ struct GwaTopMaterialUploadSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(red: 0.96, green: 0.97, blue: 1.0).ignoresSafeArea()
+                GwaTopHomeTheme.background.ignoresSafeArea()
 
                 ScrollView {
                     VStack(spacing: 22) {

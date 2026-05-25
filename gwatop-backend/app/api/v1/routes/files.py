@@ -1,9 +1,11 @@
+import logging
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.api.v1.dependencies import get_current_user
 from app.api.v1.deps_owned import owned_course, owned_file
@@ -14,6 +16,8 @@ from app.models.file import File
 from app.schemas.file import PresignedUrlRequest, PresignedUrlResponse, FileResponse, FileConfirmResponse
 from app.services import s3
 from app.tasks.file_tasks import classify_file_task, extract_text_task
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Files"])
 
@@ -26,6 +30,31 @@ CONTENT_TYPES = {
 }
 
 
+def _validate_upload(body: PresignedUrlRequest) -> None:
+    """업로드 정책 검증 — 크기 상한 + file_type 화이트리스트.
+
+    presigned URL을 받으면 S3에 임의 사이즈를 PUT 할 수 있게 되므로,
+    URL 발급 단계에서 미리 거부한다(완벽한 방어는 아니지만 일반 사용자 보호).
+    """
+    if body.file_size_bytes <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="file_size_bytes must be > 0",
+        )
+    if body.file_size_bytes > settings.MAX_UPLOAD_BYTES:
+        max_mb = settings.MAX_UPLOAD_BYTES // (1024 * 1024)
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"파일 크기가 너무 큽니다. 최대 {max_mb}MB까지 업로드할 수 있어요.",
+        )
+    allowed = settings.allowed_file_types_set
+    if body.file_type not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=f"지원하지 않는 파일 형식입니다. 허용: {sorted(allowed)}",
+        )
+
+
 @router.post("/courses/{course_id}/files/presigned-url", response_model=PresignedUrlResponse, status_code=status.HTTP_201_CREATED)
 async def get_presigned_url(
     course_id: uuid.UUID,
@@ -34,6 +63,7 @@ async def get_presigned_url(
     db: AsyncSession = Depends(get_db),
 ):
     await owned_course(course_id, current_user, db)
+    _validate_upload(body)
 
     storage_key = s3.build_storage_key(str(current_user.id), body.filename)
     content_type = CONTENT_TYPES.get(body.file_type, "application/octet-stream")
@@ -41,6 +71,7 @@ async def get_presigned_url(
     try:
         upload_url = s3.generate_presigned_put_url(storage_key, content_type)
     except Exception:
+        logger.exception("presigned URL 발급 실패 user=%s course=%s", current_user.id, course_id)
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Failed to generate upload URL")
 
     file_record = File(
@@ -105,12 +136,15 @@ async def get_syllabus_presigned_url(
     file row의 course_id는 NULL 상태로 만들어지고, parse 단계에서 자동 결정된다.
     is_syllabus 는 항상 True로 강제 (이 경로는 syllabus 전용).
     """
+    _validate_upload(body)
+
     storage_key = s3.build_storage_key(str(current_user.id), body.filename)
     content_type = CONTENT_TYPES.get(body.file_type, "application/octet-stream")
 
     try:
         upload_url = s3.generate_presigned_put_url(storage_key, content_type)
     except Exception:
+        logger.exception("presigned URL 발급 실패 (syllabus) user=%s", current_user.id)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Failed to generate upload URL",
@@ -177,10 +211,12 @@ async def file_debug(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """업로드된 파일의 처리 상태 + 생성된 schedules를 한 번에 보여주는 디버그용 엔드포인트.
+    """업로드된 파일의 처리 상태 + 생성된 schedules + 추출 텍스트 미리보기를
+    한 번에 돌려준다. iOS GwaTopFileNoteView가 사용한다.
 
-    iOS/curl에서 호출:
-        GET /v1/files/{file_id}/debug
+    소유권은 owned_file로 검증되므로 다른 사용자의 파일은 못 본다.
+    TODO(P2): 이름이 'debug'라 오해 소지가 있음 — 향후 /v1/files/{id} 로 이름 변경하고
+              iOS 클라이언트도 함께 마이그레이션.
     """
     from app.models.schedule import Schedule
 
