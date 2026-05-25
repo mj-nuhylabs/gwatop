@@ -136,6 +136,11 @@ struct GwaTopCalendarView: View {
                     didInitialLoad = true
                     await reload()
                 }
+                // Fail-safe: GwaTopApp 의 .task / .onChange(scenePhase) 가 어떤 이유로든
+                // watcher 를 시작 못한 경우를 대비해, 캘린더 진입 시점에도 명시적으로 호출.
+                // startWatching 은 idempotent 라 중복 호출 무해.
+                print("[Calendar] .task — calling syllabusWatcher.startWatching()")
+                syllabusWatcher.startWatching()
             }
             .refreshable {
                 await reload()
@@ -143,7 +148,9 @@ struct GwaTopCalendarView: View {
             }
             // 강의계획서 파싱이 끝나면 watcher 가 알림. 사용자가 캘린더에 있던 없던
             // 다음 진입 시점에 최신 데이터가 보이도록 reload + courses 도 새로 로드.
-            .onReceive(NotificationCenter.default.publisher(for: .syllabusParseCompleted)) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: .syllabusParseCompleted)) { notif in
+                let fid = (notif.userInfo?["file_id"] as? String) ?? "?"
+                print("[Calendar] received .syllabusParseCompleted file_id=\(fid) — reloading events + courses")
                 Task {
                     await reload(jumpToLatest: true)
                     await loadCoursesIfNeeded(force: true)
