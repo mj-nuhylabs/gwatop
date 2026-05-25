@@ -180,8 +180,6 @@ struct GwaTopCalendarView: View {
 
     private var calendarTabContent: some View {
         VStack(spacing: 18) {
-            calendarHeader
-
             if isLoading {
                 loadingBanner
             } else if let msg = loadErrorMessage {
@@ -293,41 +291,6 @@ struct GwaTopCalendarView: View {
             displayedMonth = event.startDate
             selectedDate = event.startDate
         }
-    }
-
-    private var calendarHeader: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 7) {
-                    Text("월간 일정")
-                        .font(.system(size: 24, weight: .heavy, design: .rounded))
-                        .foregroundStyle(.white)
-
-                    Text("시험, 과제, 강의 일정을 과목 색상으로 확인하세요")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.84))
-                }
-
-                Spacer()
-
-                Image(systemName: "calendar")
-                    .font(.system(size: 25, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 58, height: 58)
-                    .background(.white.opacity(0.16))
-                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            }
-
-            HStack(spacing: 10) {
-                GwaTopCalendarHeaderMetric(title: "전체", value: "\(events.count)", unit: "개")
-                GwaTopCalendarHeaderMetric(title: "이번 달", value: "\(eventsInDisplayedMonth.count)", unit: "개")
-                GwaTopCalendarHeaderMetric(title: "AI 자동", value: "\(events.filter { $0.source == "ai_parsed" }.count)", unit: "개")
-            }
-        }
-        .padding(20)
-        .background(GwaTopHomeTheme.primaryGradient)
-        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .shadow(color: GwaTopHomeTheme.primary.opacity(0.22), radius: 18, x: 0, y: 12)
     }
 
     private var eventsInDisplayedMonth: [GwaTopCalendarEvent] {
@@ -598,33 +561,6 @@ private struct GwaTopCalendarDay: Identifiable, Equatable {
 
     var dayNumber: String {
         String(Calendar.current.component(.day, from: date))
-    }
-}
-
-private struct GwaTopCalendarHeaderMetric: View {
-    let title: String
-    let value: String
-    let unit: String
-
-    var body: some View {
-        VStack(spacing: 4) {
-            Text(title)
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(.white.opacity(0.72))
-
-            HStack(alignment: .firstTextBaseline, spacing: 2) {
-                Text(value)
-                    .font(.system(size: 18, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.white)
-                Text(unit)
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.84))
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
-        .background(.white.opacity(0.14))
-        .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
     }
 }
 
