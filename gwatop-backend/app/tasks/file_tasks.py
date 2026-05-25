@@ -37,6 +37,7 @@ from app.models.semester import Semester
 from app.models.todo import Todo
 from app.models.user import User
 from app.schemas.syllabus import ParsedAssignment, ParsedExam, ParsedSyllabus, ParsedWeek
+from app.core.config import settings
 from app.services import s3
 from app.services.classification import classify_file
 from app.services.embedding_classifier import (
@@ -46,7 +47,7 @@ from app.services.embedding_classifier import (
     serialize_week_embeddings,
 )
 from app.services.course_matcher import CourseMatchError, match_or_create_course
-from app.services.pdf_text import extract_text_from_pdf_bytes
+from app.services.pdf_text import extract_tables_from_pdf, extract_text_from_pdf_bytes
 from app.services.syllabus_parser import SyllabusParseError, parse_syllabus
 from app.services.todo_generator import build_auto_todos
 from app.tasks.celery_app import celery_app
@@ -186,8 +187,32 @@ async def _run_parse_syllabus(file_id: str, SessionLocal) -> None:
         file_row.status = "parsing"
         await session.commit()
 
+        # 표 추출 시도 — 성공 시 LLM 호출이 작아져 latency 절반 감소.
+        # 실패해도 fallback (전체 LLM 호출) 으로 안전하게 진행.
+        prefilled_weeks = None
+        if settings.SYLLABUS_TABLE_EXTRACTION_ENABLED and file_row.file_type == "pdf":
+            try:
+                pdf_bytes = await asyncio.to_thread(s3.download_to_bytes, file_row.s3_key)
+                prefilled_weeks = await asyncio.to_thread(extract_tables_from_pdf, pdf_bytes)
+                if prefilled_weeks:
+                    logger.info(
+                        "[PARSE_DEBUG] table extraction success: %d weeks pre-filled",
+                        len(prefilled_weeks),
+                    )
+                else:
+                    logger.info("[PARSE_DEBUG] table extraction empty — LLM fallback")
+            except Exception as exc:
+                # 표 추출은 best-effort. S3 재다운로드 실패 / PyMuPDF 예외 등은 무시.
+                logger.warning("[PARSE_DEBUG] table extraction failed (%s) — LLM fallback", exc)
+                prefilled_weeks = None
+
         try:
-            result = await parse_syllabus(file_row.extracted_text, year=year, term=term)
+            result = await parse_syllabus(
+                file_row.extracted_text,
+                year=year,
+                term=term,
+                prefilled_weeks=prefilled_weeks,
+            )
         except SyllabusParseError as exc:
             logger.exception("parse_syllabus failed for %s", file_id)
             await _mark_failed(session, file_row, f"Syllabus parse failed: {exc}")

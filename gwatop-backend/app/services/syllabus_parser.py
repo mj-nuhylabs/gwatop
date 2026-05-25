@@ -245,6 +245,8 @@ async def parse_syllabus(
     text: str,
     year: int,
     term: str,
+    *,
+    prefilled_weeks: list[ParsedWeek] | None = None,
 ) -> SyllabusParseResult:
     """강의계획서 텍스트를 파싱하여 구조화 결과를 반환한다.
 
@@ -252,11 +254,16 @@ async def parse_syllabus(
       1) clean_syllabus_text: 페이지 헤더/푸터 + 일정 이후 섹션 제거 (입력 토큰 ↓)
       2) Redis 캐시 hit 시 즉시 반환 (SYLLABUS_CACHE_ENABLED)
       3) OpenAI 호출:
-         - SYLLABUS_PARSE_PARALLEL=False (기본): 단일 호출
-         - SYLLABUS_PARSE_PARALLEL=True: course+weeks / exams+assignments 분리 후
-           asyncio.gather 로 병렬 (40% latency ↓, 정확도 회귀 위험 있음)
+         - prefilled_weeks 가 있으면 minimal 경로 (course+events만 LLM)
+         - SYLLABUS_PARSE_PARALLEL=True: 단일 호출을 둘로 분할
+         - 기본: 단일 호출
       4) _recover_missing_events: weeks.notes 기반 누락 회수
       5) 캐시 저장
+
+    Args:
+        prefilled_weeks: PyMuPDF 표 추출이 성공해서 미리 채워진 ParsedWeek list.
+            제공 시 LLM 은 course meta + exams/assignments 만 추출하면 되므로
+            출력 토큰이 크게 줄어들고 latency 절반 가까이 감소.
 
     Raises:
         SyllabusParseError: API 호출 실패, JSON 파싱 실패, 스키마 검증 실패.
@@ -271,17 +278,23 @@ async def parse_syllabus(
         len(text), len(truncated), max(0, len(text) - len(truncated)),
     )
 
-    # 캐시 조회 — 같은 (텍스트, 학기) 조합이 최근 파싱됐으면 즉시 반환.
+    # 캐시 조회 — 같은 (텍스트, 학기, prefilled 유무) 조합이 최근 파싱됐으면 즉시 반환.
+    # prefilled 유무를 키에 포함해서 hybrid/full 결과가 섞이지 않게 한다.
     cache_key: str | None = None
     if settings.SYLLABUS_CACHE_ENABLED:
-        cache_key = syllabus_cache.make_cache_key(truncated, year, term)
+        cache_marker = f"hybrid_{len(prefilled_weeks)}" if prefilled_weeks else "full"
+        cache_key = syllabus_cache.make_cache_key(truncated, year, f"{term}|{cache_marker}")
         cached = await syllabus_cache.get_cached(cache_key)
         if cached is not None:
             logger.info("[PARSE] cache HIT — saved OpenAI call entirely")
             return cached
 
-    # OpenAI 호출 (single or parallel)
-    if settings.SYLLABUS_PARSE_PARALLEL:
+    # OpenAI 호출 — prefilled weeks 가 있으면 minimal 호출 (가장 빠름)
+    if prefilled_weeks:
+        syllabus, usage = await _call_openai_with_prefilled(
+            truncated, year, term, prefilled_weeks,
+        )
+    elif settings.SYLLABUS_PARSE_PARALLEL:
         syllabus, usage = await _call_openai_parallel(truncated, year, term)
     else:
         syllabus, usage = await _call_openai_single(truncated, year, term)
@@ -306,6 +319,135 @@ async def parse_syllabus(
         await syllabus_cache.set_cached(cache_key, result)
 
     return result
+
+
+# prefilled_weeks 가 있을 때 사용하는 minimal 시스템 프롬프트.
+# weeks 는 이미 PyMuPDF 표 추출로 채워졌으므로 LLM 에 요청하지 않는다.
+# course meta + exams + assignments 만 추출 → 출력 토큰 50%+ 절약.
+SYSTEM_PROMPT_MINIMAL = """당신은 한국 대학교 강의계획서(syllabus)의 일부 정보를 구조화 JSON으로 추출하는 파서입니다.
+주차표는 이미 별도로 추출되어 입력에 포함되어 있습니다. 당신은 course 메타데이터와 시험/과제 일정만 추출하면 됩니다.
+
+# 1. 추출 대상 (이 호출에서만)
+
+- course: 과목명, 담당교수, 학점, 강의실, 정규 강의 시간(class_times), total_weeks
+- exams:  중간/기말/쪽지시험/퀴즈/발표시험 등 평가 일정
+- assignments: 보고서/과제의 **출제일과 마감일** (각각 별개 항목)
+- weeks: 반드시 빈 배열 []. 주차 정보는 시스템이 별도로 채웁니다.
+
+# 2. 절대 어기면 안 되는 규칙
+
+(R1) 출력은 JSON 객체 1개. 다른 텍스트·코드펜스·주석 금지.
+
+(R2) 한 셀/한 줄에 여러 일정이 적혀 있으면 모두 분리. "6/10 퀴즈 1 / 6/12 과제 1 출제" → 별도 항목 두 개.
+
+(R3) **퀴즈/쪽지시험/미니테스트는 exams 에**, **과제 출제/마감은 assignments 에**.
+     title 예: "퀴즈 1", "중간고사", "과제 1 출제", "과제 1 마감".
+
+(R4) **과제의 출제일과 마감일은 각각 별개 항목.** 묶지 마라.
+     - title 은 반드시 "과제 N 출제" 또는 "과제 N 마감" 으로 끝나야 한다.
+     - '제출/Due/까지' 는 '마감'으로 간주.
+
+(R5) 날짜는 학기 컨텍스트(연도/학기)로 절대 날짜화. "6/22" → "2026-06-22".
+
+(R6) 추측 금지. 명시되지 않은 시간/위치/마감은 null.
+
+(R7) 입력에 제공된 주차표(prefilled weeks)의 notes 안에도 시험/과제가 있다.
+     반드시 그것도 exams/assignments 에 옮기고, weeks 자체는 빈 배열로 둔다.
+
+(R8) confidence:
+     - 모든 시험/퀴즈/과제 마감을 빠짐없이 추출했으면 0.85~1.0
+     - 일부 누락 의심이면 0.5~0.75
+
+# 3. 출력 JSON 스키마
+
+{
+  "course": {
+    "name": string,
+    "professor": string|null,
+    "credit": integer|null,
+    "location": string|null,
+    "class_times": [
+      {"day": "MON"|"TUE"|"WED"|"THU"|"FRI"|"SAT"|"SUN", "start_time": "HH:MM", "end_time": "HH:MM"}
+    ],
+    "total_weeks": integer
+  },
+  "weeks": [],
+  "exams": [
+    {"title": string, "exam_date": "YYYY-MM-DD"|null, "start_time": "HH:MM"|null,
+     "end_time": "HH:MM"|null, "location": string|null, "description": string|null}
+  ],
+  "assignments": [
+    {"title": string, "due_date": "YYYY-MM-DD"|null, "description": string|null}
+  ],
+  "confidence": number,
+  "warnings": [string]
+}
+"""
+
+
+async def _call_openai_with_prefilled(
+    truncated: str,
+    year: int,
+    term: str,
+    prefilled_weeks: list[ParsedWeek],
+) -> tuple[ParsedSyllabus, SyllabusParseUsage]:
+    """표 추출로 weeks 가 이미 채워진 경로 — LLM은 course meta + 일정만 만든다.
+
+    출력에서 weeks 가 빠지고 (1000+ 토큰 절감) few-shot 도 더 작은 걸 쓰므로
+    입력/출력 양쪽 다 줄어 latency 가 큰 폭으로 감소.
+    """
+    # weeks 컨텍스트를 user prompt 에 압축해서 같이 제공.
+    # notes 가 LLM의 exams/assignments 추출 단서가 된다.
+    weeks_context = json.dumps(
+        [
+            {"w": w.week_number, "t": w.topic, "n": w.notes}
+            for w in prefilled_weeks
+        ],
+        ensure_ascii=False,
+    )
+
+    term_label = {
+        "1": "1학기", "2": "2학기",
+        "summer": "여름 계절학기", "winter": "겨울 계절학기",
+    }.get(term, term)
+
+    user_prompt = (
+        f"[학기 컨텍스트]\n연도: {year}\n학기: {term_label}\n\n"
+        f"[강의계획서 원문]\n{truncated}\n\n"
+        f"[이미 추출된 주차표 (참고용)]\n{weeks_context}\n\n"
+        "위 정보로 course 메타와 시험/과제 일정만 JSON으로 채우시오. "
+        "weeks 는 빈 배열로 두시오. "
+        "주차표 notes 안에 적혀 있는 시험/퀴즈/과제 일정도 빠짐없이 exams/assignments 로 옮기시오."
+    )
+
+    client = _get_client()
+    try:
+        response = await client.chat.completions.create(
+            model=settings.OPENAI_SYLLABUS_MODEL,
+            temperature=settings.OPENAI_SYLLABUS_TEMPERATURE,
+            max_tokens=settings.OPENAI_SYLLABUS_MAX_TOKENS,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT_MINIMAL},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+    except OpenAIError as exc:
+        logger.exception("OpenAI syllabus (prefilled) parse failed")
+        raise SyllabusParseError(f"OpenAI request failed: {exc}") from exc
+
+    syllabus = _validate_response_content(response.choices[0].message.content)
+
+    # LLM 이 weeks 를 비우라고 했어도 안 비우는 경우가 있음 → 강제로 prefilled 로 덮어쓴다.
+    # (PyMuPDF 가 셀 경계 그대로 잡은 게 더 정확하다.)
+    syllabus.weeks = list(prefilled_weeks)
+
+    logger.info(
+        "[PARSE_PREFILLED] weeks=%d (from PyMuPDF) exams=%d assignments=%d tokens=%d",
+        len(syllabus.weeks), len(syllabus.exams), len(syllabus.assignments),
+        _safe_tok(response, "total_tokens"),
+    )
+    return syllabus, _usage_from_response(response)
 
 
 async def _call_openai_single(

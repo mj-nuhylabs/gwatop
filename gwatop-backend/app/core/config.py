@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     SYLLABUS_PARSE_PARALLEL: bool = False
     # 동일 (extracted_text, year, term) 조합 재파싱 시 Redis 캐시 사용. 재업로드/디버그 시 0초.
     SYLLABUS_CACHE_ENABLED: bool = True
+    # PyMuPDF find_tables() 로 주차표를 직접 추출. 성공하면 weeks 부분 LLM 호출을 생략하여
+    # latency 50% 가까이 감소. 표가 깔끔하지 않은 PDF 는 자동으로 LLM 단일 호출로 fallback.
+    # 정확도 회귀 위험 보수적 처리 — EC2 .env 에서 활성화한다.
+    SYLLABUS_TABLE_EXTRACTION_ENABLED: bool = False
 
     # --- Day 4: 강의 자료 자동 분류 ---
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
