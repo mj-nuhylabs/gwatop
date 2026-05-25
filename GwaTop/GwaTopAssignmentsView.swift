@@ -120,7 +120,9 @@ struct GwaTopAssignmentsView: View {
         let isCollapsed = collapsedCourseIds.contains(group.course.id)
         VStack(spacing: 12) {
             Button {
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                // 펴기/접기는 부드러운 ease-in-out — spring은 콘텐츠가 튕기는 느낌을 만든다.
+                // 화면 위 바깥에서 슬라이드 끌어오는 .move(edge:.top) 도 제거 — 단순 fade로 충분.
+                withAnimation(.easeInOut(duration: 0.22)) {
                     if isCollapsed {
                         collapsedCourseIds.remove(group.course.id)
                     } else {
@@ -141,7 +143,8 @@ struct GwaTopAssignmentsView: View {
                         )
                     }
                 }
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                // 슬라이드 in/out 제거 → 자연스러운 fade. 위에서 떨어지는 듯한 튕김 현상 해소.
+                .transition(.opacity)
             }
         }
     }
