@@ -11,6 +11,8 @@ struct GwaTopAssignmentsView: View {
     /// 동시에 다중 토글이 일어나는 걸 막기 위한 진행중 id 집합. 빠른 더블탭 시
     /// 두 번째 요청은 무시되어 응답 순서가 뒤집혀도 UI가 잘못 고정되지 않는다.
     @State private var togglingIds: Set<String> = []
+    /// 접힌 과목 그룹의 course.id 집합. 기본값 비어 있음(모두 펼침).
+    @State private var collapsedCourseIds: Set<String> = []
 
     /// priority 정렬 가중치 (high가 먼저)
     private static func priorityWeight(_ p: GwaTopAssignmentPriority) -> Int {
@@ -38,6 +40,23 @@ struct GwaTopAssignmentsView: View {
             return sortedByPriorityThenDate(assignments.filter { !$0.isCompleted })
         case .completed:
             return assignments.filter { $0.isCompleted }.sorted { $0.dueDate < $1.dueDate }
+        }
+    }
+
+    /// 필터 적용된 과제를 과목별로 묶어서 정렬한 결과.
+    /// 정렬 기준: (1) 활성 항목의 최소 마감일이 빠른 과목 우선, (2) 과목명 알파벳 순.
+    private var groupedAssignments: [GwaTopAssignmentCourseGroup] {
+        let base = filteredAssignments
+        let bucket = Dictionary(grouping: base, by: { $0.course.id })
+        return bucket.compactMap { _, items -> GwaTopAssignmentCourseGroup? in
+            guard let first = items.first else { return nil }
+            return GwaTopAssignmentCourseGroup(course: first.course, assignments: items)
+        }
+        .sorted { lhs, rhs in
+            let lhsKey = lhs.assignments.filter { !$0.isCompleted }.map(\.dueDate).min() ?? .distantFuture
+            let rhsKey = rhs.assignments.filter { !$0.isCompleted }.map(\.dueDate).min() ?? .distantFuture
+            if lhsKey != rhsKey { return lhsKey < rhsKey }
+            return lhs.course.name < rhs.course.name
         }
     }
 
@@ -71,18 +90,13 @@ struct GwaTopAssignmentsView: View {
                             errorState(err)
                         } else if isLoading && assignments.isEmpty {
                             loadingState
+                        } else if filteredAssignments.isEmpty {
+                            emptyState
                         } else {
-                            VStack(spacing: 12) {
-                                ForEach(filteredAssignments) { assignment in
-                                    GwaTopAssignmentCard(
-                                        assignment: assignment,
-                                        onToggle: { toggleAssignment(assignment) }
-                                    )
+                            VStack(spacing: 20) {
+                                ForEach(groupedAssignments) { group in
+                                    courseGroupSection(group)
                                 }
-                            }
-
-                            if filteredAssignments.isEmpty {
-                                emptyState
                             }
                         }
                     }
@@ -98,6 +112,83 @@ struct GwaTopAssignmentsView: View {
                 if assignments.isEmpty { await load() }
             }
         }
+    }
+
+    /// 과목별 그룹 섹션. 헤더 탭 → 접기/펴기 토글.
+    @ViewBuilder
+    private func courseGroupSection(_ group: GwaTopAssignmentCourseGroup) -> some View {
+        let isCollapsed = collapsedCourseIds.contains(group.course.id)
+        VStack(spacing: 12) {
+            Button {
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                    if isCollapsed {
+                        collapsedCourseIds.remove(group.course.id)
+                    } else {
+                        collapsedCourseIds.insert(group.course.id)
+                    }
+                }
+            } label: {
+                courseGroupHeader(group, isCollapsed: isCollapsed)
+            }
+            .buttonStyle(.plain)
+
+            if !isCollapsed {
+                VStack(spacing: 12) {
+                    ForEach(group.assignments) { assignment in
+                        GwaTopAssignmentCard(
+                            assignment: assignment,
+                            onToggle: { toggleAssignment(assignment) }
+                        )
+                    }
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+    }
+
+    private func courseGroupHeader(_ group: GwaTopAssignmentCourseGroup, isCollapsed: Bool) -> some View {
+        let activeCount = group.assignments.filter { !$0.isCompleted }.count
+        let total = group.assignments.count
+        return HStack(spacing: 12) {
+            Image(systemName: group.course.iconName)
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 38, height: 38)
+                .background(group.course.color)
+                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(group.course.name)
+                    .font(.system(size: 16, weight: .heavy))
+                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                Text(activeCount > 0 ? "남은 과제 \(activeCount)개" : "모두 완료 ✓")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(activeCount > 0 ? GwaTopHomeTheme.textSecondary : GwaTopHomeTheme.success)
+            }
+
+            Spacer()
+
+            Text("\(total)")
+                .font(.system(size: 13, weight: .heavy, design: .rounded))
+                .foregroundStyle(group.course.color)
+                .frame(minWidth: 26, minHeight: 26)
+                .padding(.horizontal, 8)
+                .background(group.course.color.opacity(0.12))
+                .clipShape(Capsule())
+
+            Image(systemName: "chevron.down")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                .rotationEffect(.degrees(isCollapsed ? -90 : 0))
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(.white)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(group.course.color.opacity(0.18), lineWidth: 1)
+        )
     }
 
     private var loadingState: some View {
@@ -294,6 +385,12 @@ struct GwaTopAssignmentsView: View {
             }
         }
     }
+}
+
+private struct GwaTopAssignmentCourseGroup: Identifiable {
+    let course: GwaTopCourseSummary
+    let assignments: [GwaTopAssignment]
+    var id: String { course.id }
 }
 
 private enum GwaTopAssignmentFilter: String, CaseIterable, Identifiable {
