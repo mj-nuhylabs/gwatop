@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftUI  // GwaTopFileStatusBadge.color (Color 반환)
+import Combine  // @Published, ObservableObject — Swift 6 모드에서 SwiftUI re-export 만으로는 부족
 
 struct GwaTopFileSummary: Decodable, Identifiable, Equatable {
     let id: String
