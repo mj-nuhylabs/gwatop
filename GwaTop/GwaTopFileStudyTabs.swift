@@ -654,7 +654,7 @@ struct GwaTopFileMindmapTab: View {
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
             ForEach(m.children) { child in
-                treeNode(node: child, depth: 1)
+                MindmapNodeView(node: child, depth: 1, expandedLabels: $expandedLabels)
             }
         }
         .padding(16)
@@ -663,8 +663,40 @@ struct GwaTopFileMindmapTab: View {
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    @ViewBuilder
-    private func treeNode(node: GwaTopMindmapNode, depth: Int) -> some View {
+    @MainActor
+    private func load() async {
+        isLoading = true; error = nil
+        defer { isLoading = false }
+        do {
+            let resp = try await GwaTopFileService.shared.aiContent(
+                fileId: file.id, contentType: "mindmap"
+            )
+            mindmap = resp.mindmap()
+        } catch { if !isCancellation(error) { self.error = error.localizedDescription } }
+    }
+
+    @MainActor
+    private func generate(force: Bool) async {
+        isGenerating = true; error = nil
+        defer { isGenerating = false }
+        do {
+            let resp = try await GwaTopFileService.shared.generateAIContent(
+                fileId: file.id, contentType: "mindmap", pages: nil, force: force
+            )
+            mindmap = resp.mindmap()
+            expandedLabels = []
+        } catch { self.error = error.localizedDescription }
+    }
+}
+
+/// 마인드맵 노드 — 재귀 뷰는 SwiftUI 에서 self-referencing opaque type 을 만들 수 없어
+/// 별도 View 구조체로 분리해야 한다. (`some View` 안에서 같은 함수를 재귀 호출 불가)
+struct MindmapNodeView: View {
+    let node: GwaTopMindmapNode
+    let depth: Int
+    @Binding var expandedLabels: Set<String>
+
+    var body: some View {
         let hasChildren = !node.children.isEmpty
         let expanded = expandedLabels.contains(node.label) || depth <= 1
         VStack(alignment: .leading, spacing: 6) {
@@ -691,7 +723,7 @@ struct GwaTopFileMindmapTab: View {
             if expanded && hasChildren {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(node.children) { sub in
-                        treeNode(node: sub, depth: depth + 1)
+                        MindmapNodeView(node: sub, depth: depth + 1, expandedLabels: $expandedLabels)
                     }
                 }
                 .padding(.leading, 16)
@@ -705,31 +737,6 @@ struct GwaTopFileMindmapTab: View {
             }
         }
         .padding(.leading, CGFloat(max(0, depth - 1)) * 6)
-    }
-
-    @MainActor
-    private func load() async {
-        isLoading = true; error = nil
-        defer { isLoading = false }
-        do {
-            let resp = try await GwaTopFileService.shared.aiContent(
-                fileId: file.id, contentType: "mindmap"
-            )
-            mindmap = resp.mindmap()
-        } catch { if !isCancellation(error) { self.error = error.localizedDescription } }
-    }
-
-    @MainActor
-    private func generate(force: Bool) async {
-        isGenerating = true; error = nil
-        defer { isGenerating = false }
-        do {
-            let resp = try await GwaTopFileService.shared.generateAIContent(
-                fileId: file.id, contentType: "mindmap", pages: nil, force: force
-            )
-            mindmap = resp.mindmap()
-            expandedLabels = []
-        } catch { self.error = error.localizedDescription }
     }
 }
 
