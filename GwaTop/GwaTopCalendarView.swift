@@ -256,30 +256,12 @@ struct GwaTopCalendarView: View {
 
     private var timetableTabContent: some View {
         VStack(spacing: 16) {
-            timetableHeader
-
             if let msg = loadErrorMessage {
                 errorBanner(message: msg)
             }
 
             GwaTopTimetableView(courses: courses)
         }
-    }
-
-    private var timetableHeader: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("주간 시간표")
-                .font(.system(size: 22, weight: .heavy, design: .rounded))
-                .foregroundStyle(.white)
-            Text("강의계획서에서 추출한 강의 시간을 한눈에 확인하세요.")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.white.opacity(0.84))
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(GwaTopHomeTheme.primaryGradient)
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .shadow(color: GwaTopHomeTheme.primary.opacity(0.20), radius: 14, x: 0, y: 8)
     }
 
     @MainActor
