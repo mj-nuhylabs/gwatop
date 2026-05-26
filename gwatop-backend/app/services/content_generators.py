@@ -276,6 +276,28 @@ class _Mindmap(BaseModel):
         return _MindmapNode._coerce_children(v)
 
 
+def _coerce_mindmap_recursive(node: Any, depth: int, max_depth: int = 3) -> dict | None:
+    """모든 깊이에서 문자열 leaf 를 dict 로 변환하고, max_depth 초과 자식은 잘라낸다.
+    Pydantic 검증 전에 입력 자체를 정상화해서 어떤 GPT 출력이 와도 받아내도록."""
+    if isinstance(node, str):
+        return {"label": node[:50], "children": []}
+    if not isinstance(node, dict):
+        return None
+    label = node.get("label") or node.get("name") or ""
+    if not isinstance(label, str) or not label.strip():
+        return None
+    children_raw = node.get("children", [])
+    if not isinstance(children_raw, list):
+        children_raw = []
+    coerced_children: list[dict] = []
+    if depth < max_depth:
+        for c in children_raw:
+            cc = _coerce_mindmap_recursive(c, depth + 1, max_depth)
+            if cc is not None:
+                coerced_children.append(cc)
+    return {"label": label[:50], "children": coerced_children}
+
+
 async def generate_mindmap(text: str, *, filename: str | None) -> dict[str, Any]:
     user_prompt = (
         f"[파일명] {filename or '(미상)'}\n\n"
@@ -285,8 +307,24 @@ async def generate_mindmap(text: str, *, filename: str | None) -> dict[str, Any]
     payload, model, tokens = await _generate_json(
         system=MINDMAP_SYSTEM, user=user_prompt, max_tokens=1500,
     )
+
+    # 1단계: 입력을 정상화 (문자열 leaf → dict, 깊이 제한, 라벨 길이 제한).
+    root = payload.get("root", "") if isinstance(payload, dict) else ""
+    if not isinstance(root, str) or not root.strip():
+        raise ContentGeneratorError("Mindmap missing root")
+    raw_children = payload.get("children", []) if isinstance(payload, dict) else []
+    if not isinstance(raw_children, list):
+        raw_children = []
+    coerced_children = []
+    for c in raw_children:
+        cc = _coerce_mindmap_recursive(c, depth=1, max_depth=3)
+        if cc is not None:
+            coerced_children.append(cc)
+    normalized = {"root": root[:50], "children": coerced_children}
+
+    # 2단계: 마지막 Pydantic 검증 (이제 거의 항상 성공).
     try:
-        validated = _Mindmap.model_validate(payload)
+        validated = _Mindmap.model_validate(normalized)
     except ValidationError as exc:
         raise ContentGeneratorError(f"Mindmap schema invalid: {exc}") from exc
     return {**validated.model_dump(), "model": model, "tokens": tokens}
