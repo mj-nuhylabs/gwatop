@@ -325,24 +325,46 @@ async def _run_parse_syllabus(file_id: str, SessionLocal) -> None:
             for ct in syllabus.course.class_times
         ] or None
 
+        # 임베딩 캐시 재사용 가능 여부 — weeks 덮어쓰기 _전에_ 비교해야 의미 있음.
+        # (week_number, topic) 셋이 동일하면 OpenAI embeddings API 호출(~1.5s) skip.
+        old_keys = {
+            (w["week_number"], (w.get("topic") or "").strip())
+            for w in (course.weekly_topics or [])
+        }
+        new_keys = {
+            (w.week_number, (w.topic or "").strip())
+            for w in syllabus.weeks
+        }
+        embeddings_reusable = (
+            bool(course.weekly_topic_embeddings)
+            and bool(old_keys)
+            and old_keys == new_keys
+        )
+
         # Day 4: 주차별 토픽을 Course에 캐시. 자료 자동 분류의 기준 데이터가 된다.
         course.weekly_topics = [
             {"week_number": w.week_number, "topic": w.topic, "notes": w.notes}
             for w in syllabus.weeks
         ]
-        # 임베딩 캐시 빌드. OpenAI 호출 실패해도 syllabus 파싱 자체는 성공으로 본다.
-        try:
-            embeddings = await build_weekly_topic_embeddings(syllabus.weeks)
-            course.weekly_topic_embeddings = serialize_week_embeddings(embeddings)
+
+        if embeddings_reusable:
             logger.info(
-                "[PARSE_DEBUG] cached %d week embeddings for course=%s",
-                len(embeddings), course.id,
+                "[PARSE_DEBUG] reusing %d cached week embeddings for course=%s (no topic change)",
+                len(syllabus.weeks), course.id,
             )
-        except EmbeddingClassifierError as exc:
-            logger.warning(
-                "[PARSE_DEBUG] week embedding build failed for course=%s: %s",
-                course.id, exc,
-            )
+        else:
+            try:
+                embeddings = await build_weekly_topic_embeddings(syllabus.weeks)
+                course.weekly_topic_embeddings = serialize_week_embeddings(embeddings)
+                logger.info(
+                    "[PARSE_DEBUG] cached %d week embeddings for course=%s",
+                    len(embeddings), course.id,
+                )
+            except EmbeddingClassifierError as exc:
+                logger.warning(
+                    "[PARSE_DEBUG] week embedding build failed for course=%s: %s",
+                    course.id, exc,
+                )
 
         file_row.status = "parsed"
         file_row.ai_confidence = syllabus.confidence
