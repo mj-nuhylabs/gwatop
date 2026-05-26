@@ -36,7 +36,9 @@ private struct PositionedNode: Identifiable {
     let position: CGPoint
     let parentPosition: CGPoint?
     let color: Color
-    let level: Int  // 0=root, 1=branch, 2=leaf
+    let level: Int        // 0=root, 1=branch, 2=leaf
+    let childCount: Int   // level=1 노드 한정. 펼침/접기 뱃지 표시용.
+    let isExpanded: Bool  // level=1 노드 한정. 자식이 현재 펼쳐져 있는지.
 }
 
 private struct LaidOutMindmap {
@@ -48,6 +50,7 @@ private struct LaidOutMindmap {
 
 private func layoutMindmap(
     _ map: GwaTopMindmapContent,
+    expandedBranches: Set<String>,
     radiusLevel1: CGFloat = 180,
     radiusLevel2: CGFloat = 320,
     center: CGPoint = .zero
@@ -59,11 +62,9 @@ private func layoutMindmap(
     // root 노드
     result.append(PositionedNode(
         label: map.root, position: center, parentPosition: nil,
-        color: Color.white, level: 0
+        color: Color.white, level: 0, childCount: 0, isExpanded: false
     ))
 
-    // 1단계 children: 360° 를 N 등분.
-    // -π/2 (위쪽) 부터 시작해 시계 방향으로 배치 (사용자 사진처럼 자연스러운 분포).
     let baseAngle = -CGFloat.pi / 2
     for (i, branch) in firstLevel.enumerated() {
         let angle = baseAngle + CGFloat(i) * (2 * .pi / CGFloat(n))
@@ -72,40 +73,44 @@ private func layoutMindmap(
             y: center.y + sin(angle) * radiusLevel1
         )
         let color = kBranchColors[i % kBranchColors.count]
+        let expanded = expandedBranches.contains(branch.label)
         result.append(PositionedNode(
             label: branch.label, position: pos, parentPosition: center,
-            color: color, level: 1
+            color: color, level: 1,
+            childCount: branch.children.count,
+            isExpanded: expanded
         ))
 
-        // 2단계 grandchildren: 부모 슬라이스 안에서 fan-out.
-        // 슬라이스 폭: 360° / N (예: 8개면 45°). 그 안에서 grandchild 들을 균등 분포.
-        let sliceWidth = (2 * .pi / CGFloat(n)) * 0.85  // 약간 좁혀서 이웃 가지와 겹침 방지
+        // 펼쳐진 branch 만 grandchildren 배치.
+        guard expanded else { continue }
+
+        let sliceWidth = (2 * .pi / CGFloat(n)) * 0.85
         let grandchildren = branch.children
         let m = grandchildren.count
         for (j, gc) in grandchildren.enumerated() {
-            // m=1 이면 부모 각도 그대로. m>1 이면 슬라이스 안에서 등분.
             let subAngle: CGFloat
             if m == 1 {
                 subAngle = angle
             } else {
-                let t = CGFloat(j) / CGFloat(m - 1) - 0.5  // -0.5 ~ +0.5
+                let t = CGFloat(j) / CGFloat(m - 1) - 0.5
                 subAngle = angle + t * sliceWidth
             }
-            let pos = CGPoint(
+            let gcPos = CGPoint(
                 x: center.x + cos(subAngle) * radiusLevel2,
                 y: center.y + sin(subAngle) * radiusLevel2
             )
             result.append(PositionedNode(
                 label: gc.label,
-                position: pos,
-                parentPosition: result.first(where: { $0.label == branch.label && $0.level == 1 })?.position,
+                position: gcPos,
+                parentPosition: pos,
                 color: color,
-                level: 2
+                level: 2,
+                childCount: 0,
+                isExpanded: false
             ))
         }
     }
 
-    // bounds 계산 (노드 텍스트 패딩까지 여유)
     let padding: CGFloat = 80
     let xs = result.map { $0.position.x }
     let ys = result.map { $0.position.y }
@@ -129,9 +134,11 @@ struct GwaTopMindmapCanvas: View {
     @State private var lastScale: CGFloat = 1.0
     @State private var offset: CGSize = .zero
     @State private var lastOffset: CGSize = .zero
+    /// 자식이 펼쳐진 1단계 branch 라벨들. 초기엔 비어있어 root + branches 만 보임.
+    @State private var expandedBranches: Set<String> = []
 
     var body: some View {
-        let layout = layoutMindmap(mindmap)
+        let layout = layoutMindmap(mindmap, expandedBranches: expandedBranches)
 
         // bounds 의 크기에 맞춘 캔버스. ScrollView 로 감싸지 않고 매니퓰레이션 제스처(팬/줌) 사용.
         GeometryReader { geo in
@@ -169,10 +176,21 @@ struct GwaTopMindmapCanvas: View {
                 }
                 .stroke(Color.gray.opacity(0.45), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
 
-                // 2) 노드 (root 먼저 그리지 않고 ZStack 순서로 — 그릴 때 level 순으로)
+                // 2) 노드 — level 순으로 그려서 자식이 부모 위로 안 가도록.
                 ForEach(shifted.sorted { $0.level < $1.level }) { node in
                     nodeView(node)
                         .position(node.position)
+                        .onTapGesture {
+                            // 1단계 + 자식 있는 노드만 토글.
+                            guard node.level == 1, node.childCount > 0 else { return }
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                                if expandedBranches.contains(node.label) {
+                                    expandedBranches.remove(node.label)
+                                } else {
+                                    expandedBranches.insert(node.label)
+                                }
+                            }
+                        }
                 }
             }
             .frame(width: canvasSize.width, height: canvasSize.height)
@@ -232,16 +250,34 @@ struct GwaTopMindmapCanvas: View {
                     .padding(.horizontal, 10)
             }
         } else if node.level == 1 {
-            Text(node.label)
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(textColor(on: node.color))
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(node.color)
-                .clipShape(Capsule())
-                .shadow(color: node.color.opacity(0.30), radius: 8, x: 0, y: 3)
+            HStack(spacing: 6) {
+                Text(node.label)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(textColor(on: node.color))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+
+                if node.childCount > 0 {
+                    // 펼침/접힘 인디케이터 — 자식 수 + 화살표.
+                    HStack(spacing: 2) {
+                        Image(systemName: node.isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 9, weight: .heavy))
+                        Text("\(node.childCount)")
+                            .font(.system(size: 10, weight: .heavy, design: .rounded))
+                    }
+                    .foregroundStyle(textColor(on: node.color))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.white.opacity(0.35))
+                    .clipShape(Capsule())
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(node.color)
+            .clipShape(Capsule())
+            .shadow(color: node.color.opacity(0.30), radius: 8, x: 0, y: 3)
+            .scaleEffect(node.isExpanded ? 1.05 : 1.0)
         } else {
             Text(node.label)
                 .font(.system(size: 11, weight: .semibold))
