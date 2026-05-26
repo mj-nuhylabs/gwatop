@@ -1068,7 +1068,9 @@ struct GwaTopFileNotesTab: View {
         do {
             try await GwaTopFileService.shared.deleteNote(fileId: file.id, noteId: n.id)
             notes.removeAll { $0.id == n.id }
-        } catch { error = error.localizedDescription }
+        } catch {
+            self.error = error.localizedDescription
+        }
     }
 }
 
@@ -1078,28 +1080,28 @@ struct GwaTopNoteEditorSheet: View {
     let onSaved: () -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var title: String = ""
-    @State private var body: String = ""
+    @State private var noteTitle: String = ""
+    @State private var noteBody: String = ""    // 주의: View 프로토콜의 `body` 와 충돌하지 않게 별도 이름.
     @State private var isSaving = false
-    @State private var error: String? = nil
+    @State private var errorMessage: String? = nil
 
     var body: some View {
         NavigationStack {
             ZStack {
                 GwaTopHomeTheme.background.ignoresSafeArea()
                 VStack(spacing: 12) {
-                    TextField("제목 (선택)", text: $title)
+                    TextField("제목 (선택)", text: $noteTitle)
                         .font(.system(size: 15, weight: .semibold))
                         .padding(12)
                         .background(.white)
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    TextEditor(text: $body)
+                    TextEditor(text: $noteBody)
                         .font(.system(size: 14))
                         .padding(8)
                         .background(.white)
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    if let error {
-                        Text(error).font(.system(size: 12)).foregroundStyle(.red)
+                    if let errorMessage {
+                        Text(errorMessage).font(.system(size: 12)).foregroundStyle(.red)
                     }
                 }
                 .padding(16)
@@ -1112,12 +1114,12 @@ struct GwaTopNoteEditorSheet: View {
                     Button(isSaving ? "저장 중…" : "저장") {
                         Task { await save() }
                     }
-                    .disabled(isSaving || body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(isSaving || noteBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
             .onAppear {
-                title = existing?.title ?? ""
-                body = existing?.body ?? ""
+                noteTitle = existing?.title ?? ""
+                noteBody = existing?.body ?? ""
             }
         }
     }
@@ -1130,18 +1132,18 @@ struct GwaTopNoteEditorSheet: View {
             if let existing {
                 _ = try await GwaTopFileService.shared.updateNote(
                     fileId: fileId, noteId: existing.id,
-                    title: title.isEmpty ? nil : title, body: body
+                    title: noteTitle.isEmpty ? nil : noteTitle, body: noteBody
                 )
             } else {
                 _ = try await GwaTopFileService.shared.createNote(
                     fileId: fileId,
-                    title: title.isEmpty ? nil : title, body: body
+                    title: noteTitle.isEmpty ? nil : noteTitle, body: noteBody
                 )
             }
             onSaved()
             dismiss()
         } catch {
-            self.error = error.localizedDescription
+            errorMessage = error.localizedDescription
         }
     }
 }
