@@ -337,7 +337,8 @@ actor GwaTopFileService {
         )
     }
 
-    /// AI 콘텐츠 동기 생성 (study 라우트). 8~15초 정도 걸림. force=true 면 캐시 무시.
+    /// AI 콘텐츠 생성 요청. 백엔드는 캐시가 있으면 즉시 ready 응답,
+    /// 없으면 Celery 워커로 큐잉 후 202 ("queued") 반환. force=true 면 캐시 무시 후 재생성.
     func generateAIContent(
         fileId: String, contentType: String, pages: String? = nil, force: Bool = false
     ) async throws -> GwaTopAIContentResponse {
@@ -347,6 +348,39 @@ actor GwaTopFileService {
             "/v1/files/\(fileId)/ai-contents/\(contentType)/generate",
             body: body
         )
+    }
+
+    /// 큐잉된 작업의 완료를 폴링한다. ready 응답 받을 때까지 `pollInterval` 마다 재조회.
+    /// `maxAttempts` 회 초과 시 마지막 응답 반환 (status="pending" 그대로).
+    /// View 의 Task 가 취소되면 즉시 중단되므로 .task modifier 안에서 호출하면 안전.
+    func generateAIContentAndWait(
+        fileId: String,
+        contentType: String,
+        pages: String? = nil,
+        force: Bool = false,
+        pollInterval: TimeInterval = 3.0,
+        maxAttempts: Int = 30
+    ) async throws -> GwaTopAIContentResponse {
+        // 1) generate POST — 캐시 있으면 ready 즉시, 없으면 queued.
+        let initial = try await generateAIContent(
+            fileId: fileId, contentType: contentType, pages: pages, force: force
+        )
+        if initial.status == "ready" { return initial }
+
+        // 2) GET 폴링.
+        for attempt in 0..<maxAttempts {
+            try Task.checkCancellation()
+            let ns = UInt64(pollInterval * 1_000_000_000)
+            try await Task.sleep(nanoseconds: ns)
+            let resp = try await fetchAIContent(
+                fileId: fileId, contentType: contentType, pages: pages
+            )
+            if resp.status == "ready" { return resp }
+            // attempt 가 끝날 때까지 ready 가 아니면 계속.
+            _ = attempt
+        }
+        // maxAttempts 까지 못 받았으면 마지막 상태 반환 (UI 에서 "다시 시도" 안내).
+        return try await fetchAIContent(fileId: fileId, contentType: contentType, pages: pages)
     }
 
     /// summary 전용 재생성 — files 라우트.

@@ -89,6 +89,26 @@ def generate_summary_task(file_id: str) -> None:
     _run_with_fresh_engine(lambda Session: _run_generate_summary(file_id, Session))
 
 
+@celery_app.task(name="tasks.generate_ai_content")
+def generate_ai_content_task(
+    file_id: str,
+    content_type: str,
+    scope: str = "all",
+    force: bool = False,
+    requested_by_user_id: str | None = None,
+) -> None:
+    """학습 탭의 quiz/flashcard/mindmap/memorize/topics 생성 작업.
+
+    iOS의 generate POST 호출은 이 태스크를 큐잉만 하고 즉시 202 반환한다.
+    실제 GPT 호출은 워커에서 진행되어 사용자가 다른 탭으로 이동해도 결과가 안전하게 저장됨.
+    """
+    _run_with_fresh_engine(
+        lambda Session: _run_generate_ai_content(
+            file_id, content_type, scope, force, requested_by_user_id, Session
+        )
+    )
+
+
 # notify_classified 는 Day 7 이후 app/tasks/notify_tasks.py 로 이관됨.
 # 호출은 .delay(...)로 같은 이름 ("tasks.notify_classified")으로 발송하므로 변경 없음.
 
@@ -652,4 +672,88 @@ async def _run_generate_summary(file_id: str, SessionLocal) -> None:
         logger.info(
             "generate_summary: saved file=%s tokens=%s headline=%r",
             file_id, payload.get("tokens"), payload.get("headline", "")[:80],
+        )
+
+
+# ---------- Pipeline: 학습 탭 AI 콘텐츠 생성 ----------
+
+async def _run_generate_ai_content(
+    file_id: str,
+    content_type: str,
+    scope: str,
+    force: bool,
+    requested_by_user_id: str | None,
+    SessionLocal,
+) -> None:
+    """Celery 워커에서 실행되는 학습 콘텐츠 생성. 결과는 ai_contents 에 저장."""
+    from app.models.ai_content import AIContent
+    from app.services.content_generators import (
+        ContentGeneratorError,
+        GENERATOR_REGISTRY,
+        generate_content,
+        slice_text_by_pages,
+    )
+
+    if content_type not in GENERATOR_REGISTRY:
+        logger.warning("generate_ai_content: unknown content_type=%s", content_type)
+        return
+
+    async with SessionLocal() as session:
+        file_row = await _load_file(session, UUID(file_id))
+        if file_row is None or not file_row.extracted_text:
+            logger.info(
+                "generate_ai_content: skip — file %s missing or empty text", file_id
+            )
+            return
+
+        # 기존 결과 확인. force=False 면 이미 있을 때 스킵 (중복 호출 방어).
+        existing = (await session.execute(
+            select(AIContent).where(
+                AIContent.file_id == file_row.id,
+                AIContent.content_type == content_type,
+                AIContent.scope == scope,
+            )
+        )).scalar_one_or_none()
+        if existing is not None and not force:
+            logger.info(
+                "generate_ai_content: already exists file=%s type=%s scope=%s",
+                file_id, content_type, scope,
+            )
+            return
+        if existing is not None and force:
+            await session.execute(delete(AIContent).where(AIContent.id == existing.id))
+
+        text = slice_text_by_pages(
+            file_row.extracted_text, None if scope == "all" else scope
+        )
+        if not text.strip():
+            logger.warning(
+                "generate_ai_content: empty text after slicing file=%s scope=%s",
+                file_id, scope,
+            )
+            return
+
+        try:
+            payload = await generate_content(
+                content_type, text, filename=file_row.filename
+            )
+        except ContentGeneratorError as exc:
+            logger.warning(
+                "generate_ai_content: failed file=%s type=%s: %s",
+                file_id, content_type, exc,
+            )
+            return
+
+        ac = AIContent(
+            file_id=file_row.id,
+            content_type=content_type,
+            scope=scope,
+            content=payload,
+            requested_by_user_id=UUID(requested_by_user_id) if requested_by_user_id else None,
+        )
+        session.add(ac)
+        await session.commit()
+        logger.info(
+            "generate_ai_content: saved file=%s type=%s scope=%s tokens=%s",
+            file_id, content_type, scope, payload.get("tokens"),
         )

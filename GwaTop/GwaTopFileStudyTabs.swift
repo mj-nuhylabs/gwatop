@@ -381,7 +381,7 @@ struct GwaTopFileQuizTab: View {
         error = nil
         defer { isGenerating = false }
         do {
-            let resp = try await GwaTopFileService.shared.generateAIContent(
+            let resp = try await GwaTopFileService.shared.generateAIContentAndWait(
                 fileId: file.id, contentType: "quiz",
                 pages: scope == "all" ? nil : scope, force: force
             )
@@ -577,7 +577,7 @@ struct GwaTopFileFlashcardTab: View {
         isGenerating = true; error = nil
         defer { isGenerating = false }
         do {
-            let resp = try await GwaTopFileService.shared.generateAIContent(
+            let resp = try await GwaTopFileService.shared.generateAIContentAndWait(
                 fileId: file.id, contentType: "flashcard", pages: nil, force: force
             )
             cards = resp.flashcards()?.cards ?? []
@@ -680,7 +680,7 @@ struct GwaTopFileMindmapTab: View {
         isGenerating = true; error = nil
         defer { isGenerating = false }
         do {
-            let resp = try await GwaTopFileService.shared.generateAIContent(
+            let resp = try await GwaTopFileService.shared.generateAIContentAndWait(
                 fileId: file.id, contentType: "mindmap", pages: nil, force: force
             )
             mindmap = resp.mindmap()
@@ -857,7 +857,7 @@ struct GwaTopFileMemorizeTab: View {
         isGenerating = true; error = nil
         defer { isGenerating = false }
         do {
-            let resp = try await GwaTopFileService.shared.generateAIContent(
+            let resp = try await GwaTopFileService.shared.generateAIContentAndWait(
                 fileId: file.id, contentType: "memorize",
                 pages: scope == "all" ? nil : scope, force: force
             )
@@ -964,7 +964,7 @@ struct GwaTopFileTopicsTab: View {
         isGenerating = true; error = nil
         defer { isGenerating = false }
         do {
-            let resp = try await GwaTopFileService.shared.generateAIContent(
+            let resp = try await GwaTopFileService.shared.generateAIContentAndWait(
                 fileId: file.id, contentType: "topics",
                 pages: scope == "all" ? nil : scope, force: force
             )

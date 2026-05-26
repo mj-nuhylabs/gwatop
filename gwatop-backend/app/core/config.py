@@ -66,10 +66,11 @@ class Settings(BaseSettings):
     # 정확도 회귀 위험 보수적 처리 — EC2 .env 에서 활성화한다.
     SYLLABUS_TABLE_EXTRACTION_ENABLED: bool = False
 
-    # --- AI 요약 노트 (파일 업로드 후 자동 생성) ---
-    # gpt-4o-mini 가 가격/품질 균형 좋음. 사용자가 gpt-4o 로 올리려면 .env 에서 변경.
-    OPENAI_SUMMARY_MODEL: str = "gpt-4o-mini"
-    OPENAI_SUMMARY_MAX_TOKENS: int = 1500
+    # --- AI 요약 노트 / 학습 콘텐츠 ---
+    # 기본은 gpt-4.1-nano — gpt-4o-mini 대비 ~2x 빠름, 품질도 학습 콘텐츠엔 충분.
+    # 품질 우선이면 .env 에서 OPENAI_SUMMARY_MODEL=gpt-4o-mini 또는 gpt-4o 로 교체.
+    OPENAI_SUMMARY_MODEL: str = "gpt-4.1-nano"
+    OPENAI_SUMMARY_MAX_TOKENS: int = 1200
 
     # --- Day 4: 강의 자료 자동 분류 ---
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"

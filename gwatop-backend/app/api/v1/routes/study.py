@@ -99,7 +99,10 @@ class GenerateRequest(BaseModel):
     force: bool = False  # True 면 기존 row 삭제 후 재생성
 
 
-@router.post("/files/{file_id}/ai-contents/{content_type}/generate")
+@router.post(
+    "/files/{file_id}/ai-contents/{content_type}/generate",
+    status_code=status.HTTP_202_ACCEPTED,
+)
 async def study_generate_ai_content(
     file_id: uuid.UUID,
     content_type: str,
@@ -107,13 +110,15 @@ async def study_generate_ai_content(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """동기식 생성. 작은 모델이라 8~15초 내에 응답.
+    """비동기 큐잉. Celery 워커가 GPT 호출을 백그라운드에서 처리하고
+    결과를 ai_contents 에 저장한다. iOS 는 즉시 202 를 받고 GET 엔드포인트를 폴링.
 
-    추후 task queue 로 옮기고 싶으면 generate_summary_task 처럼 별도 Celery 태스크로
-    이관 가능. 지금은 사용자가 학습 탭에서 '생성' 누르고 바로 결과를 보는 흐름이 더 편함.
+    이 구조의 장점:
+    - 사용자가 다른 탭으로 이동해도 작업이 계속됨
+    - Task 취소나 URLSession 타임아웃에 영향 받지 않음
+    - 같은 결과가 캐싱돼 있으면 즉시 ready 응답 + 작업 큐잉 안 함
     """
     if content_type not in GENERATOR_REGISTRY:
-        # summary 는 files.py 의 regenerate 엔드포인트가 담당.
         raise HTTPException(status_code=400, detail=f"Unsupported content_type: {content_type}")
 
     file_row, _ = await owned_file(file_id, current_user, db)
@@ -122,11 +127,8 @@ async def study_generate_ai_content(
 
     req = body or GenerateRequest()
     scope = _normalize_scope(req.pages)
-    text = slice_text_by_pages(file_row.extracted_text, scope if scope != "all" else None)
-    if not text.strip():
-        raise HTTPException(status_code=400, detail="지정한 페이지 범위에 해당하는 텍스트가 없어요.")
 
-    # 기존 결과가 있고 force 가 아니면 그대로 반환.
+    # 캐시 확인 — 있으면 큐잉 없이 즉시 ready 반환.
     existing = (await db.execute(
         select(AIContent).where(
             and_(
@@ -146,35 +148,19 @@ async def study_generate_ai_content(
             "generated_at": existing.generated_at.isoformat(),
             "cached": True,
         }
-    if existing is not None and req.force:
-        await db.execute(
-            delete(AIContent).where(AIContent.id == existing.id)
-        )
 
-    try:
-        payload = await generate_content(content_type, text, filename=file_row.filename)
-    except ContentGeneratorError as exc:
-        logger.warning("generate_content failed: %s file=%s scope=%s", exc, file_id, scope)
-        raise HTTPException(status_code=502, detail=f"AI 생성 실패: {exc}")
-
-    ai = AIContent(
-        file_id=file_row.id,
-        content_type=content_type,
-        scope=scope,
-        content=payload,
-        requested_by_user_id=current_user.id,
+    # Celery 워커로 큐잉. force 일 때 기존 row 는 워커가 안에서 지운다.
+    from app.tasks.file_tasks import generate_ai_content_task
+    generate_ai_content_task.delay(
+        str(file_id), content_type, scope, req.force, str(current_user.id),
     )
-    db.add(ai)
-    await db.commit()
-    await db.refresh(ai)
 
     return {
         "file_id": str(file_id),
         "content_type": content_type,
         "scope": scope,
-        "status": "ready",
-        "content": payload,
-        "generated_at": ai.generated_at.isoformat(),
+        "status": "queued",
+        "content": None,
         "cached": False,
     }
 
