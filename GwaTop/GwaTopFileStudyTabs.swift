@@ -130,6 +130,12 @@ private struct GwaTopRegenerateButton: View {
     }
 }
 
+/// 사용자에게 노출할 짧은 라벨. "all" → "전체 페이지", 그 외엔 그대로 (예: "1-3 페이지").
+func scopeLabel(_ scope: String) -> String {
+    if scope == "all" || scope.isEmpty { return "전체 페이지" }
+    return "\(scope) 페이지"
+}
+
 private struct GwaTopErrorBanner: View {
     let message: String
     var body: some View {
@@ -162,35 +168,88 @@ struct GwaTopFileQuizTab: View {
     @State private var shortAnswerInput: String = ""
     @State private var showAnswer: Bool = false
 
+    @State private var showingPlayer = false
+
     var body: some View {
+        launcherView
+            .fullScreenCover(isPresented: $showingPlayer, onDismiss: resetPlayerState) {
+                playerView
+            }
+    }
+
+    /// 탭 진입 시 보여줄 인트로 + 페이지 범위 선택 + 시작 버튼.
+    private var launcherView: some View {
         ScrollView {
-            VStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 14) {
+                introCard
                 GwaTopScopeSelector(scope: $scope)
-                    .onChange(of: scope) { _, _ in
-                        Task { await load() }
+                Button {
+                    showingPlayer = true
+                    Task { await load() }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "play.fill")
+                        Text("퀴즈 시작")
+                            .font(.system(size: 15, weight: .bold))
                     }
-
-                if let err = error {
-                    GwaTopErrorBanner(message: err)
-                }
-
-                if let q = quiz {
-                    quizCard(q)
-                    GwaTopRegenerateButton(isLoading: isGenerating) {
-                        Task { await generate(force: true) }
-                    }
-                } else if isLoading || isGenerating {
-                    pendingCard
-                } else {
-                    introCard
-                    GwaTopGenerateButton(title: "퀴즈 만들기", isLoading: isGenerating) {
-                        Task { await generate(force: false) }
-                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity).frame(height: 52)
+                    .background(GwaTopHomeTheme.primary)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .shadow(color: GwaTopHomeTheme.primary.opacity(0.3), radius: 8, y: 4)
                 }
             }
             .padding(16)
         }
-        .task { await load() }
+    }
+
+    /// fullScreenCover 로 띄우는 실제 학습 화면.
+    private var playerView: some View {
+        NavigationStack {
+            ZStack {
+                GwaTopHomeTheme.background.ignoresSafeArea()
+                ScrollView {
+                    VStack(spacing: 14) {
+                        if let err = error { GwaTopErrorBanner(message: err) }
+                        if let q = quiz {
+                            quizCard(q)
+                            GwaTopRegenerateButton(isLoading: isGenerating) {
+                                Task { await generate(force: true) }
+                            }
+                        } else if isLoading || isGenerating {
+                            pendingCard
+                        } else {
+                            // 아직 로드 안 됨 — 시작하기에서 진입했지만 캐시도 없는 경우 표시.
+                            HStack(spacing: 10) {
+                                ProgressView()
+                                Text("준비 중…").font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                            }
+                            .padding(16)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
+                    }
+                    .padding(16)
+                }
+            }
+            .navigationTitle("퀴즈 · \(scopeLabel(scope))")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("닫기") { showingPlayer = false }
+                }
+            }
+        }
+    }
+
+    private func resetPlayerState() {
+        // 다음 진입 시 깨끗한 상태로 시작 (이전 풀이 흔적 제거).
+        currentIndex = 0
+        selectedChoice = nil
+        shortAnswerInput = ""
+        showAnswer = false
     }
 
     private var pendingCard: some View {
@@ -369,6 +428,10 @@ struct GwaTopFileQuizTab: View {
             showAnswer = false
             selectedChoice = nil
             shortAnswerInput = ""
+            // 캐시 없음 + 에러 marker 도 아님 → 백엔드 큐잉 + 폴링.
+            if quiz == nil && resp.generationError == nil {
+                await generate(force: false)
+            }
         } catch {
             if isCancellation(error) { return }
             self.error = error.localizedDescription
@@ -412,32 +475,88 @@ struct GwaTopFileFlashcardTab: View {
     @State private var knownIds: Set<String> = []
     @State private var unknownIds: Set<String> = []
 
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 14) {
-                if let err = error { GwaTopErrorBanner(message: err) }
+    @State private var scope: String = "all"
+    @State private var showingPlayer = false
 
-                if cards.isEmpty {
-                    if isGenerating {
-                        pendingCard
-                    } else {
-                        introCard
-                        GwaTopGenerateButton(title: "플래시카드 만들기", isLoading: isGenerating) {
-                            Task { await generate(force: false) }
-                        }
+    var body: some View {
+        launcherView
+            .fullScreenCover(isPresented: $showingPlayer, onDismiss: resetPlayerState) {
+                playerView
+            }
+    }
+
+    private var launcherView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                introCard
+                GwaTopScopeSelector(scope: $scope)
+                Button {
+                    showingPlayer = true
+                    Task { await load() }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "play.fill")
+                        Text("플래시카드 시작")
+                            .font(.system(size: 15, weight: .bold))
                     }
-                } else {
-                    statsBar
-                    cardView
-                    actionButtons
-                    GwaTopRegenerateButton(isLoading: isGenerating) {
-                        Task { await generate(force: true) }
-                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity).frame(height: 52)
+                    .background(GwaTopHomeTheme.primary)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .shadow(color: GwaTopHomeTheme.primary.opacity(0.3), radius: 8, y: 4)
                 }
             }
             .padding(16)
         }
-        .task { await load() }
+    }
+
+    private var playerView: some View {
+        NavigationStack {
+            ZStack {
+                GwaTopHomeTheme.background.ignoresSafeArea()
+                ScrollView {
+                    VStack(spacing: 14) {
+                        if let err = error { GwaTopErrorBanner(message: err) }
+                        if cards.isEmpty {
+                            if isGenerating || isLoading {
+                                pendingCard
+                            } else {
+                                HStack(spacing: 10) {
+                                    ProgressView()
+                                    Text("준비 중…").font(.system(size: 13, weight: .medium))
+                                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                                }
+                                .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                                .background(.white)
+                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            }
+                        } else {
+                            statsBar
+                            cardView
+                            actionButtons
+                            GwaTopRegenerateButton(isLoading: isGenerating) {
+                                Task { await generate(force: true) }
+                            }
+                        }
+                    }
+                    .padding(16)
+                }
+            }
+            .navigationTitle("플래시카드 · \(scopeLabel(scope))")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("닫기") { showingPlayer = false }
+                }
+            }
+        }
+    }
+
+    private func resetPlayerState() {
+        currentIndex = 0
+        isFlipped = false
+        knownIds = []
+        unknownIds = []
     }
 
     private var pendingCard: some View {
@@ -569,10 +688,14 @@ struct GwaTopFileFlashcardTab: View {
         defer { isLoading = false }
         do {
             let resp = try await GwaTopFileService.shared.aiContent(
-                fileId: file.id, contentType: "flashcard"
+                fileId: file.id, contentType: "flashcard", scope: scope
             )
             cards = resp.flashcards()?.cards ?? []
             currentIndex = 0; isFlipped = false
+            // 캐시 미스인 경우 자동으로 생성 큐잉 후 폴링.
+            if cards.isEmpty && resp.generationError == nil {
+                await generate(force: false)
+            }
         } catch { if !isCancellation(error) { self.error = error.localizedDescription } }
     }
 
@@ -582,7 +705,8 @@ struct GwaTopFileFlashcardTab: View {
         defer { isGenerating = false }
         do {
             let resp = try await GwaTopFileService.shared.generateAIContentAndWait(
-                fileId: file.id, contentType: "flashcard", pages: nil, force: force
+                fileId: file.id, contentType: "flashcard",
+                pages: scope == "all" ? nil : scope, force: force
             )
             if let errMsg = resp.generationError {
                 self.error = "AI 생성 실패: \(errMsg). '다시 생성' 을 눌러주세요."
@@ -605,36 +729,82 @@ struct GwaTopFileMindmapTab: View {
     @State private var error: String? = nil
     @State private var expandedLabels: Set<String> = []
 
+    @State private var scope: String = "all"
+    @State private var showingPlayer = false
+
     var body: some View {
+        launcherView
+            .fullScreenCover(isPresented: $showingPlayer, onDismiss: { expandedLabels = [] }) {
+                playerView
+            }
+    }
+
+    private var launcherView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                if let err = error { GwaTopErrorBanner(message: err) }
-
-                if let m = mindmap {
-                    // 방사형 마인드맵 캔버스 — AI 가 아닌 클라이언트 알고리즘이 좌표·곡선 계산.
-                    GwaTopMindmapCanvas(mindmap: m)
-                        .frame(minHeight: 520)
-
-                    Text("드래그로 이동 · 핀치로 확대/축소 · 더블탭으로 초기화")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                        .frame(maxWidth: .infinity)
-
-                    GwaTopRegenerateButton(isLoading: isGenerating) {
-                        Task { await generate(force: true) }
+                introCard
+                GwaTopScopeSelector(scope: $scope)
+                Button {
+                    showingPlayer = true
+                    Task { await load() }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "play.fill")
+                        Text("마인드맵 시작")
+                            .font(.system(size: 15, weight: .bold))
                     }
-                } else if isGenerating {
-                    pendingCard
-                } else {
-                    introCard
-                    GwaTopGenerateButton(title: "마인드맵 만들기", isLoading: isGenerating) {
-                        Task { await generate(force: false) }
-                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity).frame(height: 52)
+                    .background(GwaTopHomeTheme.primary)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .shadow(color: GwaTopHomeTheme.primary.opacity(0.3), radius: 8, y: 4)
                 }
             }
             .padding(16)
         }
-        .task { await load() }
+    }
+
+    private var playerView: some View {
+        NavigationStack {
+            ZStack {
+                GwaTopHomeTheme.background.ignoresSafeArea()
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        if let err = error { GwaTopErrorBanner(message: err) }
+                        if let m = mindmap {
+                            GwaTopMindmapCanvas(mindmap: m)
+                                .frame(minHeight: 600)
+                            Text("드래그로 이동 · 핀치로 확대/축소 · 더블탭으로 초기화")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                                .frame(maxWidth: .infinity)
+                            GwaTopRegenerateButton(isLoading: isGenerating) {
+                                Task { await generate(force: true) }
+                            }
+                        } else if isGenerating || isLoading {
+                            pendingCard
+                        } else {
+                            HStack(spacing: 10) {
+                                ProgressView()
+                                Text("준비 중…").font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                            }
+                            .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                            .background(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
+                    }
+                    .padding(16)
+                }
+            }
+            .navigationTitle("마인드맵 · \(scopeLabel(scope))")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("닫기") { showingPlayer = false }
+                }
+            }
+        }
     }
 
     private var pendingCard: some View {
@@ -685,9 +855,12 @@ struct GwaTopFileMindmapTab: View {
         defer { isLoading = false }
         do {
             let resp = try await GwaTopFileService.shared.aiContent(
-                fileId: file.id, contentType: "mindmap"
+                fileId: file.id, contentType: "mindmap", scope: scope
             )
             mindmap = resp.mindmap()
+            if mindmap == nil && resp.generationError == nil {
+                await generate(force: false)
+            }
         } catch { if !isCancellation(error) { self.error = error.localizedDescription } }
     }
 
@@ -697,7 +870,8 @@ struct GwaTopFileMindmapTab: View {
         defer { isGenerating = false }
         do {
             let resp = try await GwaTopFileService.shared.generateAIContentAndWait(
-                fileId: file.id, contentType: "mindmap", pages: nil, force: force
+                fileId: file.id, contentType: "mindmap",
+                pages: scope == "all" ? nil : scope, force: force
             )
             if let errMsg = resp.generationError {
                 self.error = "AI 생성 실패: \(errMsg). '다시 생성' 을 눌러주세요."
@@ -768,33 +942,75 @@ struct GwaTopFileMemorizeTab: View {
     @State private var content: GwaTopMemorizeContent? = nil
     @State private var scope: String = "all"
     @State private var isGenerating = false
+    @State private var isLoading = false
     @State private var error: String? = nil
+    @State private var showingPlayer = false
 
     var body: some View {
+        launcherView
+            .fullScreenCover(isPresented: $showingPlayer) { playerView }
+    }
+
+    private var launcherView: some View {
         ScrollView {
-            VStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 14) {
+                introCard
                 GwaTopScopeSelector(scope: $scope)
-                    .onChange(of: scope) { _, _ in Task { await load() } }
-
-                if let err = error { GwaTopErrorBanner(message: err) }
-
-                if let c = content {
-                    pointsList(c)
-                    GwaTopRegenerateButton(isLoading: isGenerating) {
-                        Task { await generate(force: true) }
+                Button {
+                    showingPlayer = true
+                    Task { await load() }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "play.fill")
+                        Text("암기 포인트 보기").font(.system(size: 15, weight: .bold))
                     }
-                } else if isGenerating {
-                    pendingCard
-                } else {
-                    introCard
-                    GwaTopGenerateButton(title: "암기 포인트 만들기", isLoading: isGenerating) {
-                        Task { await generate(force: false) }
-                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity).frame(height: 52)
+                    .background(GwaTopHomeTheme.primary)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .shadow(color: GwaTopHomeTheme.primary.opacity(0.3), radius: 8, y: 4)
                 }
             }
             .padding(16)
         }
-        .task { await load() }
+    }
+
+    private var playerView: some View {
+        NavigationStack {
+            ZStack {
+                GwaTopHomeTheme.background.ignoresSafeArea()
+                ScrollView {
+                    VStack(spacing: 14) {
+                        if let err = error { GwaTopErrorBanner(message: err) }
+                        if let c = content {
+                            pointsList(c)
+                            GwaTopRegenerateButton(isLoading: isGenerating) {
+                                Task { await generate(force: true) }
+                            }
+                        } else if isGenerating || isLoading {
+                            pendingCard
+                        } else {
+                            HStack(spacing: 10) {
+                                ProgressView()
+                                Text("준비 중…").font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                            }
+                            .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                            .background(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
+                    }
+                    .padding(16)
+                }
+            }
+            .navigationTitle("암기 포인트 · \(scopeLabel(scope))")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("닫기") { showingPlayer = false }
+                }
+            }
+        }
     }
 
     private var pendingCard: some View {
@@ -863,12 +1079,16 @@ struct GwaTopFileMemorizeTab: View {
 
     @MainActor
     private func load() async {
-        error = nil
+        isLoading = true; error = nil
+        defer { isLoading = false }
         do {
             let resp = try await GwaTopFileService.shared.aiContent(
                 fileId: file.id, contentType: "memorize", scope: scope
             )
             content = resp.memorize()
+            if content == nil && resp.generationError == nil {
+                await generate(force: false)
+            }
         } catch { if !isCancellation(error) { self.error = error.localizedDescription } }
     }
 
@@ -898,33 +1118,75 @@ struct GwaTopFileTopicsTab: View {
     @State private var content: GwaTopTopicsContent? = nil
     @State private var scope: String = "all"
     @State private var isGenerating = false
+    @State private var isLoading = false
     @State private var error: String? = nil
+    @State private var showingPlayer = false
 
     var body: some View {
+        launcherView
+            .fullScreenCover(isPresented: $showingPlayer) { playerView }
+    }
+
+    private var launcherView: some View {
         ScrollView {
-            VStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 14) {
+                introCard
                 GwaTopScopeSelector(scope: $scope)
-                    .onChange(of: scope) { _, _ in Task { await load() } }
-
-                if let err = error { GwaTopErrorBanner(message: err) }
-
-                if let c = content {
-                    ForEach(c.topics) { topicCard($0) }
-                    GwaTopRegenerateButton(isLoading: isGenerating) {
-                        Task { await generate(force: true) }
+                Button {
+                    showingPlayer = true
+                    Task { await load() }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "play.fill")
+                        Text("주요 개념 보기").font(.system(size: 15, weight: .bold))
                     }
-                } else if isGenerating {
-                    pendingCard
-                } else {
-                    introCard
-                    GwaTopGenerateButton(title: "주요 개념 정리하기", isLoading: isGenerating) {
-                        Task { await generate(force: false) }
-                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity).frame(height: 52)
+                    .background(GwaTopHomeTheme.primary)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .shadow(color: GwaTopHomeTheme.primary.opacity(0.3), radius: 8, y: 4)
                 }
             }
             .padding(16)
         }
-        .task { await load() }
+    }
+
+    private var playerView: some View {
+        NavigationStack {
+            ZStack {
+                GwaTopHomeTheme.background.ignoresSafeArea()
+                ScrollView {
+                    VStack(spacing: 14) {
+                        if let err = error { GwaTopErrorBanner(message: err) }
+                        if let c = content {
+                            ForEach(c.topics) { topicCard($0) }
+                            GwaTopRegenerateButton(isLoading: isGenerating) {
+                                Task { await generate(force: true) }
+                            }
+                        } else if isGenerating || isLoading {
+                            pendingCard
+                        } else {
+                            HStack(spacing: 10) {
+                                ProgressView()
+                                Text("준비 중…").font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                            }
+                            .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                            .background(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
+                    }
+                    .padding(16)
+                }
+            }
+            .navigationTitle("주요 개념 · \(scopeLabel(scope))")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("닫기") { showingPlayer = false }
+                }
+            }
+        }
     }
 
     private var pendingCard: some View {
@@ -974,12 +1236,16 @@ struct GwaTopFileTopicsTab: View {
 
     @MainActor
     private func load() async {
-        error = nil
+        isLoading = true; error = nil
+        defer { isLoading = false }
         do {
             let resp = try await GwaTopFileService.shared.aiContent(
                 fileId: file.id, contentType: "topics", scope: scope
             )
             content = resp.topics()
+            if content == nil && resp.generationError == nil {
+                await generate(force: false)
+            }
         } catch { if !isCancellation(error) { self.error = error.localizedDescription } }
     }
 
