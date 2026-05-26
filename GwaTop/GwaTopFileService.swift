@@ -372,15 +372,14 @@ actor GwaTopFileService {
             try Task.checkCancellation()
             let ns = UInt64(pollInterval * 1_000_000_000)
             try await Task.sleep(nanoseconds: ns)
-            let resp = try await fetchAIContent(
-                fileId: fileId, contentType: contentType, pages: pages
+            let resp = try await aiContent(
+                fileId: fileId, contentType: contentType, scope: pages
             )
             if resp.status == "ready" { return resp }
-            // attempt 가 끝날 때까지 ready 가 아니면 계속.
             _ = attempt
         }
         // maxAttempts 까지 못 받았으면 마지막 상태 반환 (UI 에서 "다시 시도" 안내).
-        return try await fetchAIContent(fileId: fileId, contentType: contentType, pages: pages)
+        return try await aiContent(fileId: fileId, contentType: contentType, scope: pages)
     }
 
     /// summary 전용 재생성 — files 라우트.
