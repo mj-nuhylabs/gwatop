@@ -50,10 +50,10 @@ func isCancellation(_ error: Error) -> Bool {
 }
 
 enum GwaTopAPI {
-    // EC2 us-east-1 인스턴스. Public IP는 인스턴스 재시작 시 바뀌므로 DNS 형태로 적어두면
-    // 콘솔 재할당 후 ec2-...-...-compute-1.amazonaws.com 형태가 그대로 유효한 경우가 많다.
-    // Elastic IP를 붙이면 영구 고정. Info.plist ATS 예외도 같은 도메인으로 등록되어 있음.
-    static let baseURL: String = "http://ec2-54-160-132-244.compute-1.amazonaws.com:8000"
+    // EC2 us-east-1 인스턴스에 Elastic IP 3.221.89.155 영구 할당 (2026-05-25).
+    // 이제 인스턴스 stop/start 시에도 IP 와 hostname 모두 고정.
+    // Info.plist ATS 예외는 *.compute-1.amazonaws.com wildcard 라 자동 매칭됨.
+    static let baseURL: String = "http://ec2-3-221-89-155.compute-1.amazonaws.com:8000"
 
     static func currentAccessToken() -> String? {
         let t = UserDefaults.standard.string(forKey: "accessToken") ?? ""
