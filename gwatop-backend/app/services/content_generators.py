@@ -25,6 +25,7 @@ from openai import AsyncOpenAI, OpenAIError
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from app.core.config import settings
+from app.services.analyzer import analysis_to_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,23 @@ def _truncate(text: str, limit: int = MAX_INPUT_CHARS) -> str:
     head = text[: limit - 500]
     tail = text[-500:]
     return f"{head}\n... [중략] ...\n{tail}"
+
+
+def _build_input(text: str, analysis: dict | None) -> str:
+    """generator user-prompt 의 자료 섹션을 구성.
+
+    분석본이 있으면 그것을 우선 사용 (~3000자) + 원문 발췌 1500자 추가.
+    원문 18000자 전체를 보내던 기존 방식 대비 입력 토큰 70% 이상 절감.
+
+    분석본이 없거나 비어 있으면 원문만 사용.
+    """
+    if analysis:
+        md = analysis_to_markdown(analysis)
+        if md.strip():
+            # 분석본 + 원문 일부(상위 1500자) — 분석본만으로 부족할 케이스 보강.
+            snippet = (text or "").strip()[:1500]
+            return f"{md}\n\n# 원문 발췌 (참고)\n{snippet}"
+    return _truncate(text or "")
 
 
 async def _generate_json(
@@ -162,10 +180,12 @@ class _QuizShort(BaseModel):
     explanation: str = ""
 
 
-async def generate_quiz(text: str, *, filename: str | None) -> dict[str, Any]:
+async def generate_quiz(
+    text: str, *, filename: str | None, analysis: dict | None = None,
+) -> dict[str, Any]:
     user_prompt = (
         f"[파일명] {filename or '(미상)'}\n\n"
-        f"[자료 원문]\n{_truncate(text)}\n\n"
+        f"[자료]\n{_build_input(text, analysis)}\n\n"
         "위 자료를 바탕으로 퀴즈를 JSON으로 출제하시오."
     )
     payload, model, tokens = await _generate_json(
@@ -215,10 +235,12 @@ class _FlashCard(BaseModel):
     hint: str | None = None
 
 
-async def generate_flashcards(text: str, *, filename: str | None) -> dict[str, Any]:
+async def generate_flashcards(
+    text: str, *, filename: str | None, analysis: dict | None = None,
+) -> dict[str, Any]:
     user_prompt = (
         f"[파일명] {filename or '(미상)'}\n\n"
-        f"[자료]\n{_truncate(text)}\n\n"
+        f"[자료]\n{_build_input(text, analysis)}\n\n"
         "위 자료에서 플래시카드를 JSON으로 만들어주세요."
     )
     payload, model, tokens = await _generate_json(
@@ -318,10 +340,12 @@ def _coerce_mindmap_recursive(node: Any, depth: int, max_depth: int = 3) -> dict
     return {"label": label[:50], "children": coerced_children}
 
 
-async def generate_mindmap(text: str, *, filename: str | None) -> dict[str, Any]:
+async def generate_mindmap(
+    text: str, *, filename: str | None, analysis: dict | None = None,
+) -> dict[str, Any]:
     user_prompt = (
         f"[파일명] {filename or '(미상)'}\n\n"
-        f"[자료]\n{_truncate(text)}\n\n"
+        f"[자료]\n{_build_input(text, analysis)}\n\n"
         "위 자료를 마인드맵 트리 JSON으로 변환하시오."
     )
     payload, model, tokens = await _generate_json(
@@ -378,10 +402,12 @@ class _MemPoint(BaseModel):
     importance: int = Field(3, ge=1, le=5)
 
 
-async def generate_memorize(text: str, *, filename: str | None) -> dict[str, Any]:
+async def generate_memorize(
+    text: str, *, filename: str | None, analysis: dict | None = None,
+) -> dict[str, Any]:
     user_prompt = (
         f"[파일명] {filename or '(미상)'}\n\n"
-        f"[자료]\n{_truncate(text)}\n\n"
+        f"[자료]\n{_build_input(text, analysis)}\n\n"
         "위 자료에서 시험에 나올 만한 암기 포인트를 JSON으로 정리하시오."
     )
     payload, model, tokens = await _generate_json(
@@ -425,10 +451,12 @@ class _Topic(BaseModel):
     examples: list[str] = Field(default_factory=list)
 
 
-async def generate_topics(text: str, *, filename: str | None) -> dict[str, Any]:
+async def generate_topics(
+    text: str, *, filename: str | None, analysis: dict | None = None,
+) -> dict[str, Any]:
     user_prompt = (
         f"[파일명] {filename or '(미상)'}\n\n"
-        f"[자료]\n{_truncate(text)}\n\n"
+        f"[자료]\n{_build_input(text, analysis)}\n\n"
         "위 자료의 주요 개념을 JSON으로 정리하시오."
     )
     payload, model, tokens = await _generate_json(
@@ -458,12 +486,16 @@ GENERATOR_REGISTRY = {
 
 
 async def generate_content(
-    content_type: str, text: str, *, filename: str | None = None,
+    content_type: str,
+    text: str,
+    *,
+    filename: str | None = None,
+    analysis: dict | None = None,
 ) -> dict[str, Any]:
     fn = GENERATOR_REGISTRY.get(content_type)
     if fn is None:
         raise ContentGeneratorError(f"Unknown content_type: {content_type}")
-    return await fn(text, filename=filename)
+    return await fn(text, filename=filename, analysis=analysis)
 
 
 # ---------- 페이지 범위 슬라이싱 ----------

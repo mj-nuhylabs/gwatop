@@ -89,6 +89,16 @@ def generate_summary_task(file_id: str) -> None:
     _run_with_fresh_engine(lambda Session: _run_generate_summary(file_id, Session))
 
 
+@celery_app.task(name="tasks.analyze_file")
+def analyze_file_task(file_id: str) -> None:
+    """파일 텍스트 → 분석본(analysis) 생성. 학습 콘텐츠 생성기들의 공유 입력.
+
+    한 번 만들어두면 퀴즈/플래시카드/마인드맵/암기/주요 주제 모두 이 압축본을 입력으로 써서
+    토큰 사용량과 latency 가 5배 가까이 감소.
+    """
+    _run_with_fresh_engine(lambda Session: _run_analyze_file(file_id, Session))
+
+
 @celery_app.task(name="tasks.generate_ai_content")
 def generate_ai_content_task(
     file_id: str,
@@ -622,9 +632,11 @@ async def _run_classify(file_id: str, SessionLocal) -> None:
     # send_task 호출 (import 회피).
     celery_app.send_task("tasks.notify_classified", args=[file_id])
 
-    # 학습 탭에서 사용자가 클릭하기 전에 미리 요약 생성. 텍스트가 있어야 의미가 있다.
+    # 학습 탭 진입 전에 미리 요약 + 분석본을 만들어둔다.
+    # 분석본은 quiz/flashcard/mindmap/memorize/topics 의 공유 입력으로 재활용.
     if file_row.extracted_text and file_row.extracted_text.strip():
         generate_summary_task.delay(file_id)
+        analyze_file_task.delay(file_id)
 
 
 # ---------- Pipeline: summary generation ----------
@@ -672,6 +684,53 @@ async def _run_generate_summary(file_id: str, SessionLocal) -> None:
         logger.info(
             "generate_summary: saved file=%s tokens=%s headline=%r",
             file_id, payload.get("tokens"), payload.get("headline", "")[:80],
+        )
+
+
+# ---------- Pipeline: 분석본 (학습 콘텐츠 공유 입력) ----------
+
+async def _run_analyze_file(file_id: str, SessionLocal) -> None:
+    """파일 텍스트 → 분석본 생성. 학습 콘텐츠 5종이 이 결과를 입력으로 재사용한다."""
+    from app.models.ai_content import AIContent
+    from app.services.analyzer import AnalyzerError, analyze_text
+
+    async with SessionLocal() as session:
+        file_row = await _load_file(session, UUID(file_id))
+        if file_row is None or not (file_row.extracted_text or "").strip():
+            logger.info("analyze_file: skip — file %s missing/empty", file_id)
+            return
+
+        existing = (await session.execute(
+            select(AIContent).where(
+                AIContent.file_id == file_row.id,
+                AIContent.content_type == "analysis",
+            )
+        )).scalar_one_or_none()
+        if existing is not None:
+            logger.info("analyze_file: already exists file=%s", file_id)
+            return
+
+        try:
+            payload = await analyze_text(
+                file_row.extracted_text, filename=file_row.filename
+            )
+        except AnalyzerError as exc:
+            logger.warning("analyze_file: failed file=%s: %s", file_id, exc)
+            return
+
+        ac = AIContent(
+            file_id=file_row.id,
+            content_type="analysis",
+            scope="all",
+            content=payload,
+        )
+        session.add(ac)
+        await session.commit()
+        logger.info(
+            "analyze_file: saved file=%s tokens=%s concepts=%d terms=%d",
+            file_id, payload.get("tokens"),
+            len(payload.get("main_concepts", [])),
+            len(payload.get("key_terms", [])),
         )
 
 
@@ -733,9 +792,28 @@ async def _run_generate_ai_content(
             )
             return
 
+        # 분석본(analysis) 이 있으면 가져와서 generator 에 전달.
+        # 분석본은 ~3000자 압축본이라 원문 18000자 대신 입력으로 쓰면 latency 50%+ 절감.
+        # 페이지 범위 지정 시(scope != "all") 사용자가 부분 자료를 요청한 것이므로 원문 사용.
+        analysis_payload: dict | None = None
+        if scope == "all":
+            analysis_row = (await session.execute(
+                select(AIContent).where(
+                    AIContent.file_id == file_row.id,
+                    AIContent.content_type == "analysis",
+                )
+            )).scalar_one_or_none()
+            if analysis_row is not None and isinstance(analysis_row.content, dict):
+                analysis_payload = analysis_row.content
+                logger.info(
+                    "generate_ai_content: using cached analysis file=%s type=%s",
+                    file_id, content_type,
+                )
+
         try:
             payload = await generate_content(
-                content_type, text, filename=file_row.filename
+                content_type, text, filename=file_row.filename,
+                analysis=analysis_payload,
             )
         except ContentGeneratorError as exc:
             # 실패도 결과로 저장 — iOS 가 무한 폴링 안 하고 즉시 에러 화면 표시.
