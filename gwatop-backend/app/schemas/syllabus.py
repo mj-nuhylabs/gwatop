@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, time
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 Weekday = Literal["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
@@ -30,6 +30,20 @@ class ParsedCourseMeta(BaseModel):
     location: str | None = None
     class_times: list[ParsedClassTime] = Field(default_factory=list)
     total_weeks: int = Field(16, ge=1, le=30)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_incomplete_class_times(cls, data):
+        # LLM이 두 번째 슬롯을 채우려고 start/end를 null로 반환하는 경우가 있어 사전에 드롭
+        if not isinstance(data, dict):
+            return data
+        items = data.get("class_times")
+        if isinstance(items, list):
+            data["class_times"] = [
+                it for it in items
+                if isinstance(it, dict) and it.get("start_time") and it.get("end_time") and it.get("day")
+            ]
+        return data
 
 
 class ParsedWeek(BaseModel):
