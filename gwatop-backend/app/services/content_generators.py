@@ -61,11 +61,15 @@ def _truncate(text: str, limit: int = MAX_INPUT_CHARS) -> str:
 async def _generate_json(
     *, system: str, user: str, max_tokens: int, temperature: float = 0.3,
 ) -> tuple[dict[str, Any], str, int]:
-    """공통 GPT JSON 호출. (payload, model, total_tokens) 반환."""
+    """공통 GPT JSON 호출. (payload, model, total_tokens) 반환.
+
+    truncation 감지: finish_reason='length' 면 max_tokens 한도 초과로 JSON 잘림.
+    이 경우 명확한 에러를 던져 사용자에게 안내한다 (단순 'invalid JSON' 보다 진단 쉬움).
+    """
     client = _get_client()
     try:
         response = await client.chat.completions.create(
-            model=settings.OPENAI_SUMMARY_MODEL,  # quiz/flashcard 등 모두 동일 모델 — 필요 시 분리
+            model=settings.OPENAI_SUMMARY_MODEL,
             temperature=temperature,
             max_tokens=max_tokens,
             response_format={"type": "json_object"},
@@ -78,11 +82,27 @@ async def _generate_json(
         logger.exception("OpenAI generation failed")
         raise ContentGeneratorError(f"OpenAI request failed: {exc}") from exc
 
-    raw = response.choices[0].message.content or ""
+    choice = response.choices[0]
+    raw = choice.message.content or ""
+    finish_reason = getattr(choice, "finish_reason", None)
+
+    if finish_reason == "length":
+        # GPT 가 max_tokens 한도 직전에 멈춰서 JSON 이 잘렸다.
+        logger.warning(
+            "Generator truncated by max_tokens=%d (len=%d): %s",
+            max_tokens, len(raw), raw[-200:].replace("\n", " "),
+        )
+        raise ContentGeneratorError(
+            f"응답이 너무 길어 잘렸어요 (max_tokens={max_tokens}). 페이지 범위를 좁히거나 잠시 후 다시 시도해 주세요."
+        )
+
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as exc:
-        logger.error("Generator returned non-JSON: %s", raw[:300])
+        logger.error(
+            "Generator returned non-JSON (finish=%s len=%d): %s",
+            finish_reason, len(raw), raw[:300],
+        )
         raise ContentGeneratorError("Model returned invalid JSON") from exc
 
     return (

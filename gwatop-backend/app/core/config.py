@@ -71,7 +71,8 @@ class Settings(BaseSettings):
     # 품질 우선이면 .env 에서 OPENAI_SUMMARY_MODEL=gpt-4o-mini 또는 gpt-4o 로 교체.
     OPENAI_SUMMARY_MODEL: str = "gpt-4.1-nano"
     # 마인드맵·퀴즈는 응답이 길어 1200 으론 잘리는 경우 발생.
-    OPENAI_SUMMARY_MAX_TOKENS: int = 2500
+    # 4000 정도면 nano/mini 모두 안전 마진. 비용은 사용한 만큼만 청구되므로 상한만 큼.
+    OPENAI_SUMMARY_MAX_TOKENS: int = 4000
 
     # --- Day 4: 강의 자료 자동 분류 ---
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
