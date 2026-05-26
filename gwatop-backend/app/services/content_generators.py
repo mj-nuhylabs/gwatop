@@ -220,18 +220,19 @@ async def generate_flashcards(text: str, *, filename: str | None) -> dict[str, A
 
 MINDMAP_SYSTEM = """당신은 한국 대학생용 학습 자료를 마인드맵 트리로 변환합니다.
 
-규칙:
-1. 출력은 JSON 객체 1개.
-2. root 는 자료의 가장 큰 주제(1줄, ≤30자).
-3. 각 노드는 children 으로 하위 노드를 가질 수 있고, 깊이는 최대 3단계.
-4. 모든 leaf 노드는 자료에 명시된 내용에 기반.
-5. 노드 라벨은 짧게 (≤ 25자).
+규칙 (응답이 잘리지 않도록 컴팩트하게):
+1. 출력은 JSON 객체 1개. 다른 텍스트·코드펜스 금지.
+2. root: 자료의 가장 큰 주제 한 줄 (≤ 25자).
+3. 트리 깊이는 **최대 2단계** (root → child → grandchild). 4단계 이상 금지.
+4. 1단계 children 수: **5~8개**. 각 child 의 grandchildren 수: **최대 4개**.
+5. 각 라벨은 ≤ 20자. 긴 설명 절대 넣지 마라.
+6. 모든 leaf 는 자료에 등장한 내용. 추측 금지.
 
-# 출력 스키마
+# 출력 스키마 (정확히 이대로)
 {
   "root": "메인 주제",
   "children": [
-    {"label": "...", "children": [{"label": "...", "children": []}]}
+    {"label": "1단계 노드", "children": [{"label": "leaf", "children": []}]}
   ]
 }
 """

@@ -738,10 +738,21 @@ async def _run_generate_ai_content(
                 content_type, text, filename=file_row.filename
             )
         except ContentGeneratorError as exc:
+            # 실패도 결과로 저장 — iOS 가 무한 폴링 안 하고 즉시 에러 화면 표시.
+            # 사용자가 '다시 생성' 누르면 force=True 로 이 row 가 지워지고 재시도.
             logger.warning(
                 "generate_ai_content: failed file=%s type=%s: %s",
                 file_id, content_type, exc,
             )
+            err_ac = AIContent(
+                file_id=file_row.id,
+                content_type=content_type,
+                scope=scope,
+                content={"error": str(exc)[:500]},
+                requested_by_user_id=UUID(requested_by_user_id) if requested_by_user_id else None,
+            )
+            session.add(err_ac)
+            await session.commit()
             return
 
         ac = AIContent(
