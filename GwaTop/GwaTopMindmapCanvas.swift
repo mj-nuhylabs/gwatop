@@ -155,7 +155,9 @@ struct GwaTopMindmapCanvas: View {
                         CGPoint(x: $0.x - layout.bounds.minX, y: $0.y - layout.bounds.minY)
                     },
                     color: n.color,
-                    level: n.level
+                    level: n.level,
+                    childCount: n.childCount,
+                    isExpanded: n.isExpanded
                 )
             }
 
