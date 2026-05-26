@@ -215,9 +215,9 @@ final class GwaTopSyllabusWatcher: ObservableObject {
     @Published private(set) var lastPolledAt: Date? = nil
 
     private var pollingTask: Task<Void, Never>? = nil
-    /// 폴 간격. fileId 기반은 호출 수가 N(보통 1-2)으로 한정되어 4초도 부담 없음.
-    /// 사용자 체감 latency 단축.
-    private let pollInterval: TimeInterval = 4.0
+    /// 폴 간격. fileId 기반은 호출 수가 N(보통 1-2)으로 한정되어 2초도 부담 없음.
+    /// 백엔드 파싱이 4-5초로 빨라진 만큼 사용자 체감 latency 추가 단축.
+    private let pollInterval: TimeInterval = 2.0
 
     private init() {
         print("[SyllabusWatcher] init — singleton created")
