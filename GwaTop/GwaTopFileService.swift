@@ -80,6 +80,97 @@ struct GwaTopFileDebug: Decodable {
     let course: GwaTopFileDebugCourse
 }
 
+// MARK: - 학습 탭용 DTO
+
+struct GwaTopPresignedDownload: Decodable {
+    let url: String
+    let expiresIn: Int
+    let filename: String
+
+    enum CodingKeys: String, CodingKey {
+        case url
+        case expiresIn = "expires_in"
+        case filename
+    }
+}
+
+struct GwaTopAISummarySection: Decodable, Hashable {
+    let title: String
+    let body: String
+}
+
+struct GwaTopAISummary: Decodable, Hashable {
+    let headline: String
+    let keyPoints: [String]
+    let sections: [GwaTopAISummarySection]
+    let studyTip: String
+
+    enum CodingKeys: String, CodingKey {
+        case headline
+        case keyPoints = "key_points"
+        case sections
+        case studyTip = "study_tip"
+    }
+}
+
+/// `content` 가 content_type 마다 모양이 달라 일단 raw JSON 으로 받고
+/// 각 화면에서 필요한 모양으로 디코딩한다.
+struct GwaTopAIContentResponse: Decodable {
+    let fileId: String
+    let contentType: String
+    let status: String        // "pending" | "ready"
+    let content: GwaTopJSON?  // pending 일 땐 nil
+    let fileStatus: String?
+    let generatedAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case fileId = "file_id"
+        case contentType = "content_type"
+        case status, content
+        case fileStatus = "file_status"
+        case generatedAt = "generated_at"
+    }
+
+    func summary() -> GwaTopAISummary? {
+        guard let json = content else { return nil }
+        guard let data = try? JSONEncoder().encode(json) else { return nil }
+        return try? GwaTopAPI.makeJSONDecoder().decode(GwaTopAISummary.self, from: data)
+    }
+}
+
+/// 임의 JSON 값을 그대로 보존하기 위한 wrapper (Encodable 재인코딩에 사용).
+enum GwaTopJSON: Codable {
+    case object([String: GwaTopJSON])
+    case array([GwaTopJSON])
+    case string(String)
+    case number(Double)
+    case bool(Bool)
+    case null
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if c.decodeNil() { self = .null; return }
+        if let v = try? c.decode(Bool.self) { self = .bool(v); return }
+        if let v = try? c.decode(Double.self) { self = .number(v); return }
+        if let v = try? c.decode(String.self) { self = .string(v); return }
+        if let v = try? c.decode([GwaTopJSON].self) { self = .array(v); return }
+        if let v = try? c.decode([String: GwaTopJSON].self) { self = .object(v); return }
+        throw DecodingError.dataCorruptedError(in: c, debugDescription: "Unknown JSON value")
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case .null:           try c.encodeNil()
+        case .bool(let v):    try c.encode(v)
+        case .number(let v):  try c.encode(v)
+        case .string(let v):  try c.encode(v)
+        case .array(let v):   try c.encode(v)
+        case .object(let v):  try c.encode(v)
+        }
+    }
+}
+
 actor GwaTopFileService {
     static let shared = GwaTopFileService()
 
@@ -101,6 +192,24 @@ actor GwaTopFileService {
     func reclassify(fileId: String) async throws {
         let _: ReclassifyResponse = try await GwaTopAPIClient.shared.postEmpty(
             "/v1/files/\(fileId)/reclassify"
+        )
+    }
+
+    /// 학습 탭 PDF 보기 — S3 presigned GET URL.
+    func presignedDownloadURL(fileId: String) async throws -> GwaTopPresignedDownload {
+        try await GwaTopAPIClient.shared.get("/v1/files/\(fileId)/presigned-download")
+    }
+
+    /// AI 콘텐츠 (summary/quiz/flashcard/...) 조회.
+    func aiContent(fileId: String, contentType: String) async throws -> GwaTopAIContentResponse {
+        try await GwaTopAPIClient.shared.get("/v1/files/\(fileId)/ai-contents/\(contentType)")
+    }
+
+    /// AI 콘텐츠 강제 재생성.
+    @discardableResult
+    func regenerateAIContent(fileId: String, contentType: String) async throws -> [String: String] {
+        try await GwaTopAPIClient.shared.postEmpty(
+            "/v1/files/\(fileId)/ai-contents/\(contentType)/regenerate"
         )
     }
 

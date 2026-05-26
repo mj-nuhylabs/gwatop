@@ -83,6 +83,12 @@ def classify_file_task(file_id: str) -> None:
     _run_with_fresh_engine(lambda Session: _run_classify(file_id, Session))
 
 
+@celery_app.task(name="tasks.generate_summary")
+def generate_summary_task(file_id: str) -> None:
+    """파일 텍스트 → AI 요약 노트 생성 후 ai_contents 에 저장."""
+    _run_with_fresh_engine(lambda Session: _run_generate_summary(file_id, Session))
+
+
 # notify_classified 는 Day 7 이후 app/tasks/notify_tasks.py 로 이관됨.
 # 호출은 .delay(...)로 같은 이름 ("tasks.notify_classified")으로 발송하므로 변경 없음.
 
@@ -595,3 +601,55 @@ async def _run_classify(file_id: str, SessionLocal) -> None:
     # notify_classified 태스크는 app/tasks/notify_tasks.py 로 이관됨. 이름 기반으로
     # send_task 호출 (import 회피).
     celery_app.send_task("tasks.notify_classified", args=[file_id])
+
+    # 학습 탭에서 사용자가 클릭하기 전에 미리 요약 생성. 텍스트가 있어야 의미가 있다.
+    if file_row.extracted_text and file_row.extracted_text.strip():
+        generate_summary_task.delay(file_id)
+
+
+# ---------- Pipeline: summary generation ----------
+
+async def _run_generate_summary(file_id: str, SessionLocal) -> None:
+    from app.models.ai_content import AIContent
+    from app.services.summarizer import SummarizerError, summarize_text
+
+    async with SessionLocal() as session:
+        file_row = await _load_file(session, UUID(file_id))
+        if file_row is None:
+            logger.warning("generate_summary: file %s not found", file_id)
+            return
+        if not file_row.extracted_text or not file_row.extracted_text.strip():
+            logger.info("generate_summary: skip — no text for file=%s", file_id)
+            return
+
+        # 이미 요약이 있으면 재생성 안 함 (수동 재생성은 별도 엔드포인트로 처리).
+        existing = (await session.execute(
+            select(AIContent).where(
+                AIContent.file_id == file_row.id,
+                AIContent.content_type == "summary",
+            )
+        )).scalar_one_or_none()
+        if existing is not None:
+            logger.info("generate_summary: already exists for file=%s", file_id)
+            return
+
+        try:
+            payload = await summarize_text(
+                file_row.extracted_text,
+                filename=file_row.filename,
+            )
+        except SummarizerError as exc:
+            logger.warning("generate_summary: failed file=%s: %s", file_id, exc)
+            return
+
+        ac = AIContent(
+            file_id=file_row.id,
+            content_type="summary",
+            content=payload,
+        )
+        session.add(ac)
+        await session.commit()
+        logger.info(
+            "generate_summary: saved file=%s tokens=%s headline=%r",
+            file_id, payload.get("tokens"), payload.get("headline", "")[:80],
+        )

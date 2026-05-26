@@ -40,3 +40,13 @@ def get_public_url(storage_key: str) -> str:
 def download_to_bytes(storage_key: str) -> bytes:
     obj = _client().get_object(Bucket=settings.S3_BUCKET_NAME, Key=storage_key)
     return obj["Body"].read()
+
+
+def generate_presigned_get_url(storage_key: str, expires_in: int = 3600) -> str:
+    """iOS 등 클라이언트가 S3에서 직접 다운로드(또는 PDFKit으로 inline 로드)할 수 있게
+    하는 일회용 URL. 기본 1시간."""
+    return _client().generate_presigned_url(
+        "get_object",
+        Params={"Bucket": settings.S3_BUCKET_NAME, "Key": storage_key},
+        ExpiresIn=expires_in,
+    )
