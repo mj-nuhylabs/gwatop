@@ -76,7 +76,9 @@ struct GwaTopAIStudyView: View {
                 })
                 .presentationDetents([.large])
             }
-            .sheet(item: $selectedFile) { f in
+            // 문서 클릭 → 전체화면 새 창에서 학습 탭 진행.
+            // sheet 대신 fullScreenCover 로 띄워서 진짜 별도 페이지처럼 느껴지게.
+            .fullScreenCover(item: $selectedFile) { f in
                 GwaTopFileStudyView(file: f)
             }
         }
