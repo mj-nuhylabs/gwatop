@@ -45,10 +45,8 @@ struct GwaTopFileStudyView: View {
             }
         }
 
-        /// 아직 구현 안 된 탭은 placeholder 안내 메시지만 보여준다.
-        var isImplemented: Bool {
-            self == .pdf || self == .summary
-        }
+        /// 모든 탭 구현 완료. (placeholder 표기 제거)
+        var isImplemented: Bool { true }
     }
 
     @Environment(\.dismiss) private var dismiss
@@ -68,7 +66,13 @@ struct GwaTopFileStudyView: View {
                         switch selectedTab {
                         case .pdf:        GwaTopFilePDFTab(file: file)
                         case .summary:    GwaTopFileSummaryTab(file: file)
-                        default:          comingSoonPlaceholder
+                        case .quiz:       GwaTopFileQuizTab(file: file)
+                        case .flashcard:  GwaTopFileFlashcardTab(file: file)
+                        case .mindmap:    GwaTopFileMindmapTab(file: file)
+                        case .memorize:   GwaTopFileMemorizeTab(file: file)
+                        case .topics:     GwaTopFileTopicsTab(file: file)
+                        case .notes:      GwaTopFileNotesTab(file: file)
+                        case .tutor:      GwaTopFileTutorTab(file: file)
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -137,15 +141,6 @@ struct GwaTopFileStudyView: View {
                     .font(.system(size: 12, weight: .bold))
                 Text(tab.label)
                     .font(.system(size: 13, weight: .semibold))
-                if !tab.isImplemented {
-                    Text("준비중")
-                        .font(.system(size: 9, weight: .bold))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(.orange.opacity(0.15))
-                        .foregroundStyle(.orange)
-                        .clipShape(Capsule())
-                }
             }
             .foregroundStyle(isSelected ? .white : GwaTopHomeTheme.textPrimary)
             .padding(.horizontal, 12)
@@ -156,63 +151,10 @@ struct GwaTopFileStudyView: View {
         .buttonStyle(.plain)
     }
 
-    private var comingSoonPlaceholder: some View {
-        VStack(spacing: 14) {
-            Image(systemName: selectedTab.icon)
-                .font(.system(size: 40, weight: .light))
-                .foregroundStyle(GwaTopHomeTheme.primary.opacity(0.4))
-            Text("\(selectedTab.label) 기능은 준비 중이에요")
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(GwaTopHomeTheme.textPrimary)
-            Text(comingSoonHint)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-
-            // 페이지 범위 셀렉터 UI 미리보기 — 실제 동작은 기능 구현 후 활성화.
-            if [.quiz, .memorize, .topics].contains(selectedTab) {
-                pageScopePreview
-                    .padding(.top, 6)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding()
-    }
-
-    private var comingSoonHint: String {
-        switch selectedTab {
-        case .quiz:      return "객관식·주관식 문제를 자동으로 만들어 출제할 예정이에요."
-        case .flashcard: return "어려운 개념을 카드로 만들어 '알아요/몰라요'로 분류할 수 있어요."
-        case .mindmap:   return "노트 핵심 개념을 트리 형태로 시각화해드릴게요."
-        case .memorize:  return "시험에 나올 만한 암기 포인트를 정리해드릴게요."
-        case .topics:    return "주요 개념을 짧은 설명과 함께 정리해드릴게요."
-        case .notes:     return "추가 노트나 메모를 직접 적고 저장할 수 있어요."
-        case .tutor:     return "이 자료를 기반으로 AI 튜터에게 질문할 수 있어요."
-        default:         return ""
-        }
-    }
-
-    private var pageScopePreview: some View {
-        VStack(spacing: 6) {
-            Text("범위 선택 (미리보기)")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(GwaTopHomeTheme.textSecondary)
-            HStack(spacing: 6) {
-                Text("전체 페이지")
-                    .font(.system(size: 11, weight: .semibold))
-                    .padding(.horizontal, 10).padding(.vertical, 6)
-                    .background(GwaTopHomeTheme.primary)
-                    .foregroundStyle(.white)
-                    .clipShape(Capsule())
-                Text("특정 페이지 (예: 1-3)")
-                    .font(.system(size: 11, weight: .semibold))
-                    .padding(.horizontal, 10).padding(.vertical, 6)
-                    .background(Color.gray.opacity(0.1))
-                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                    .clipShape(Capsule())
-            }
-        }
+    // placeholder UI는 모든 탭이 구현되면서 제거됨.
+    @available(*, deprecated, message: "All tabs are now implemented; this helper is no longer used.")
+    private var _legacy_placeholder: some View {
+        EmptyView()
     }
 }
 

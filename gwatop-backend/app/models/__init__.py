@@ -6,3 +6,5 @@ from app.models.file import File
 from app.models.todo import Todo
 from app.models.ai_content import AIContent
 from app.models.device import Device
+from app.models.note import UserNote
+from app.models.tutor_message import TutorMessage

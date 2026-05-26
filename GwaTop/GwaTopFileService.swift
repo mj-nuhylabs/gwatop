@@ -138,6 +138,129 @@ struct GwaTopAIContentResponse: Decodable {
     }
 }
 
+// MARK: - 학습 탭 7종 DTO
+
+struct GwaTopQuizQuestion: Decodable, Hashable, Identifiable {
+    var id: String { question }
+    let type: String              // "multiple_choice" | "short_answer"
+    let question: String
+    let choices: [String]?        // 객관식만
+    let answerIndex: Int?         // 객관식만
+    let answer: String?           // 주관식만
+    let explanation: String
+
+    enum CodingKeys: String, CodingKey {
+        case type, question, choices, explanation, answer
+        case answerIndex = "answer_index"
+    }
+}
+
+struct GwaTopQuizContent: Decodable {
+    let questions: [GwaTopQuizQuestion]
+}
+
+struct GwaTopFlashcard: Decodable, Hashable, Identifiable {
+    var id: String { front }
+    let front: String
+    let back: String
+    let hint: String?
+}
+
+struct GwaTopFlashcardContent: Decodable {
+    let cards: [GwaTopFlashcard]
+}
+
+struct GwaTopMindmapNode: Decodable, Hashable, Identifiable {
+    var id: String { label }
+    let label: String
+    let children: [GwaTopMindmapNode]
+}
+
+struct GwaTopMindmapContent: Decodable {
+    let root: String
+    let children: [GwaTopMindmapNode]
+}
+
+struct GwaTopMemorizePoint: Decodable, Hashable, Identifiable {
+    var id: String { "\(category)/\(text)" }
+    let category: String
+    let text: String
+    let importance: Int
+}
+
+struct GwaTopMemorizeContent: Decodable {
+    let points: [GwaTopMemorizePoint]
+}
+
+struct GwaTopTopic: Decodable, Hashable, Identifiable {
+    var id: String { title }
+    let title: String
+    let body: String
+    let examples: [String]
+}
+
+struct GwaTopTopicsContent: Decodable {
+    let topics: [GwaTopTopic]
+}
+
+extension GwaTopAIContentResponse {
+    private func decode<T: Decodable>(_ type: T.Type) -> T? {
+        guard let json = content,
+              let data = try? JSONEncoder().encode(json)
+        else { return nil }
+        return try? GwaTopAPI.makeJSONDecoder().decode(T.self, from: data)
+    }
+
+    func quiz() -> GwaTopQuizContent?         { decode(GwaTopQuizContent.self) }
+    func flashcards() -> GwaTopFlashcardContent? { decode(GwaTopFlashcardContent.self) }
+    func mindmap() -> GwaTopMindmapContent?   { decode(GwaTopMindmapContent.self) }
+    func memorize() -> GwaTopMemorizeContent? { decode(GwaTopMemorizeContent.self) }
+    func topics() -> GwaTopTopicsContent?     { decode(GwaTopTopicsContent.self) }
+}
+
+// MARK: - 노트
+
+struct GwaTopUserNote: Decodable, Identifiable, Equatable {
+    let id: String
+    let fileId: String
+    let title: String?
+    let body: String
+    let createdAt: Date
+    let updatedAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, body
+        case fileId = "file_id"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+// MARK: - 튜터
+
+struct GwaTopTutorMessage: Decodable, Identifiable, Equatable {
+    let id: String
+    let role: String     // "user" | "assistant"
+    let body: String
+    let tokens: Int?
+    let createdAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id, role, body, tokens
+        case createdAt = "created_at"
+    }
+}
+
+struct GwaTopTutorAskResponse: Decodable {
+    let userMessage: GwaTopTutorMessage
+    let assistantMessage: GwaTopTutorMessage
+
+    enum CodingKeys: String, CodingKey {
+        case userMessage = "user_message"
+        case assistantMessage = "assistant_message"
+    }
+}
+
 /// 임의 JSON 값을 그대로 보존하기 위한 wrapper (Encodable 재인코딩에 사용).
 enum GwaTopJSON: Codable {
     case object([String: GwaTopJSON])
@@ -200,17 +323,80 @@ actor GwaTopFileService {
         try await GwaTopAPIClient.shared.get("/v1/files/\(fileId)/presigned-download")
     }
 
-    /// AI 콘텐츠 (summary/quiz/flashcard/...) 조회.
-    func aiContent(fileId: String, contentType: String) async throws -> GwaTopAIContentResponse {
-        try await GwaTopAPIClient.shared.get("/v1/files/\(fileId)/ai-contents/\(contentType)")
+    /// AI 콘텐츠 (summary/quiz/flashcard/...) 조회. scope 가 nil 이면 "all".
+    func aiContent(fileId: String, contentType: String, scope: String? = nil) async throws -> GwaTopAIContentResponse {
+        var query: [URLQueryItem] = []
+        if let scope, scope != "all", !scope.isEmpty {
+            query.append(URLQueryItem(name: "pages", value: scope))
+        }
+        return try await GwaTopAPIClient.shared.get(
+            "/v1/files/\(fileId)/ai-contents/\(contentType)",
+            query: query
+        )
     }
 
-    /// AI 콘텐츠 강제 재생성.
+    /// AI 콘텐츠 동기 생성 (study 라우트). 8~15초 정도 걸림. force=true 면 캐시 무시.
+    func generateAIContent(
+        fileId: String, contentType: String, pages: String? = nil, force: Bool = false
+    ) async throws -> GwaTopAIContentResponse {
+        struct Body: Encodable { let pages: String?; let force: Bool }
+        let body = Body(pages: pages, force: force)
+        return try await GwaTopAPIClient.shared.post(
+            "/v1/files/\(fileId)/ai-contents/\(contentType)/generate",
+            body: body
+        )
+    }
+
+    /// summary 전용 재생성 — files 라우트.
     @discardableResult
     func regenerateAIContent(fileId: String, contentType: String) async throws -> [String: String] {
         try await GwaTopAPIClient.shared.postEmpty(
             "/v1/files/\(fileId)/ai-contents/\(contentType)/regenerate"
         )
+    }
+
+    // MARK: - 노트
+
+    func listNotes(fileId: String) async throws -> [GwaTopUserNote] {
+        try await GwaTopAPIClient.shared.get("/v1/files/\(fileId)/notes")
+    }
+
+    func createNote(fileId: String, title: String?, body: String) async throws -> GwaTopUserNote {
+        struct Body: Encodable { let title: String?; let body: String }
+        return try await GwaTopAPIClient.shared.post(
+            "/v1/files/\(fileId)/notes",
+            body: Body(title: title, body: body)
+        )
+    }
+
+    func updateNote(fileId: String, noteId: String, title: String?, body: String?) async throws -> GwaTopUserNote {
+        struct Body: Encodable { let title: String?; let body: String? }
+        return try await GwaTopAPIClient.shared.patch(
+            "/v1/files/\(fileId)/notes/\(noteId)",
+            body: Body(title: title, body: body)
+        )
+    }
+
+    func deleteNote(fileId: String, noteId: String) async throws {
+        try await GwaTopAPIClient.shared.deleteNoContent("/v1/files/\(fileId)/notes/\(noteId)")
+    }
+
+    // MARK: - 튜터
+
+    func listTutorMessages(fileId: String) async throws -> [GwaTopTutorMessage] {
+        try await GwaTopAPIClient.shared.get("/v1/files/\(fileId)/tutor/messages")
+    }
+
+    func askTutor(fileId: String, question: String) async throws -> GwaTopTutorAskResponse {
+        struct Body: Encodable { let question: String }
+        return try await GwaTopAPIClient.shared.post(
+            "/v1/files/\(fileId)/tutor/messages",
+            body: Body(question: question)
+        )
+    }
+
+    func clearTutorMessages(fileId: String) async throws {
+        try await GwaTopAPIClient.shared.deleteNoContent("/v1/files/\(fileId)/tutor/messages")
     }
 
     private struct ReclassifyResponse: Decodable {
