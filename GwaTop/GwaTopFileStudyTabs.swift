@@ -611,7 +611,15 @@ struct GwaTopFileMindmapTab: View {
                 if let err = error { GwaTopErrorBanner(message: err) }
 
                 if let m = mindmap {
-                    rootNode(m)
+                    // 방사형 마인드맵 캔버스 — AI 가 아닌 클라이언트 알고리즘이 좌표·곡선 계산.
+                    GwaTopMindmapCanvas(mindmap: m)
+                        .frame(minHeight: 520)
+
+                    Text("드래그로 이동 · 핀치로 확대/축소 · 더블탭으로 초기화")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                        .frame(maxWidth: .infinity)
+
                     GwaTopRegenerateButton(isLoading: isGenerating) {
                         Task { await generate(force: true) }
                     }
