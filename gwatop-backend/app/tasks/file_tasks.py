@@ -733,6 +733,14 @@ async def _run_analyze_file(file_id: str, SessionLocal) -> None:
             len(payload.get("key_terms", [])),
         )
 
+    # 분석본 저장 직후, 학습 콘텐츠 5종을 백그라운드에서 자동 생성.
+    # 각 task 는 위에서 만든 분석본을 입력으로 사용하므로 5~7초 내에 끝남.
+    # Celery concurrency >= 2 이면 5개가 병렬 실행 → 전체 ~7초.
+    # 사용자가 어떤 탭을 누르든 이미 만들어진 결과를 즉시 받게 됨.
+    for ct in ("quiz", "flashcard", "mindmap", "memorize", "topics"):
+        generate_ai_content_task.delay(file_id, ct, "all", False, None)
+    logger.info("analyze_file: queued 5 content generators for file=%s", file_id)
+
 
 # ---------- Pipeline: 학습 탭 AI 콘텐츠 생성 ----------
 
@@ -792,7 +800,7 @@ async def _run_generate_ai_content(
             )
             return
 
-        # 분석본(analysis) 이 있으면 가져와서 generator 에 전달.
+        # 분석본(analysis) 가져오기 — 캐시 없으면 inline 으로 만들어 영구 캐시.
         # 분석본은 ~3000자 압축본이라 원문 18000자 대신 입력으로 쓰면 latency 50%+ 절감.
         # 페이지 범위 지정 시(scope != "all") 사용자가 부분 자료를 요청한 것이므로 원문 사용.
         analysis_payload: dict | None = None
@@ -809,6 +817,36 @@ async def _run_generate_ai_content(
                     "generate_ai_content: using cached analysis file=%s type=%s",
                     file_id, content_type,
                 )
+            else:
+                # 분석본이 아직 없다 — analyze_file_task 가 큐에 있거나 안 돌았을 수 있음.
+                # 다음에 올 quiz/flashcard 등을 위해 미리 만들어두면 후속 호출이 모두 빠름.
+                logger.info(
+                    "generate_ai_content: building analysis inline file=%s", file_id,
+                )
+                from app.services.analyzer import AnalyzerError, analyze_text
+                try:
+                    analysis_payload = await analyze_text(
+                        file_row.extracted_text, filename=file_row.filename,
+                    )
+                    # 캐시에 저장 — 후속 generator 호출이 재사용.
+                    inline_ac = AIContent(
+                        file_id=file_row.id,
+                        content_type="analysis",
+                        scope="all",
+                        content=analysis_payload,
+                    )
+                    session.add(inline_ac)
+                    await session.commit()
+                    logger.info(
+                        "generate_ai_content: inline analysis saved file=%s tokens=%s",
+                        file_id, analysis_payload.get("tokens"),
+                    )
+                except AnalyzerError as exc:
+                    logger.warning(
+                        "generate_ai_content: inline analyze failed, falling back to raw text: %s",
+                        exc,
+                    )
+                    analysis_payload = None
 
         try:
             payload = await generate_content(
