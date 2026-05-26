@@ -367,7 +367,8 @@ struct GwaTopSyllabusUploadSheet: View {
             }
 
             // 글로벌 watcher 에 등록 — 완료 시 캘린더가 알아서 reload.
-            await GwaTopSyllabusWatcher.shared.notifyUploaded(fileId: fileId)
+            // notifyUploaded 는 @MainActor 동기 메서드라 await 불필요.
+            GwaTopSyllabusWatcher.shared.notifyUploaded(fileId: fileId)
 
             // 0.6초만 success 토스트 노출 후 닫음 (사용자에게 "처리됐다" 시각 피드백).
             try? await Task.sleep(nanoseconds: 600_000_000)
