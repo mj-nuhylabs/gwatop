@@ -159,7 +159,9 @@ struct GwaTopQuizContent: Decodable {
     let questions: [GwaTopQuizQuestion]
 }
 
-struct GwaTopFlashcard: Decodable, Hashable, Identifiable {
+/// 학습 탭의 플래시카드. 옛 Mock 타입 GwaTopFlashcard (GwaTopAcademicModels.swift) 와 충돌을
+/// 피하려고 GwaTopAIFlashcard 로 명명. 추후 Mock 제거 시 통합 검토.
+struct GwaTopAIFlashcard: Decodable, Hashable, Identifiable {
     var id: String { front }
     let front: String
     let back: String
@@ -167,7 +169,7 @@ struct GwaTopFlashcard: Decodable, Hashable, Identifiable {
 }
 
 struct GwaTopFlashcardContent: Decodable {
-    let cards: [GwaTopFlashcard]
+    let cards: [GwaTopAIFlashcard]
 }
 
 struct GwaTopMindmapNode: Decodable, Hashable, Identifiable {

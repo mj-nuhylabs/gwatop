@@ -398,7 +398,7 @@ struct GwaTopFileQuizTab: View {
 struct GwaTopFileFlashcardTab: View {
     let file: GwaTopFileSummary
 
-    @State private var cards: [GwaTopFlashcard] = []
+    @State private var cards: [GwaTopAIFlashcard] = []
     @State private var isLoading = false
     @State private var isGenerating = false
     @State private var error: String? = nil
