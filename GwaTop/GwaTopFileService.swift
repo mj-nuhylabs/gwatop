@@ -213,6 +213,18 @@ extension GwaTopAIContentResponse {
         return try? GwaTopAPI.makeJSONDecoder().decode(T.self, from: data)
     }
 
+    /// 백엔드가 생성 실패 시 저장한 마커 (`{"error": "..."}`). iOS 가 무한 폴링 안 하고
+    /// 즉시 에러 메시지 표시 + 재생성 버튼 노출에 사용.
+    var generationError: String? {
+        struct Marker: Decodable { let error: String? }
+        guard let json = content,
+              let data = try? JSONEncoder().encode(json),
+              let marker = try? GwaTopAPI.makeJSONDecoder().decode(Marker.self, from: data),
+              let err = marker.error, !err.isEmpty
+        else { return nil }
+        return err
+    }
+
     func quiz() -> GwaTopQuizContent?         { decode(GwaTopQuizContent.self) }
     func flashcards() -> GwaTopFlashcardContent? { decode(GwaTopFlashcardContent.self) }
     func mindmap() -> GwaTopMindmapContent?   { decode(GwaTopMindmapContent.self) }

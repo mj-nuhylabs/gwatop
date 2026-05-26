@@ -22,7 +22,7 @@ import logging
 from typing import Any
 
 from openai import AsyncOpenAI, OpenAIError
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from app.core.config import settings
 
@@ -242,6 +242,26 @@ class _MindmapNode(BaseModel):
     label: str
     children: list["_MindmapNode"] = Field(default_factory=list)
 
+    @field_validator("children", mode="before")
+    @classmethod
+    def _coerce_children(cls, v):
+        """GPT 가 가끔 leaf 를 dict 대신 문자열로 넣음. 자동 변환해서 받아준다.
+        예: ["A", "B"] → [{"label": "A", "children": []}, {"label": "B", "children": []}]
+        """
+        if v is None:
+            return []
+        if not isinstance(v, list):
+            return []
+        coerced = []
+        for item in v:
+            if isinstance(item, str):
+                coerced.append({"label": item, "children": []})
+            elif isinstance(item, dict):
+                # label 이 없으면 스킵 (잘못된 노드)
+                if "label" in item:
+                    coerced.append(item)
+        return coerced
+
 
 _MindmapNode.model_rebuild()
 
@@ -249,6 +269,11 @@ _MindmapNode.model_rebuild()
 class _Mindmap(BaseModel):
     root: str
     children: list[_MindmapNode] = Field(default_factory=list)
+
+    @field_validator("children", mode="before")
+    @classmethod
+    def _coerce_top_children(cls, v):
+        return _MindmapNode._coerce_children(v)
 
 
 async def generate_mindmap(text: str, *, filename: str | None) -> dict[str, Any]:

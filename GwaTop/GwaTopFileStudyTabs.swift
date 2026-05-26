@@ -385,6 +385,10 @@ struct GwaTopFileQuizTab: View {
                 fileId: file.id, contentType: "quiz",
                 pages: scope == "all" ? nil : scope, force: force
             )
+            if let errMsg = resp.generationError {
+                self.error = "AI 생성 실패: \(errMsg). '다시 생성' 을 눌러주세요."
+                return
+            }
             quiz = resp.quiz()
             currentIndex = 0; showAnswer = false; selectedChoice = nil; shortAnswerInput = ""
         } catch {
@@ -580,6 +584,10 @@ struct GwaTopFileFlashcardTab: View {
             let resp = try await GwaTopFileService.shared.generateAIContentAndWait(
                 fileId: file.id, contentType: "flashcard", pages: nil, force: force
             )
+            if let errMsg = resp.generationError {
+                self.error = "AI 생성 실패: \(errMsg). '다시 생성' 을 눌러주세요."
+                return
+            }
             cards = resp.flashcards()?.cards ?? []
             currentIndex = 0; isFlipped = false; knownIds = []; unknownIds = []
         } catch { self.error = error.localizedDescription }
@@ -683,6 +691,10 @@ struct GwaTopFileMindmapTab: View {
             let resp = try await GwaTopFileService.shared.generateAIContentAndWait(
                 fileId: file.id, contentType: "mindmap", pages: nil, force: force
             )
+            if let errMsg = resp.generationError {
+                self.error = "AI 생성 실패: \(errMsg). '다시 생성' 을 눌러주세요."
+                return
+            }
             mindmap = resp.mindmap()
             expandedLabels = []
         } catch { self.error = error.localizedDescription }
@@ -861,6 +873,10 @@ struct GwaTopFileMemorizeTab: View {
                 fileId: file.id, contentType: "memorize",
                 pages: scope == "all" ? nil : scope, force: force
             )
+            if let errMsg = resp.generationError {
+                self.error = "AI 생성 실패: \(errMsg). '다시 생성' 을 눌러주세요."
+                return
+            }
             content = resp.memorize()
         } catch { self.error = error.localizedDescription }
     }
@@ -968,6 +984,10 @@ struct GwaTopFileTopicsTab: View {
                 fileId: file.id, contentType: "topics",
                 pages: scope == "all" ? nil : scope, force: force
             )
+            if let errMsg = resp.generationError {
+                self.error = "AI 생성 실패: \(errMsg). '다시 생성' 을 눌러주세요."
+                return
+            }
             content = resp.topics()
         } catch { self.error = error.localizedDescription }
     }
