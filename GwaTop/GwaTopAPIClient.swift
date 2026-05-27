@@ -292,14 +292,15 @@ actor GwaTopAPIClient {
         do {
             (data, resp) = try await session.data(for: req)
         } catch {
-            // 전송 실패도 매우 긴 latency 로 기록 (네트워크 모니터에 신호).
+            // 전송 실패 — 평균을 더럽히지 않도록 succeeded=false 로 보냄.
+            // path 모니터가 offline 판정. 다음 성공 요청 시 자동 회복.
             let elapsedMs = Date().timeIntervalSince(started) * 1000
-            await GwaTopNetworkMonitor.shared.recordLatency(max(elapsedMs, 10_000))
+            await GwaTopNetworkMonitor.shared.recordLatency(elapsedMs, succeeded: false)
             throw GwaTopAPIError.transport(error)
         }
-        // 정상 응답 latency 도 기록 — 네트워크 상태 추적용 rolling avg.
+        // 정상 응답 latency 기록 → rolling avg + 오프라인 플래그 자동 해제.
         let elapsedMs = Date().timeIntervalSince(started) * 1000
-        await GwaTopNetworkMonitor.shared.recordLatency(elapsedMs)
+        await GwaTopNetworkMonitor.shared.recordLatency(elapsedMs, succeeded: true)
 
         guard let http = resp as? HTTPURLResponse else {
             throw GwaTopAPIError.server(-1, "Invalid response")

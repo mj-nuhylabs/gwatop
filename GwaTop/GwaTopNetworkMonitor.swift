@@ -54,15 +54,32 @@ final class GwaTopNetworkMonitor: ObservableObject {
         pathMonitor.start(queue: pathQueue)
     }
 
-    /// GwaTopAPIClient 가 매 요청 후 호출. ms 단위.
-    func recordLatency(_ ms: Double) {
-        // 너무 빠른 캐시 hit(< 50ms) 은 신호로 약하니 그대로 기록. 너무 느린 outlier 는 30s 캡.
-        let capped = min(max(ms, 0), 30_000)
-        latencies.append(capped)
-        if latencies.count > latencyWindow {
-            latencies.removeFirst(latencies.count - latencyWindow)
+    /// GwaTopAPIClient 가 매 요청 후 호출.
+    /// - ms: 측정한 latency
+    /// - succeeded: 200~399 응답 받았는지. false 면 transport 실패 (오프라인 등)
+    ///
+    /// 핵심 동작:
+    /// - 성공 요청은 그 자체로 '인터넷 살아있다' 증거 → pathOffline 강제 해제.
+    /// - 오프라인 중 쌓인 실패 latency(10,000ms)들이 평균에 남아 false-positive 'slow'를
+    ///   만들지 않도록, 회복 직전 latencies 배열을 비운다.
+    /// - 실패 요청은 평균에 누적하지 않음 — path 모니터가 직접 offline 판정.
+    func recordLatency(_ ms: Double, succeeded: Bool = true) {
+        if succeeded {
+            // 오프라인이었다면 실제 응답이 왔으니 즉시 회복 처리.
+            if pathOffline {
+                pathOffline = false
+                latencies.removeAll()    // 회복 직전 누적된 실패 outlier 제거
+            }
+            let capped = min(max(ms, 0), 30_000)
+            latencies.append(capped)
+            if latencies.count > latencyWindow {
+                latencies.removeFirst(latencies.count - latencyWindow)
+            }
+            avgLatencyMs = latencies.isEmpty ? 0 : latencies.reduce(0, +) / Double(latencies.count)
+        } else {
+            // 실패는 평균을 더럽히지 않는다. path 모니터가 offline 결정함.
+            // (timeout 류는 다음 path 업데이트 또는 다음 성공 요청에서 자연 회복)
         }
-        avgLatencyMs = latencies.reduce(0, +) / Double(latencies.count)
         recompute()
     }
 
