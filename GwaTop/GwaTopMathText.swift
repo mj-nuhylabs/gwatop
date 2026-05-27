@@ -26,6 +26,9 @@ struct GwaTopMathText: View {
     let fontSize: CGFloat
     let textColor: Color
     let weight: Font.Weight
+    /// KaTeX WebView 가 자기 실제 높이를 보고하면 SwiftUI 가 그 높이로 frame 을 잡아준다.
+    /// 이 값이 없으면 WebView 가 0 또는 임의의 초기 frame 으로 그려져 형제 뷰와 겹친다.
+    @State private var measuredHeight: CGFloat = 22
 
     init(
         _ text: String,
@@ -43,8 +46,10 @@ struct GwaTopMathText: View {
         if Self.needsMathRendering(text) {
             GwaTopKaTeXWebView(
                 text: Self.preprocessForKaTeX(text),
-                fontSize: fontSize, weight: weight, color: textColor
+                fontSize: fontSize, weight: weight, color: textColor,
+                measuredHeight: $measuredHeight
             )
+            .frame(height: measuredHeight)
         } else {
             // 수식 없으면 가벼운 SwiftUI Text 로 — WebView 부담 없음.
             Text(text)
@@ -88,6 +93,7 @@ struct GwaTopKaTeXWebView: UIViewRepresentable {
     let fontSize: CGFloat
     let weight: Font.Weight
     let color: Color
+    @Binding var measuredHeight: CGFloat
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -112,6 +118,12 @@ struct GwaTopKaTeXWebView: UIViewRepresentable {
 
     func updateUIView(_ webView: WKWebView, context: Context) {
         context.coordinator.parent = self
+        // 측정 height 가 바뀌어 SwiftUI 가 re-render 할 때 HTML 을 재로드하면
+        // 무한 reload → 깜빡임/높이 폭주 루프. 콘텐츠가 실제 바뀐 경우에만 reload.
+        let key = "\(fontSize)|\(weight.hashValue)|\(text)"
+        if context.coordinator.lastLoadKey == key { return }
+        context.coordinator.lastLoadKey = key
+
         let html = Self.makeHTML(text: text, fontSize: fontSize, weight: weight, color: color)
         webView.loadHTMLString(html, baseURL: URL(string: "https://cdn.jsdelivr.net"))
     }
@@ -120,35 +132,40 @@ struct GwaTopKaTeXWebView: UIViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var parent: GwaTopKaTeXWebView?
         weak var webView: WKWebView?
+        /// 마지막으로 로드한 콘텐츠 key — 동일 내용 재로드 방지.
+        var lastLoadKey: String?
+        /// 마지막으로 보고된 높이 — 동일 높이 재할당 방지.
+        private var lastHeight: CGFloat = 0
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             // KaTeX 렌더링이 끝난 뒤 약간 대기 후 height 측정.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                webView.evaluateJavaScript(
-                    "document.body.scrollHeight"
-                ) { result, _ in
-                    guard let height = result as? CGFloat, height > 0 else { return }
-                    webView.invalidateIntrinsicContentSize()
-                    DispatchQueue.main.async {
-                        webView.frame.size.height = height
-                    }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                webView.evaluateJavaScript("document.body.scrollHeight") { [weak self] result, _ in
+                    guard let self else { return }
+                    guard let h = (result as? NSNumber).map({ CGFloat(truncating: $0) }) ?? (result as? CGFloat),
+                          h > 0 else { return }
+                    self.applyHeight(h)
                 }
             }
         }
 
         func userContentController(_ uc: WKUserContentController, didReceive msg: WKScriptMessage) {
             // KaTeX 가 inline-scroll wrapper 추가 후 재측정한 높이를 받음.
-            guard msg.name == "heightCallback", let webView = self.webView else { return }
-            let height: CGFloat
-            if let n = msg.body as? NSNumber { height = CGFloat(n.doubleValue) }
-            else if let d = msg.body as? Double { height = CGFloat(d) }
+            guard msg.name == "heightCallback" else { return }
+            let h: CGFloat
+            if let n = msg.body as? NSNumber { h = CGFloat(truncating: n) }
+            else if let d = msg.body as? Double { h = CGFloat(d) }
+            else if let c = msg.body as? CGFloat { h = c }
             else { return }
-            guard height > 0 else { return }
-            DispatchQueue.main.async {
-                if abs(webView.frame.size.height - height) > 1 {
-                    webView.frame.size.height = height
-                    webView.invalidateIntrinsicContentSize()
-                }
+            applyHeight(h)
+        }
+
+        /// 측정 높이를 SwiftUI @State 에 반영. 1px 미만 변화는 무시.
+        private func applyHeight(_ h: CGFloat) {
+            guard h > 0, abs(h - lastHeight) > 1 else { return }
+            lastHeight = h
+            DispatchQueue.main.async { [weak self] in
+                self?.parent?.measuredHeight = h
             }
         }
     }
@@ -279,6 +296,9 @@ struct GwaTopRichText: View {
     let fontSize: CGFloat
     let textColor: Color
     let accentColor: Color
+    /// WebView 가 JS scrollHeight 로 보고한 실제 높이 — SwiftUI 가 그대로 frame 에 반영해서
+    /// 다음 형제 뷰(action bar / 다음 메시지)와 겹치지 않게 한다.
+    @State private var measuredHeight: CGFloat = 24
 
     init(
         _ markdown: String,
@@ -297,8 +317,10 @@ struct GwaTopRichText: View {
             markdown: markdown,
             fontSize: fontSize,
             color: textColor,
-            accent: accentColor
+            accent: accentColor,
+            measuredHeight: $measuredHeight
         )
+        .frame(height: measuredHeight)
     }
 }
 
@@ -307,6 +329,7 @@ private struct GwaTopRichTextWebView: UIViewRepresentable {
     let fontSize: CGFloat
     let color: Color
     let accent: Color
+    @Binding var measuredHeight: CGFloat
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -330,6 +353,12 @@ private struct GwaTopRichTextWebView: UIViewRepresentable {
 
     func updateUIView(_ webView: WKWebView, context: Context) {
         context.coordinator.parent = self
+        // 동일 내용으로 측정된 height 가 바뀌어 SwiftUI 가 re-render 할 때 HTML 을 재로드하면
+        // 무한 reload → 깜빡임/겹침 루프에 빠진다. 콘텐츠가 실제로 바뀐 경우에만 reload.
+        let key = "\(fontSize)|\(markdown)"
+        if context.coordinator.lastLoadKey == key { return }
+        context.coordinator.lastLoadKey = key
+
         let html = Self.makeHTML(
             markdown: markdown,
             fontSize: fontSize,
@@ -343,17 +372,18 @@ private struct GwaTopRichTextWebView: UIViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler, WKUIDelegate {
         var parent: GwaTopRichTextWebView?
         weak var webView: WKWebView?
+        /// 마지막으로 로드한 콘텐츠 key — 동일 내용 재로드 방지.
+        var lastLoadKey: String?
         /// 마지막으로 보고된 높이 — 동일 높이 재할당 방지로 SwiftUI re-layout 최소화.
         private var lastHeight: CGFloat = 0
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                webView.evaluateJavaScript("document.body.scrollHeight") { result, _ in
-                    guard let h = result as? CGFloat, h > 0 else { return }
-                    DispatchQueue.main.async {
-                        webView.frame.size.height = h
-                        webView.invalidateIntrinsicContentSize()
-                    }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                webView.evaluateJavaScript("document.body.scrollHeight") { [weak self] result, _ in
+                    guard let self else { return }
+                    guard let h = (result as? NSNumber).map({ CGFloat(truncating: $0) }) ?? (result as? CGFloat),
+                          h > 0 else { return }
+                    self.applyHeight(h)
                 }
             }
         }
@@ -362,13 +392,19 @@ private struct GwaTopRichTextWebView: UIViewRepresentable {
             _ uc: WKUserContentController, didReceive msg: WKScriptMessage
         ) {
             guard msg.name == "heightCallback" else { return }
-            guard let h = msg.body as? CGFloat ?? (msg.body as? NSNumber).map({ CGFloat(truncating: $0) })
+            let h: CGFloat
+            if let n = msg.body as? NSNumber { h = CGFloat(truncating: n) }
+            else if let c = msg.body as? CGFloat { h = c }
             else { return }
-            guard abs(h - lastHeight) > 1 else { return }   // 1px 미만 변화는 무시
+            applyHeight(h)
+        }
+
+        /// 측정 높이를 SwiftUI @State 에 반영. 1px 미만 변화는 무시 (re-layout 폭주 방지).
+        private func applyHeight(_ h: CGFloat) {
+            guard h > 0, abs(h - lastHeight) > 1 else { return }
             lastHeight = h
             DispatchQueue.main.async { [weak self] in
-                self?.webView?.frame.size.height = h
-                self?.webView?.invalidateIntrinsicContentSize()
+                self?.parent?.measuredHeight = h
             }
         }
 
