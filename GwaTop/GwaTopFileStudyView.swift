@@ -89,13 +89,18 @@ struct GwaTopFileStudyView: View {
                 }
             }
             .task {
-                // Speculative prefetch — 사용자가 인트로 + 페이지 범위 고르는 시간 동안
-                // 백엔드가 5종 학습 콘텐츠를 'all' scope 으로 미리 만들어 둠.
-                // 시작 버튼 클릭 시점엔 캐시 hit 확률이 매우 높아 ~1초 안에 결과 표시.
-                async let aiPrefetch: () = GwaTopFileService.shared.prefetchAIContents(fileId: file.id)
-                // PDF 도 미리 다운로드 → PDF 탭 누르는 시점엔 캐시 hit 으로 즉시 표시.
+                // 1) AI 콘텐츠 prefetch 큐잉 (서버 POST 한 번, ~50ms).
+                //    5종 학습 콘텐츠를 'all' scope 으로 미리 만들어 둠.
+                //    시작 버튼 클릭 시점엔 캐시 hit 확률이 매우 높아 ~1초 안에 결과 표시.
+                await GwaTopFileService.shared.prefetchAIContents(fileId: file.id)
+
+                // 2) 사용자 첫 화면(요약 탭)이 자체 .task 로 summary HTTP 호출 중.
+                //    PDF 다운로드(보통 1~5MB)가 같이 시작하면 대역폭 경쟁으로 요약 표시가 늦어짐.
+                //    1.5초 양보 → summary HTTP (수 KB)가 먼저 완료될 시간 확보.
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+
+                // 3) PDF 백그라운드 다운로드 → PDF 탭 누르는 시점엔 캐시 hit.
                 GwaTopPDFCache.shared.load(fileId: file.id, fileType: file.fileType)
-                _ = await aiPrefetch
             }
         }
     }
