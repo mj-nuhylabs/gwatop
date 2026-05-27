@@ -665,13 +665,28 @@ struct GwaTopSubject: Identifiable {
 }
 
 struct GwaTopHomeTheme {
-    static let primary = Color(red: 0.25, green: 0.38, blue: 0.95)
-    static let secondary = Color(red: 0.43, green: 0.68, blue: 1.00)
-    static let success = Color(red: 0.11, green: 0.68, blue: 0.39)
-    static let background = Color(red: 0.96, green: 0.97, blue: 1.0)
-    static let textPrimary = Color(red: 0.10, green: 0.12, blue: 0.20)
-    static let textSecondary = Color(red: 0.45, green: 0.48, blue: 0.58)
-    static let line = Color(red: 0.88, green: 0.90, blue: 0.95)
+    // Apple 미니멀리즘 — 차분한 블루, 절제된 채도, 시스템 회색 톤.
+    static let primary = Color(red: 0.00, green: 0.48, blue: 1.00)        // iOS system blue
+    static let secondary = Color(red: 0.35, green: 0.62, blue: 1.00)      // 보조 (그라데이션용)
+    static let success = Color(red: 0.20, green: 0.78, blue: 0.35)        // iOS system green
+    static let warning = Color(red: 1.00, green: 0.58, blue: 0.00)        // iOS system orange
+
+    // 배경: 순백에 아주 살짝 회색 — Apple Notes / Settings 톤.
+    static let background = Color(red: 0.97, green: 0.97, blue: 0.98)
+    static let surface = Color.white                                      // 카드 표면
+    static let surfaceElevated = Color(red: 0.99, green: 0.99, blue: 1.00) // 살짝 위에 떠 있는 표면
+
+    // 텍스트 — 거의 검정에 가까운 짙은 회색 / SF 스타일 보조 회색.
+    static let textPrimary = Color(red: 0.07, green: 0.07, blue: 0.09)    // near-black
+    static let textSecondary = Color(red: 0.45, green: 0.45, blue: 0.50)  // iOS secondaryLabel
+    static let textTertiary = Color(red: 0.62, green: 0.62, blue: 0.67)   // iOS tertiaryLabel
+
+    // 헤어라인 분리선 — 그림자보다 미니멀.
+    static let line = Color(red: 0.90, green: 0.90, blue: 0.92)
+    static let separator = Color.black.opacity(0.06)
+
+    // 그림자: 거의 없음. 깊이감은 헤어라인으로.
+    static let cardShadow = Color.black.opacity(0.04)
 
     static let primaryGradient = LinearGradient(
         colors: [primary, secondary],

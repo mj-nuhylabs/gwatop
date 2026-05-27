@@ -47,7 +47,13 @@ struct GwaTopAIStudyView: View {
                         coursePicker
 
                         if let err = loadError {
-                            errorBanner(err)
+                            errorBanner(err) {
+                                // 사용자가 직접 누른 재시도. 과목/파일 모두 재시도.
+                                Task {
+                                    await loadCoursesIfNeeded()
+                                    await reloadFiles()
+                                }
+                            }
                         }
 
                         if isLoadingFiles {
@@ -240,12 +246,32 @@ struct GwaTopAIStudyView: View {
         .padding(.vertical, 40)
     }
 
-    private func errorBanner(_ msg: String) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
-            Text(msg)
-                .font(.system(size: 12, weight: .semibold))
+    private func errorBanner(_ msg: String, retry: @escaping () -> Void) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.red)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(msg)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button(action: retry) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 11, weight: .bold))
+                        Text("다시 시도")
+                            .font(.system(size: 11, weight: .bold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(.red)
+                    .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)

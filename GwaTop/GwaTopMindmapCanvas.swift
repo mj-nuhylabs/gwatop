@@ -2,31 +2,36 @@
 //  GwaTopMindmapCanvas.swift
 //  GwaTop
 //
-//  AI 가 만든 트리(root + children) 데이터를 받아 방사형 마인드맵으로 렌더링한다.
-//  레이아웃은 100% 클라이언트 계산 — AI 호출 없이 좌표·곡선·색상을 모두 결정.
+//  AI 가 만든 트리(root + children) 데이터를 받아 정렬된 수평 마인드맵으로 렌더링한다.
+//  레이아웃은 100% 클라이언트 계산 — AI 호출 없이 좌표·연결선·색상을 모두 결정.
 //
 //  알고리즘:
 //   1) root 를 캔버스 중심에 배치
-//   2) 1단계 children N개를 360°/N 간격으로 동심원(R1)에 배치
-//   3) 각 1단계 child 가 차지하는 angular wedge 안에 2단계 grandchildren 배치 (R2)
-//   4) 부모 → 자식 연결은 quadratic Bezier 곡선으로 부드럽게
-//   5) 1단계 branch 별 색상 팔레트 순환, 자식은 같은 색상 유지
+//   2) 1단계 children 을 좌/우 두 컬럼으로 균형 배분 (짝수 인덱스→오른쪽, 홀수→왼쪽)
+//   3) 각 컬럼 안에서 자식 수에 비례한 높이로 세로 정렬
+//   4) 2단계 grandchildren 은 부모 옆 한 컬럼 더 바깥에 일정 간격으로 정렬
+//   5) 부모 → 자식 연결은 직각(L자) 라인으로, 같은 부모를 공유하는 자식들은 같은 spine 을 공유
 //
 
 import SwiftUI
 
-// MARK: - 색상 팔레트 (1단계 branch 별)
+// MARK: - 색상 팔레트 (차분한 톤)
 
 private let kBranchColors: [Color] = [
-    Color(red: 0.50, green: 0.80, blue: 0.45),  // green
-    Color(red: 0.99, green: 0.85, blue: 0.30),  // yellow
-    Color(red: 0.55, green: 0.85, blue: 0.95),  // cyan
-    Color(red: 0.75, green: 0.50, blue: 0.95),  // purple
-    Color(red: 0.98, green: 0.60, blue: 0.45),  // coral
-    Color(red: 0.40, green: 0.70, blue: 0.95),  // blue
-    Color(red: 0.95, green: 0.55, blue: 0.75),  // pink
-    Color(red: 0.65, green: 0.85, blue: 0.55),  // lime
+    Color(red: 0.40, green: 0.52, blue: 0.66),  // muted slate blue
+    Color(red: 0.58, green: 0.54, blue: 0.42),  // muted olive
+    Color(red: 0.55, green: 0.45, blue: 0.55),  // muted plum
+    Color(red: 0.40, green: 0.58, blue: 0.55),  // muted teal
+    Color(red: 0.62, green: 0.50, blue: 0.45),  // muted brick
+    Color(red: 0.45, green: 0.56, blue: 0.45),  // muted moss
+    Color(red: 0.52, green: 0.52, blue: 0.60),  // muted lavender
+    Color(red: 0.56, green: 0.48, blue: 0.42),  // muted tan
 ]
+
+private let kRootColor = Color(red: 0.22, green: 0.27, blue: 0.36)   // deep slate
+private let kLineColor = Color(white: 0.55)
+private let kSurface   = Color.white
+private let kLeafText  = Color(white: 0.22)
 
 // MARK: - 내부 좌표 모델
 
@@ -37,81 +42,88 @@ private struct PositionedNode: Identifiable {
     let parentPosition: CGPoint?
     let color: Color
     let level: Int        // 0=root, 1=branch, 2=leaf
-    let childCount: Int   // level=1 노드 한정. 펼침/접기 뱃지 표시용.
-    let isExpanded: Bool  // level=1 노드 한정. 자식이 현재 펼쳐져 있는지.
+    let childCount: Int
+    let isExpanded: Bool
+    let onRight: Bool     // true=오른쪽 가지, false=왼쪽 가지 (root 는 임의)
 }
 
 private struct LaidOutMindmap {
     let nodes: [PositionedNode]
-    let bounds: CGRect   // 모든 노드를 감싸는 최소 박스
+    let bounds: CGRect
 }
 
-// MARK: - 레이아웃 계산
+// MARK: - 레이아웃 (수평 트리)
 
 private func layoutMindmap(
     _ map: GwaTopMindmapContent,
     expandedBranches: Set<String>,
-    radiusLevel1: CGFloat = 180,
-    radiusLevel2: CGFloat = 320,
+    columnWidth: CGFloat = 240,
+    rowHeight: CGFloat = 60,
+    branchGap: CGFloat = 22,
     center: CGPoint = .zero
 ) -> LaidOutMindmap {
     var result: [PositionedNode] = []
-    let firstLevel = map.children
-    let n = max(1, firstLevel.count)
 
-    // root 노드
-    result.append(PositionedNode(
-        label: map.root, position: center, parentPosition: nil,
-        color: Color.white, level: 0, childCount: 0, isExpanded: false
-    ))
+    // 좌우 균형 분배: 짝수 인덱스→오른쪽, 홀수→왼쪽 (원본 인덱스로 색상 결정).
+    struct Item { let origIndex: Int; let node: GwaTopMindmapNode }
+    var right: [Item] = []
+    var left: [Item] = []
+    for (i, b) in map.children.enumerated() {
+        if i % 2 == 0 { right.append(Item(origIndex: i, node: b)) }
+        else          { left.append(Item(origIndex: i, node: b)) }
+    }
 
-    let baseAngle = -CGFloat.pi / 2
-    for (i, branch) in firstLevel.enumerated() {
-        let angle = baseAngle + CGFloat(i) * (2 * .pi / CGFloat(n))
-        let pos = CGPoint(
-            x: center.x + cos(angle) * radiusLevel1,
-            y: center.y + sin(angle) * radiusLevel1
-        )
-        let color = kBranchColors[i % kBranchColors.count]
-        let expanded = expandedBranches.contains(branch.label)
-        result.append(PositionedNode(
-            label: branch.label, position: pos, parentPosition: center,
-            color: color, level: 1,
-            childCount: branch.children.count,
-            isExpanded: expanded
-        ))
+    func span(_ b: GwaTopMindmapNode) -> CGFloat {
+        let expanded = expandedBranches.contains(b.label)
+        let childRows = (expanded ? b.children.count : 0)
+        // 펼쳐졌으면 자식 수에 비례, 아니면 한 줄 높이.
+        return max(rowHeight, CGFloat(childRows) * rowHeight) + branchGap
+    }
 
-        // 펼쳐진 branch 만 grandchildren 배치.
-        guard expanded else { continue }
-
-        let sliceWidth = (2 * .pi / CGFloat(n)) * 0.85
-        let grandchildren = branch.children
-        let m = grandchildren.count
-        for (j, gc) in grandchildren.enumerated() {
-            let subAngle: CGFloat
-            if m == 1 {
-                subAngle = angle
-            } else {
-                let t = CGFloat(j) / CGFloat(m - 1) - 0.5
-                subAngle = angle + t * sliceWidth
-            }
-            let gcPos = CGPoint(
-                x: center.x + cos(subAngle) * radiusLevel2,
-                y: center.y + sin(subAngle) * radiusLevel2
-            )
+    func placeSide(_ items: [Item], onRight: Bool) {
+        let totalHeight = items.map(\.node).map(span).reduce(0, +) - (items.isEmpty ? 0 : branchGap)
+        var cursorY = center.y - totalHeight / 2
+        let xSign: CGFloat = onRight ? 1 : -1
+        for item in items {
+            let s = span(item.node) - branchGap
+            let branchCenterY = cursorY + s / 2
+            let pos = CGPoint(x: center.x + xSign * columnWidth, y: branchCenterY)
+            let color = kBranchColors[item.origIndex % kBranchColors.count]
+            let expanded = expandedBranches.contains(item.node.label)
             result.append(PositionedNode(
-                label: gc.label,
-                position: gcPos,
-                parentPosition: pos,
-                color: color,
-                level: 2,
-                childCount: 0,
-                isExpanded: false
+                label: item.node.label, position: pos, parentPosition: center,
+                color: color, level: 1,
+                childCount: item.node.children.count,
+                isExpanded: expanded, onRight: onRight
             ))
+            if expanded {
+                let m = item.node.children.count
+                let block = CGFloat(m) * rowHeight
+                var gcY = branchCenterY - block / 2 + rowHeight / 2
+                for gc in item.node.children {
+                    let gcPos = CGPoint(x: center.x + xSign * columnWidth * 2, y: gcY)
+                    result.append(PositionedNode(
+                        label: gc.label, position: gcPos, parentPosition: pos,
+                        color: color, level: 2,
+                        childCount: 0, isExpanded: false, onRight: onRight
+                    ))
+                    gcY += rowHeight
+                }
+            }
+            cursorY += s + branchGap
         }
     }
 
-    let padding: CGFloat = 80
+    placeSide(right, onRight: true)
+    placeSide(left,  onRight: false)
+
+    // root 는 첫 번째 노드로 삽입 (드로잉 순서와 무관, 안정성을 위해 앞).
+    result.insert(PositionedNode(
+        label: map.root, position: center, parentPosition: nil,
+        color: kRootColor, level: 0, childCount: 0, isExpanded: false, onRight: true
+    ), at: 0)
+
+    let padding: CGFloat = 120
     let xs = result.map { $0.position.x }
     let ys = result.map { $0.position.y }
     let minX = (xs.min() ?? 0) - padding
@@ -137,10 +149,12 @@ struct GwaTopMindmapCanvas: View {
     /// 자식이 펼쳐진 1단계 branch 라벨들. 초기엔 비어있어 root + branches 만 보임.
     @State private var expandedBranches: Set<String> = []
 
+    private let minScale: CGFloat = 0.4
+    private let maxScale: CGFloat = 3.0
+
     var body: some View {
         let layout = layoutMindmap(mindmap, expandedBranches: expandedBranches)
 
-        // bounds 의 크기에 맞춘 캔버스. ScrollView 로 감싸지 않고 매니퓰레이션 제스처(팬/줌) 사용.
         GeometryReader { geo in
             let canvasSize = CGSize(width: layout.bounds.width, height: layout.bounds.height)
             // 모든 노드 위치를 bounds 좌상단 기준으로 보정.
@@ -157,35 +171,37 @@ struct GwaTopMindmapCanvas: View {
                     color: n.color,
                     level: n.level,
                     childCount: n.childCount,
-                    isExpanded: n.isExpanded
+                    isExpanded: n.isExpanded,
+                    onRight: n.onRight
                 )
             }
 
             ZStack {
                 Color.clear
 
-                // 1) 가지 (Bezier)
+                // 1) 연결선 — 직각(L자) 라우팅.
                 Path { path in
                     for node in shifted where node.level > 0 {
                         guard let parent = node.parentPosition else { continue }
                         let p1 = parent
                         let p2 = node.position
-                        // 컨트롤 포인트: 두 점 중간에서 살짝 안쪽으로 (중심 방향).
-                        let mid = CGPoint(x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2)
+                        let midX = (p1.x + p2.x) / 2
                         path.move(to: p1)
-                        path.addQuadCurve(to: p2, control: mid)
+                        path.addLine(to: CGPoint(x: midX, y: p1.y))
+                        path.addLine(to: CGPoint(x: midX, y: p2.y))
+                        path.addLine(to: p2)
                     }
                 }
-                .stroke(Color.gray.opacity(0.45), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                .stroke(kLineColor.opacity(0.55),
+                        style: StrokeStyle(lineWidth: 1.0, lineCap: .square, lineJoin: .miter))
 
-                // 2) 노드 — level 순으로 그려서 자식이 부모 위로 안 가도록.
+                // 2) 노드 — level 순서로 그려서 자식이 부모 위로 안 가도록.
                 ForEach(shifted.sorted { $0.level < $1.level }) { node in
                     nodeView(node)
                         .position(node.position)
                         .onTapGesture {
-                            // 1단계 + 자식 있는 노드만 토글.
                             guard node.level == 1, node.childCount > 0 else { return }
-                            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                            withAnimation(.easeInOut(duration: 0.22)) {
                                 if expandedBranches.contains(node.label) {
                                     expandedBranches.remove(node.label)
                                 } else {
@@ -198,12 +214,13 @@ struct GwaTopMindmapCanvas: View {
             .frame(width: canvasSize.width, height: canvasSize.height)
             .scaleEffect(scale)
             .offset(offset)
-            // 캔버스 중심을 geo 중심에 맞춰 평행이동.
             .position(x: geo.size.width / 2, y: geo.size.height / 2)
             .gesture(
                 SimultaneousGesture(
                     MagnificationGesture()
-                        .onChanged { value in scale = max(0.4, min(3.0, lastScale * value)) }
+                        .onChanged { value in
+                            scale = max(minScale, min(maxScale, lastScale * value))
+                        }
                         .onEnded { _ in lastScale = scale },
                     DragGesture()
                         .onChanged { v in
@@ -216,89 +233,139 @@ struct GwaTopMindmapCanvas: View {
                 )
             )
             .onTapGesture(count: 2) {
-                // 더블탭으로 초기 위치 리셋
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                    scale = 1.0
-                    lastScale = 1.0
-                    offset = .zero
-                    lastOffset = .zero
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    resetView()
                 }
             }
         }
         .frame(minHeight: 480)
         .background(Color(white: 0.985))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(Color(white: 0.88), lineWidth: 0.5)
+        )
+        .overlay(alignment: .bottomTrailing) { zoomControls }
     }
 
-    // 노드 캡슐
+    // MARK: - 줌 컨트롤
+
+    private var zoomControls: some View {
+        VStack(spacing: 1) {
+            zoomButton(systemName: "plus") {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    let next = min(maxScale, scale + 0.25)
+                    scale = next; lastScale = next
+                }
+            }
+            Divider().frame(width: 28)
+            zoomButton(systemName: "minus") {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    let next = max(minScale, scale - 0.25)
+                    scale = next; lastScale = next
+                }
+            }
+            Divider().frame(width: 28)
+            zoomButton(systemName: "arrow.up.left.and.arrow.down.right") {
+                withAnimation(.easeInOut(duration: 0.25)) { resetView() }
+            }
+        }
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .stroke(Color(white: 0.85), lineWidth: 0.5)
+        )
+        .shadow(color: Color.black.opacity(0.06), radius: 4, x: 0, y: 1)
+        .padding(10)
+    }
+
+    private func zoomButton(systemName: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color(white: 0.30))
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func resetView() {
+        scale = 1.0; lastScale = 1.0
+        offset = .zero; lastOffset = .zero
+    }
+
+    // MARK: - 노드 시각
+
     @ViewBuilder
     private func nodeView(_ node: PositionedNode) -> some View {
-        if node.level == 0 {
-            // 중앙 root — 강조된 sunburst 스타일
-            ZStack {
-                Circle()
-                    .fill(LinearGradient(
-                        colors: [Color.orange.opacity(0.95), Color.orange],
-                        startPoint: .topLeading, endPoint: .bottomTrailing
-                    ))
-                    .frame(width: 100, height: 100)
-                    .shadow(color: Color.orange.opacity(0.35), radius: 16, x: 0, y: 6)
+        switch node.level {
+        case 0:
+            // root — 다크 슬레이트, 살짝만 둥근 사각.
+            Text(node.label)
+                .font(.system(size: 17, weight: .heavy))
+                .foregroundStyle(.white)
+                .lineLimit(3)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+                .frame(maxWidth: 220)
+                .background(kRootColor)
+                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
 
+        case 1:
+            // 1단계 — 흰 배경 + 컬러 보더 + 컬러 라벨. 자식 수 뱃지.
+            HStack(spacing: 8) {
+                Rectangle()
+                    .fill(node.color)
+                    .frame(width: 4, height: 22)
                 Text(node.label)
-                    .font(.system(size: 14, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.white)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(Color(white: 0.12))
                     .lineLimit(2)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 10)
-            }
-        } else if node.level == 1 {
-            HStack(spacing: 6) {
-                Text(node.label)
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(textColor(on: node.color))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
+                    .multilineTextAlignment(.leading)
 
                 if node.childCount > 0 {
-                    // 펼침/접힘 인디케이터 — 자식 수 + 화살표.
-                    HStack(spacing: 2) {
+                    HStack(spacing: 3) {
                         Image(systemName: node.isExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 9, weight: .heavy))
+                            .font(.system(size: 10, weight: .bold))
                         Text("\(node.childCount)")
-                            .font(.system(size: 10, weight: .heavy, design: .rounded))
+                            .font(.system(size: 12, weight: .bold))
                     }
-                    .foregroundStyle(textColor(on: node.color))
+                    .foregroundStyle(node.color)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(Color.white.opacity(0.35))
-                    .clipShape(Capsule())
+                    .background(node.color.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
                 }
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(node.color)
-            .clipShape(Capsule())
-            .shadow(color: node.color.opacity(0.30), radius: 8, x: 0, y: 3)
-            .scaleEffect(node.isExpanded ? 1.05 : 1.0)
-        } else {
+            .padding(.vertical, 10)
+            .frame(maxWidth: 230)
+            .background(kSurface)
+            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .stroke(node.color.opacity(0.65), lineWidth: 1.4)
+            )
+
+        default:
+            // 2단계 leaf — 더 옅은 톤, 동일한 살짝 둥근 사각.
             Text(node.label)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(textColor(on: node.color.opacity(0.85)))
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(Color(white: 0.15))
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(node.color.opacity(0.75))
-                .clipShape(Capsule())
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .frame(maxWidth: 210)
+                .background(kSurface)
+                .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .stroke(node.color.opacity(0.45), lineWidth: 1.0)
+                )
         }
-    }
-
-    /// 배경색이 밝으면 검정 글자, 어두우면 흰 글자.
-    private func textColor(on color: Color) -> Color {
-        let uiColor = UIColor(color)
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        uiColor.getRed(&r, green: &g, blue: &b, alpha: &a)
-        let luminance = 0.299 * r + 0.587 * g + 0.114 * b
-        return luminance > 0.65 ? .black.opacity(0.85) : .white
     }
 }

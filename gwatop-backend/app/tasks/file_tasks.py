@@ -106,15 +106,20 @@ def generate_ai_content_task(
     scope: str = "all",
     force: bool = False,
     requested_by_user_id: str | None = None,
+    exclude_questions: list[str] | None = None,
 ) -> None:
     """학습 탭의 quiz/flashcard/mindmap/memorize/topics 생성 작업.
 
     iOS의 generate POST 호출은 이 태스크를 큐잉만 하고 즉시 202 반환한다.
     실제 GPT 호출은 워커에서 진행되어 사용자가 다른 탭으로 이동해도 결과가 안전하게 저장됨.
+
+    `exclude_questions` 는 퀴즈 전용 — 이전에 사용자가 풀었던 문제 텍스트 리스트.
+    있으면 force=True 처럼 동작하면서 GPT 에 '이 문제들과 다르게 출제' 를 지시한다.
     """
     _run_with_fresh_engine(
         lambda Session: _run_generate_ai_content(
-            file_id, content_type, scope, force, requested_by_user_id, Session
+            file_id, content_type, scope, force, requested_by_user_id, Session,
+            exclude_questions=exclude_questions,
         )
     )
 
@@ -792,6 +797,8 @@ async def _run_generate_ai_content(
     force: bool,
     requested_by_user_id: str | None,
     SessionLocal,
+    *,
+    exclude_questions: list[str] | None = None,
 ) -> None:
     """Celery 워커에서 실행되는 학습 콘텐츠 생성. 결과는 ai_contents 에 저장."""
     from app.models.ai_content import AIContent
@@ -814,7 +821,8 @@ async def _run_generate_ai_content(
             )
             return
 
-        # 기존 결과 확인. force=False 면 이미 있을 때 스킵 (중복 호출 방어).
+        # 기존 결과 확인. force=False + exclude_questions 없음 일 때만 캐시 hit 으로 스킵.
+        # '다른 문제로' 옵션(exclude_questions) 은 같은 캐시를 덮어쓰고 새로 만들어야 한다.
         existing = (await session.execute(
             select(AIContent).where(
                 AIContent.file_id == file_row.id,
@@ -822,13 +830,14 @@ async def _run_generate_ai_content(
                 AIContent.scope == scope,
             )
         )).scalar_one_or_none()
-        if existing is not None and not force:
+        should_regenerate = force or bool(exclude_questions)
+        if existing is not None and not should_regenerate:
             logger.info(
                 "generate_ai_content: already exists file=%s type=%s scope=%s",
                 file_id, content_type, scope,
             )
             return
-        if existing is not None and force:
+        if existing is not None and should_regenerate:
             await session.execute(delete(AIContent).where(AIContent.id == existing.id))
 
         text = slice_text_by_pages(
@@ -893,6 +902,7 @@ async def _run_generate_ai_content(
             payload = await generate_content(
                 content_type, text, filename=file_row.filename,
                 analysis=analysis_payload,
+                exclude_questions=exclude_questions,
             )
         except ContentGeneratorError as exc:
             # 실패도 결과로 저장 — iOS 가 무한 폴링 안 하고 즉시 에러 화면 표시.

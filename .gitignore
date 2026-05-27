@@ -73,3 +73,10 @@ venv/
 gwatop-backend/celery.log
 gwatop-backend/uvicorn.log
 gwatop-backend/server.log
+
+# 모든 위치의 런타임 로그 (root, gwatop-backend/ 양쪽)
+*.log
+
+# SSH/EC2 키 — 절대 커밋 금지
+*.pem
+*.key

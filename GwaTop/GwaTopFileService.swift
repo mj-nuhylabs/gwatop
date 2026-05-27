@@ -172,6 +172,17 @@ struct GwaTopFlashcardContent: Decodable {
     let cards: [GwaTopAIFlashcard]
 }
 
+/// `GET /flashcards/status` 응답 — 카드 식별자(front) → "known" | "unknown".
+struct GwaTopFlashcardStatusList: Decodable {
+    let statuses: [String: String]
+}
+
+/// `POST /flashcards/more` 응답 — 기존 카드에 새 카드가 추가된 전체 content + 추가 개수.
+struct GwaTopFlashcardMoreResponse: Decodable {
+    let content: GwaTopFlashcardContent
+    let added: Int
+}
+
 struct GwaTopMindmapNode: Decodable, Hashable, Identifiable {
     var id: String { label }
     let label: String
@@ -275,6 +286,20 @@ struct GwaTopTutorAskResponse: Decodable {
     }
 }
 
+/// SSE 튜터 스트림 이벤트. 백엔드 `event_stream` 의 5종 페이로드를 그대로 매핑.
+enum GwaTopTutorStreamEvent {
+    /// 사용자 메시지가 DB 에 저장된 직후 — UI 에 echo 해서 즉시 말풍선 표시.
+    case userMessage(GwaTopTutorMessage)
+    /// AI 응답 토큰 생성 시작.
+    case start
+    /// 토큰 청크 (점진 누적).
+    case delta(String)
+    /// 최종 assistant 메시지 (DB id 포함).
+    case done(GwaTopTutorMessage)
+    /// 백엔드/OpenAI 에러.
+    case error(String)
+}
+
 /// 임의 JSON 값을 그대로 보존하기 위한 wrapper (Encodable 재인코딩에 사용).
 enum GwaTopJSON: Codable {
     case object([String: GwaTopJSON])
@@ -351,11 +376,17 @@ actor GwaTopFileService {
 
     /// AI 콘텐츠 생성 요청. 백엔드는 캐시가 있으면 즉시 ready 응답,
     /// 없으면 Celery 워커로 큐잉 후 202 ("queued") 반환. force=true 면 캐시 무시 후 재생성.
+    /// `excludeQuestions` 는 퀴즈 한정 — 이전에 출제됐던 문제 텍스트를 넘기면 GPT 가 중복을 피한다.
     func generateAIContent(
-        fileId: String, contentType: String, pages: String? = nil, force: Bool = false
+        fileId: String, contentType: String, pages: String? = nil, force: Bool = false,
+        excludeQuestions: [String]? = nil
     ) async throws -> GwaTopAIContentResponse {
-        struct Body: Encodable { let pages: String?; let force: Bool }
-        let body = Body(pages: pages, force: force)
+        struct Body: Encodable {
+            let pages: String?
+            let force: Bool
+            let exclude_questions: [String]?
+        }
+        let body = Body(pages: pages, force: force, exclude_questions: excludeQuestions)
         return try await GwaTopAPIClient.shared.post(
             "/v1/files/\(fileId)/ai-contents/\(contentType)/generate",
             body: body
@@ -384,12 +415,16 @@ actor GwaTopFileService {
         contentType: String,
         pages: String? = nil,
         force: Bool = false,
-        pollInterval: TimeInterval = 3.0,
-        maxAttempts: Int = 30
+        excludeQuestions: [String]? = nil,
+        // 1초 간격 폴링 — 백엔드 GET 한 번이라 부담 미미. OpenAI 가 5초만에 끝나면
+        // 사용자도 5초 안에 결과 받음 (기존 3초 폴링은 최대 3초 손실).
+        pollInterval: TimeInterval = 1.0,
+        maxAttempts: Int = 90
     ) async throws -> GwaTopAIContentResponse {
         // 1) generate POST — 캐시 있으면 ready 즉시, 없으면 queued.
         let initial = try await generateAIContent(
-            fileId: fileId, contentType: contentType, pages: pages, force: force
+            fileId: fileId, contentType: contentType, pages: pages, force: force,
+            excludeQuestions: excludeQuestions
         )
         if initial.status == "ready" { return initial }
 
@@ -413,6 +448,54 @@ actor GwaTopFileService {
     func regenerateAIContent(fileId: String, contentType: String) async throws -> [String: String] {
         try await GwaTopAPIClient.shared.postEmpty(
             "/v1/files/\(fileId)/ai-contents/\(contentType)/regenerate"
+        )
+    }
+
+    // MARK: - 플래시카드 상태 (알아요 / 몰라요)
+
+    /// 사용자가 이 파일/scope 에서 이전에 마킹한 카드 상태 전체. 카드 시작 시 한 번만 호출.
+    func flashcardStatuses(fileId: String, scope: String? = nil) async throws -> [String: String] {
+        var query: [URLQueryItem] = []
+        if let scope, scope != "all", !scope.isEmpty {
+            query.append(URLQueryItem(name: "pages", value: scope))
+        }
+        let resp: GwaTopFlashcardStatusList = try await GwaTopAPIClient.shared.get(
+            "/v1/files/\(fileId)/flashcards/status", query: query
+        )
+        return resp.statuses
+    }
+
+    /// 카드 한 장의 상태 저장 또는 해제. status 가 nil 이면 "none" (해제) 으로 전송.
+    @discardableResult
+    func setFlashcardStatus(
+        fileId: String, scope: String? = nil,
+        cardFront: String, status: String?
+    ) async throws -> [String: String] {
+        struct Body: Encodable {
+            let card_front: String
+            let status: String
+            let pages: String?
+        }
+        let pages = (scope == "all" || (scope?.isEmpty ?? true)) ? nil : scope
+        let body = Body(
+            card_front: cardFront,
+            status: status ?? "none",
+            pages: pages,
+        )
+        let resp: [String: GwaTopJSON] = try await GwaTopAPIClient.shared.put(
+            "/v1/files/\(fileId)/flashcards/status", body: body
+        )
+        _ = resp
+        return [:]
+    }
+
+    /// 기존 카드와 다른 새 카드를 동기적으로 생성 후 append. OpenAI 호출 동안 5~10초 대기.
+    func generateMoreFlashcards(fileId: String, scope: String? = nil) async throws -> GwaTopFlashcardMoreResponse {
+        struct Body: Encodable { let pages: String? }
+        let pages = (scope == "all" || (scope?.isEmpty ?? true)) ? nil : scope
+        return try await GwaTopAPIClient.shared.post(
+            "/v1/files/\(fileId)/flashcards/more",
+            body: Body(pages: pages)
         )
     }
 
@@ -448,11 +531,33 @@ actor GwaTopFileService {
         try await GwaTopAPIClient.shared.get("/v1/files/\(fileId)/tutor/messages")
     }
 
-    func askTutor(fileId: String, question: String) async throws -> GwaTopTutorAskResponse {
-        struct Body: Encodable { let question: String }
+    func askTutor(
+        fileId: String,
+        question: String,
+        images: [String]? = nil
+    ) async throws -> GwaTopTutorAskResponse {
+        struct Body: Encodable {
+            let question: String
+            let images: [String]?
+        }
         return try await GwaTopAPIClient.shared.post(
             "/v1/files/\(fileId)/tutor/messages",
-            body: Body(question: question)
+            body: Body(question: question, images: images)
+        )
+    }
+
+    /// SSE 스트리밍 채널 열기. 호출자는 AsyncThrowingStream 으로 이벤트를 받는다.
+    /// 각 이벤트는 GwaTopTutorStreamEvent (start/delta/done/error/userMessage).
+    /// nonisolated — Stream 자체는 actor 격리 밖에서 동작해야 SwiftUI .task 안에서 자유롭게 사용 가능.
+    nonisolated func askTutorStream(
+        fileId: String,
+        question: String,
+        images: [String]? = nil
+    ) -> AsyncThrowingStream<GwaTopTutorStreamEvent, Error> {
+        GwaTopAPIClient.shared.tutorSSEStream(
+            path: "/v1/files/\(fileId)/tutor/messages/stream",
+            question: question,
+            images: images
         )
     }
 

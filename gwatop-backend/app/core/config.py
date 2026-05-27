@@ -74,6 +74,17 @@ class Settings(BaseSettings):
     # 4000 정도면 nano/mini 모두 안전 마진. 비용은 사용한 만큼만 청구되므로 상한만 큼.
     OPENAI_SUMMARY_MAX_TOKENS: int = 4000
 
+    # --- AI 튜터 (멀티모달 채팅) ---
+    # 튜터는 사진 첨부(vision) 와 길고 정제된 마크다운+LaTeX 응답이 필요해서
+    # 요약/콘텐츠 생성과 다른 모델을 별도 지정한다. 4o-mini 는 vision 입력 + 200K context
+    # 지원하면서도 nano 대비 비용 차이가 미미.
+    OPENAI_TUTOR_MODEL: str = "gpt-4o-mini"
+    # 응답 토큰 상한. 한 번에 인덱스/예시/연습 문제까지 풍부하게 받을 수 있도록 2500 으로 확대.
+    # (기존 900 은 공식이 절반에서 잘려 사용자가 "성의 없다" 느꼈음.)
+    OPENAI_TUTOR_MAX_TOKENS: int = 2500
+    # 튜터 답변의 창의성. 0.3~0.5 권장 — 정확성 + 약간의 친근함.
+    OPENAI_TUTOR_TEMPERATURE: float = 0.35
+
     # --- Day 4: 강의 자료 자동 분류 ---
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
     # 파일명 regex 매칭 시 이 confidence를 부여한다. 강의계획서 weeks와 무관하게 신뢰.

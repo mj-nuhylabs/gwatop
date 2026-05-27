@@ -23,7 +23,30 @@ enum GwaTopAPIError: LocalizedError {
         case .unauthorized:             return "로그인이 만료되었습니다. 다시 로그인해 주세요."
         case .server(let code, let m):  return "서버 오류(\(code)): \(m)"
         case .decoding(let m):          return "응답 파싱 실패: \(m)"
-        case .transport(let e):         return e.localizedDescription
+        case .transport(let e):         return GwaTopAPIError.friendlyTransport(e)
+        }
+    }
+
+    /// URLError 코드를 사용자 친화적 한국어로 변환. raw 영어 메시지("The request timed out.")
+    /// 대신 사용자가 어떻게 행동해야 할지 알 수 있는 안내를 보여준다.
+    private static func friendlyTransport(_ error: Error) -> String {
+        guard let urlError = error as? URLError else {
+            return error.localizedDescription
+        }
+        switch urlError.code {
+        case .timedOut:
+            return "서버 응답이 늦어요. 잠시 후 다시 시도해 주세요."
+        case .cannotConnectToHost, .cannotFindHost:
+            return "서버에 연결할 수 없어요. 서버가 점검 중일 수 있어요."
+        case .notConnectedToInternet, .networkConnectionLost:
+            return "인터넷 연결을 확인해 주세요."
+        case .dataNotAllowed:
+            return "데이터 사용 권한을 확인해 주세요."
+        case .secureConnectionFailed, .serverCertificateUntrusted,
+             .serverCertificateHasBadDate, .serverCertificateHasUnknownRoot:
+            return "보안 연결에 실패했어요."
+        default:
+            return urlError.localizedDescription
         }
     }
 }
@@ -230,6 +253,116 @@ actor GwaTopAPIClient {
         }
     }
 
+    // MARK: - SSE (튜터 스트리밍 전용)
+
+    /// 튜터 SSE 스트리밍. URLSession 의 `bytes(for:)` 비동기 시퀀스로 라인 단위 파싱.
+    ///
+    /// 백엔드는 각 이벤트를 `data: <JSON>\n\n` 형식으로 보낸다. iOS 는 각 JSON 을
+    /// `GwaTopTutorStreamEvent` 로 매핑해 AsyncThrowingStream 에 흘려보낸다.
+    ///
+    /// nonisolated — actor 격리 밖에서 동기 호출 가능. 내부에서 새로운 Task 가
+    /// URLSession 호출을 수행.
+    nonisolated func tutorSSEStream(
+        path: String,
+        question: String,
+        images: [String]?
+    ) -> AsyncThrowingStream<GwaTopTutorStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    guard let url = URL(string: GwaTopAPI.baseURL + path) else {
+                        throw GwaTopAPIError.invalidURL
+                    }
+                    guard let token = GwaTopAPI.currentAccessToken() else {
+                        throw GwaTopAPIError.unauthorized
+                    }
+                    var req = URLRequest(url: url, timeoutInterval: 120)
+                    req.httpMethod = "POST"
+                    req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+
+                    // 직접 JSON 인코딩 — images 가 nil 일 때도 키를 보내도록 명시적 처리.
+                    var payload: [String: Any] = ["question": question]
+                    if let images, !images.isEmpty {
+                        payload["images"] = images
+                    }
+                    req.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+                    let (bytes, response) = try await URLSession.shared.bytes(for: req)
+                    guard let http = response as? HTTPURLResponse else {
+                        throw GwaTopAPIError.server(-1, "Invalid SSE response")
+                    }
+                    if http.statusCode == 401 {
+                        GwaTopAPIClient.broadcastUnauthorized()
+                        throw GwaTopAPIError.unauthorized
+                    }
+                    guard (200..<300).contains(http.statusCode) else {
+                        // 응답 본문 일부만 모아서 에러로 — 너무 길면 의미 없음.
+                        var snippet = ""
+                        for try await line in bytes.lines {
+                            snippet += line + "\n"
+                            if snippet.count > 400 { break }
+                        }
+                        throw GwaTopAPIError.server(http.statusCode, snippet)
+                    }
+
+                    let decoder = GwaTopAPI.makeJSONDecoder()
+                    for try await line in bytes.lines {
+                        try Task.checkCancellation()
+                        // SSE 라인 포맷: `data: <JSON>` (빈 줄은 이벤트 구분, comment 는 `: ...`).
+                        guard line.hasPrefix("data: ") else { continue }
+                        let jsonString = String(line.dropFirst(6))
+                        if jsonString.isEmpty { continue }
+                        guard let data = jsonString.data(using: .utf8) else { continue }
+                        if let event = Self.parseTutorEvent(data: data, decoder: decoder) {
+                            continuation.yield(event)
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// 한 SSE data 줄을 GwaTopTutorStreamEvent 로 디코딩.
+    /// 실패하면 nil — 무시하고 다음 줄 진행 (백엔드가 새 이벤트 타입을 추가해도 forward-compatible).
+    private static func parseTutorEvent(
+        data: Data, decoder: JSONDecoder
+    ) -> GwaTopTutorStreamEvent? {
+        struct Envelope: Decodable {
+            let type: String
+            let text: String?
+            let message: GwaTopTutorMessage?
+            let assistantMessage: GwaTopTutorMessage?
+
+            enum CodingKeys: String, CodingKey {
+                case type, text, message
+                case assistantMessage = "assistant_message"
+            }
+        }
+        guard let env = try? decoder.decode(Envelope.self, from: data) else {
+            return nil
+        }
+        switch env.type {
+        case "user_message":
+            return env.message.map { .userMessage($0) }
+        case "start":
+            return .start
+        case "delta":
+            return env.text.map { .delta($0) }
+        case "done":
+            return env.assistantMessage.map { .done($0) }
+        case "error":
+            return .error(env.text ?? "AI 응답 실패")
+        default:
+            return nil
+        }
+    }
+
     func uploadPUT(toAbsoluteURL urlString: String, body: Data, contentType: String) async throws {
         guard let url = URL(string: urlString) else { throw GwaTopAPIError.invalidURL }
         var req = URLRequest(url: url, timeoutInterval: 60)
@@ -270,7 +403,9 @@ actor GwaTopAPIClient {
         if !query.isEmpty { comps.queryItems = query }
         guard let url = comps.url else { throw GwaTopAPIError.invalidURL }
 
-        var req = URLRequest(url: url, timeoutInterval: 20)
+        // 30초 — 서버 응답이 잠시 느려도 한 번 더 기다린다. AI 생성 폴링은 별도 폴 루프라
+        // 이 값과 무관. 일반 GET/POST 용도.
+        var req = URLRequest(url: url, timeoutInterval: 30)
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Accept")
 
