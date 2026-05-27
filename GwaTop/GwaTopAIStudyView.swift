@@ -28,6 +28,9 @@ struct GwaTopAIStudyView: View {
                         intro
                             .padding(.top, 8)
 
+                        // 백그라운드 업로드 진행 카드 — 시트가 닫혀도 여기에 표시.
+                        GwaTopUploadProgressBanner()
+
                         coursePicker
 
                         if let err = loadError {

@@ -151,6 +151,28 @@ async def _run_extract(file_id: str, SessionLocal) -> None:
                 await _mark_failed(session, file_row, f"PDF text extraction failed: {exc}")
                 return
 
+            # OCR fallback — PyMuPDF 가 거의 빈 결과를 돌려준 경우 (손글씨/스캔 PDF).
+            # gpt-4o-mini vision 으로 페이지별 OCR 실행.
+            from app.services.ocr_fallback import needs_ocr, ocr_pdf, OCRError
+            if needs_ocr(text):
+                logger.info(
+                    "extract_text: triggering OCR fallback for file=%s (got %d chars from PyMuPDF)",
+                    file_id, len(text or ""),
+                )
+                try:
+                    ocr_text = await ocr_pdf(data)
+                    if ocr_text and len(ocr_text.strip()) > len(text or ""):
+                        text = ocr_text
+                        logger.info(
+                            "extract_text: OCR fallback succeeded file=%s chars=%d",
+                            file_id, len(ocr_text),
+                        )
+                except OCRError as exc:
+                    logger.warning(
+                        "extract_text: OCR fallback failed file=%s: %s", file_id, exc,
+                    )
+                    # 원래 text 유지하고 계속 진행 (빈 문자열일 수도)
+
         file_row.extracted_text = text
         # 강의계획서인데 텍스트가 비어 있으면(=PyMuPDF가 빈 결과 반환) parse를 트리거할 수 없다.
         # 그대로 'extracted' 로 두면 사용자가 영원히 "처리 중"으로 보게 되니 명시적으로 실패 처리.

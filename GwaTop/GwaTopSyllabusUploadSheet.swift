@@ -325,60 +325,24 @@ struct GwaTopSyllabusUploadSheet: View {
     }
 
     private func uploadTapped() {
-        Task { await runUpload() }
-    }
-
-    private func runUpload() async {
         guard let data = pickedFileData, let filename = pickedFileName else { return }
 
-        await MainActor.run {
-            self.phase = .uploading
-            self.phaseMessage = "S3로 업로드 중…"
-        }
+        // 업로드를 전역 GwaTopUploadProgress 에 위임 — 시트가 닫혀도 백그라운드에서 계속.
+        // 사용자는 즉시 시트가 닫히는 걸 보고, 학습/캘린더 탭 상단에 작은 진행 카드만 본다.
+        GwaTopUploadProgress.shared.startSyllabusUpload(
+            filename: filename, data: data, courseId: selectedCourseId,
+        )
 
-        do {
-            let fileId: String
-            if let courseId = selectedCourseId {
-                fileId = try await GwaTopFileUploadService.shared.upload(
-                    courseId: courseId,
-                    filename: filename,
-                    fileType: "pdf",
-                    data: data,
-                    isSyllabus: true
-                )
-            } else {
-                // 과목 미선택 — 백엔드가 파싱 결과로 자동 매칭/생성
-                fileId = try await GwaTopFileUploadService.shared.uploadSyllabusWithoutCourse(
-                    filename: filename,
-                    data: data
-                )
-            }
+        // 시트 자체는 짧은 "시작했어요" 상태 보여준 뒤 닫힘. 더 이상 업로드 완료를 기다리지 않음.
+        phase = .dispatched
+        phaseMessage = "분석을 시작했어요. 학습 탭에서 진행 상태를 확인할 수 있어요."
 
-            // confirm 완료 — 이제 파싱은 백그라운드 Celery 가 처리한다.
-            // 시트는 잠깐 "분석 시작했어요" 토스트만 보여주고 즉시 닫는다.
-            let dispatchMsg = selectedCourseId == nil
-                ? "분석을 시작했어요. 끝나면 자동으로 캘린더에 등록됩니다."
-                : "분석을 시작했어요. 끝나면 자동으로 일정이 추가됩니다."
-
-            await MainActor.run {
-                self.uploadedFileId = fileId
-                self.phase = .dispatched
-                self.phaseMessage = dispatchMsg
-            }
-
-            // 글로벌 watcher 에 등록 — 완료 시 캘린더가 알아서 reload.
-            // notifyUploaded 는 @MainActor 동기 메서드라 await 불필요.
-            GwaTopSyllabusWatcher.shared.notifyUploaded(fileId: fileId)
-
-            // 0.6초만 success 토스트 노출 후 닫음 (사용자에게 "처리됐다" 시각 피드백).
-            try? await Task.sleep(nanoseconds: 600_000_000)
+        Task {
+            try? await Task.sleep(nanoseconds: 1_300_000_000)
             await MainActor.run {
                 onUploadCompleted()
                 dismiss()
             }
-        } catch {
-            let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            await MainActor.run { self.phase = .failed("업로드 실패: \(msg)") }
         }
     }
 }
