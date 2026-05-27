@@ -17,6 +17,18 @@ struct GwaTopAIStudyView: View {
     @State private var loadError: String? = nil
     @State private var showUploadSheet = false
     @State private var selectedFile: GwaTopFileSummary? = nil
+    /// 진행 중 파일이 있을 때 3초마다 자동 재조회 트리거. 안정화되면 자동 중지.
+    @State private var pollTick: Int = 0
+
+    /// 백엔드 처리 중인 상태값들. 이 중 하나라도 있으면 폴링 계속.
+    private static let inProgressStatuses: Set<String> = [
+        "pending", "uploading", "processing", "extracting",
+        "extracted", "parsing", "classifying"
+    ]
+
+    private var hasInProgress: Bool {
+        files.contains { Self.inProgressStatuses.contains($0.status) }
+    }
 
     var body: some View {
         NavigationStack {
@@ -73,6 +85,14 @@ struct GwaTopAIStudyView: View {
             .task { await loadCoursesIfNeeded() }
             .onChange(of: selectedCourseId) { _, _ in
                 Task { await reloadFiles() }
+            }
+            // 폴링 루프: pollTick 이 증가할 때마다 3초 후 재조회. hasInProgress 가 false 면 중지.
+            .task(id: pollTick) {
+                guard pollTick > 0 else { return }
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                if hasInProgress {
+                    await reloadFiles(silent: true)
+                }
             }
             .sheet(isPresented: $showUploadSheet) {
                 GwaTopMaterialUploadSheet(onUploadCompleted: {
@@ -280,13 +300,17 @@ struct GwaTopAIStudyView: View {
     }
 
     @MainActor
-    private func reloadFiles() async {
+    private func reloadFiles(silent: Bool = false) async {
         guard let cid = selectedCourseId else { files = []; return }
-        isLoadingFiles = true
+        if !silent { isLoadingFiles = true }
         loadError = nil
-        defer { isLoadingFiles = false }
+        defer { if !silent { isLoadingFiles = false } }
         do {
             files = try await GwaTopFileService.shared.fetchFiles(courseId: cid)
+            // 진행 중 파일이 있으면 다음 폴 예약. 안정화 상태면 자동 중지.
+            if hasInProgress {
+                pollTick += 1
+            }
         } catch {
             if isCancellation(error) { return }
             loadError = "자료를 불러오지 못했어요: \(error.localizedDescription)"
