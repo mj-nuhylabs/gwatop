@@ -147,30 +147,30 @@ struct GwaTopHomeView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("이번 주 학습 현황")
                         .font(.gwaTopSystem(size: 20, weight: .bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
 
                     Text("이번 주 할 일 \(total)개 중 \(done)개 완료")
                         .font(.gwaTopSystem(size: 14, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.82))
+                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
                 }
 
                 Spacer()
 
                 ZStack {
                     Circle()
-                        .stroke(.white.opacity(0.22), lineWidth: 8)
+                        .stroke(GwaTopHomeTheme.primary.opacity(0.18), lineWidth: 8)
                         .frame(width: 70, height: 70)
 
                     Circle()
                         .trim(from: 0, to: rate)
-                        .stroke(.white, style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                        .stroke(GwaTopHomeTheme.primary, style: StrokeStyle(lineWidth: 8, lineCap: .round))
                         .frame(width: 70, height: 70)
                         .rotationEffect(.degrees(-90))
                         .animation(.spring(response: 0.5), value: rate)
 
                     Text("\(percent)%")
                         .font(.gwaTopSystem(size: 15, weight: .heavy))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(GwaTopHomeTheme.primary)
                 }
             }
 
@@ -181,8 +181,13 @@ struct GwaTopHomeView: View {
             }
         }
         .padding(20)
-        .background(GwaTopHomeTheme.primary)
+        // 코랄 단색 → 아주 옅은 코랄 wash. 헤더 카드도 다른 카드와 같은 평면 인상으로.
+        .background(GwaTopHomeTheme.primary.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .strokeBorder(GwaTopHomeTheme.primary.opacity(0.18), lineWidth: 1)
+        )
     }
 
     private var aiRecommendationCard: some View {
@@ -437,21 +442,22 @@ struct GwaTopStatCard: View {
         VStack(spacing: 5) {
             Text(title)
                 .font(.gwaTopSystem(size: 11, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.76))
+                .foregroundStyle(GwaTopHomeTheme.textSecondary)
 
             HStack(alignment: .firstTextBaseline, spacing: 2) {
                 Text(value)
                     .font(.system(size: 20, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(GwaTopHomeTheme.primary)
 
                 Text(unit)
                     .font(.gwaTopSystem(size: 11, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.86))
+                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
             }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 13)
-        .background(.white.opacity(0.14))
+        // 헤더 카드(살짝 코랄) 위 흰 칩 — 대비를 위해 surface 단색.
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
