@@ -104,9 +104,7 @@ struct GwaTopMaterialUploadSheet: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .shadow(color: .black.opacity(0.05), radius: 10, x: 0, y: 4)
+        .gwaTopCard(radius: 22)
     }
 
     private var courseCard: some View {
@@ -139,9 +137,7 @@ struct GwaTopMaterialUploadSheet: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .shadow(color: .black.opacity(0.05), radius: 10, x: 0, y: 4)
+        .gwaTopCard(radius: 22)
     }
 
     private func courseRow(_ course: GwaTopCourseDTO) -> some View {
@@ -206,9 +202,7 @@ struct GwaTopMaterialUploadSheet: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(18)
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .shadow(color: .black.opacity(0.05), radius: 10, x: 0, y: 4)
+        .gwaTopCard(radius: 22)
     }
 
     private func successBanner(_ message: String) -> some View {

@@ -270,13 +270,7 @@ struct GwaTopMindmapCanvas: View {
                 withAnimation(.easeInOut(duration: 0.25)) { resetView() }
             }
         }
-        .background(Color.white)
-        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .stroke(Color(white: 0.85), lineWidth: 0.5)
-        )
-        .shadow(color: Color.black.opacity(0.06), radius: 4, x: 0, y: 1)
+        .gwaTopCard(radius: 4)
         .padding(10)
     }
 

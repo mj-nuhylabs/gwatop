@@ -406,9 +406,7 @@ struct GwaTopCalendarView: View {
             }
         }
         .padding(16)
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .shadow(color: .black.opacity(0.045), radius: 14, x: 0, y: 7)
+        .gwaTopCard(radius: 24)
     }
 
     private var selectedDaySection: some View {
@@ -553,9 +551,7 @@ struct GwaTopCalendarView: View {
                     .foregroundStyle(GwaTopHomeTheme.textSecondary)
             }
             .padding(16)
-            .background(.white)
-            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .shadow(color: .black.opacity(0.045), radius: 14, x: 0, y: 7)
+            .gwaTopCard(radius: 22)
         }
         .buttonStyle(.plain)
     }
@@ -703,9 +699,7 @@ private struct GwaTopCalendarEventRow: View {
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
         }
         .padding(14)
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .shadow(color: .black.opacity(0.045), radius: 14, x: 0, y: 7)
+        .gwaTopCard(radius: 22)
     }
 }
 

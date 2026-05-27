@@ -1600,9 +1600,7 @@ struct GwaTopFileMemorizeTab: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .shadow(color: Color.black.opacity(0.04), radius: 8, y: 2)
+        .gwaTopCard(radius: 14)
     }
 
     /// 중요도 1~5 → 액센트 색상. 따뜻한 오렌지 계열 → 무채색 그라데이션.

@@ -201,9 +201,7 @@ struct GwaTopLoginView: View {
             .padding(.top, 2)
         }
         .padding(22)
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-        .shadow(color: .black.opacity(0.12), radius: 24, x: 0, y: 16)
+        .gwaTopCard(radius: 30)
     }
 
     private var policyText: some View {

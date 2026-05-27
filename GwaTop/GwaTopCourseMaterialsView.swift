@@ -103,9 +103,7 @@ struct GwaTopCourseMaterialsView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .shadow(color: .black.opacity(0.04), radius: 8, x: 0, y: 3)
+        .gwaTopCard(radius: 20)
     }
 
     private var coursePicker: some View {
@@ -132,9 +130,7 @@ struct GwaTopCourseMaterialsView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .shadow(color: .black.opacity(0.04), radius: 8, x: 0, y: 3)
+        .gwaTopCard(radius: 20)
     }
 
     private func coursePill(_ c: GwaTopCourseDTO) -> some View {
@@ -219,9 +215,7 @@ struct GwaTopCourseMaterialsView: View {
                     .foregroundStyle(.tertiary)
             }
             .padding(12)
-            .background(.white)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .shadow(color: .black.opacity(0.04), radius: 6, x: 0, y: 2)
+            .gwaTopCard(radius: 14)
         }
         .buttonStyle(.plain)
     }

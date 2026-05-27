@@ -221,9 +221,7 @@ struct GwaTopUploadProgressBanner: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .shadow(color: .black.opacity(0.06), radius: 8, y: 3)
+        .gwaTopCard(radius: 14)
     }
 
     private func statusText(_ job: GwaTopUploadJob) -> String {

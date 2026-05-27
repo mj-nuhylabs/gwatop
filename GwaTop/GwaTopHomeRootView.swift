@@ -238,9 +238,7 @@ struct GwaTopHomeView: View {
                 .lineSpacing(4)
         }
         .padding(18)
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .shadow(color: .black.opacity(0.06), radius: 16, x: 0, y: 8)
+        .gwaTopCard(radius: 24)
     }
 
     private var todayTaskSection: some View {
@@ -275,9 +273,7 @@ struct GwaTopHomeView: View {
                         .frame(maxWidth: .infinity)
                 }
             }
-            .background(.white)
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .shadow(color: .black.opacity(0.03), radius: 6, x: 0, y: 2)
+            .gwaTopCard(radius: 18)
         }
     }
 
@@ -553,9 +549,7 @@ struct GwaTopSubjectProgressCard: View {
             .frame(height: 8)
         }
         .padding(16)
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .shadow(color: .black.opacity(0.04), radius: 12, x: 0, y: 6)
+        .gwaTopCard(radius: 22)
     }
 }
 

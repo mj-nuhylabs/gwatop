@@ -546,9 +546,7 @@ private struct GwaTopAssignmentCard: View {
             }
         }
         .padding(16)
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .shadow(color: .black.opacity(0.045), radius: 14, x: 0, y: 7)
+        .gwaTopCard(radius: 24)
     }
 }
 

@@ -81,9 +81,7 @@ struct GwaTopTimetableView: View {
             }
         }
         .padding(8)
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .shadow(color: .black.opacity(0.05), radius: 10, x: 0, y: 4)
+        .gwaTopCard(radius: 18)
     }
 
     private func dayColumn(
@@ -184,9 +182,7 @@ struct GwaTopTimetableView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
-            .background(.white)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .shadow(color: .black.opacity(0.04), radius: 6, x: 0, y: 2)
+            .gwaTopCard(radius: 14)
         )
     }
 

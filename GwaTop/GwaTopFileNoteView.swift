@@ -75,9 +75,7 @@ struct GwaTopFileNoteView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 3)
+        .gwaTopCard(radius: 18)
     }
 
     private var statusCard: some View {
@@ -115,9 +113,7 @@ struct GwaTopFileNoteView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .shadow(color: .black.opacity(0.04), radius: 6, x: 0, y: 2)
+        .gwaTopCard(radius: 16)
     }
 
     private func noteCard(_ d: GwaTopFileDebug) -> some View {
@@ -161,9 +157,7 @@ struct GwaTopFileNoteView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 3)
+        .gwaTopCard(radius: 18)
     }
 
     private func errorBanner(_ message: String) -> some View {
