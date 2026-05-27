@@ -777,13 +777,10 @@ async def _run_analyze_file(file_id: str, SessionLocal) -> None:
             len(payload.get("key_terms", [])),
         )
 
-    # 분석본 저장 직후, 학습 콘텐츠 5종을 백그라운드에서 자동 생성.
-    # 각 task 는 위에서 만든 분석본을 입력으로 사용하므로 5~7초 내에 끝남.
-    # Celery concurrency >= 2 이면 5개가 병렬 실행 → 전체 ~7초.
-    # 사용자가 어떤 탭을 누르든 이미 만들어진 결과를 즉시 받게 됨.
-    for ct in ("quiz", "flashcard", "mindmap", "memorize", "topics"):
-        generate_ai_content_task.delay(file_id, ct, "all", False, None)
-    logger.info("analyze_file: queued 5 content generators for file=%s", file_id)
+    # NOTE: 이전엔 분석본 저장 직후 quiz/flashcard/mindmap/memorize/topics 5종을 모두
+    # 자동 큐잉했으나, Celery worker concurrency 가 한정적이라 사용자가 명시 클릭한
+    # 작업이 뒤로 밀려 오히려 더 느리게 느껴짐. 분석본만 미리 만들어두고 학습 콘텐츠는
+    # on-demand 로 생성 — 분석본 캐시 덕에 단발 호출은 5~7초로 빠르다.
 
 
 # ---------- Pipeline: 학습 탭 AI 콘텐츠 생성 ----------

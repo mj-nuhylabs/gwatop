@@ -317,21 +317,21 @@ struct GwaTopMaterialUploadSheet: View {
             return
         }
 
-        isUploading = true
-        defer { isUploading = false }
+        // 업로드를 전역 GwaTopUploadProgress 에 위임 — 시트가 닫혀도 백그라운드에서 계속.
+        // 사용자는 즉시 시트가 닫히고, 학습 탭 상단의 작은 진행 카드만 본다.
+        GwaTopUploadProgress.shared.startMaterialUpload(
+            filename: filename, data: data, fileType: fileType, courseId: courseId,
+        )
 
-        do {
-            let fileId = try await GwaTopFileUploadService.shared.upload(
-                courseId: courseId,
-                filename: filename,
-                fileType: fileType,
-                data: data,
-                isSyllabus: false
-            )
-            uploadMessage = "‘\(filename)’ 업로드 완료. AI가 주차 분류를 진행 중이에요. (file_id: \(fileId.prefix(8))…)"
-            onUploadCompleted()
-        } catch {
-            uploadError = "업로드 실패: \(error.localizedDescription)"
+        uploadMessage = "‘\(filename)’ 업로드를 시작했어요. 학습 탭 상단에서 진행 상태를 확인할 수 있어요."
+
+        // 짧은 토스트 효과 후 시트 자동 dismiss.
+        Task {
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            await MainActor.run {
+                onUploadCompleted()
+                dismiss()
+            }
         }
     }
 
