@@ -6,6 +6,7 @@
 //  사용자가 시트 닫아도 백그라운드 업로드가 계속되며, 학습 탭 상단에 진행 카드가 표시된다.
 //
 
+import Combine
 import Foundation
 import SwiftUI
 
