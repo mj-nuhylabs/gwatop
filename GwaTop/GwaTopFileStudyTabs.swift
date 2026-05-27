@@ -306,10 +306,7 @@ struct GwaTopFileQuizTab: View {
                         .clipShape(Capsule())
                 }
 
-                Text(question.question)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
+                GwaTopMathText(question.question, fontSize: 15, color: GwaTopHomeTheme.textPrimary)
 
                 if question.type == "multiple_choice", let choices = question.choices {
                     VStack(spacing: 8) {
@@ -326,7 +323,7 @@ struct GwaTopFileQuizTab: View {
                     if showAnswer, let ans = question.answer {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("정답").font(.system(size: 11, weight: .bold)).foregroundStyle(.green)
-                            Text(ans).font(.system(size: 13, weight: .semibold))
+                            GwaTopMathText(ans, fontSize: 13, color: GwaTopHomeTheme.textPrimary)
                         }
                     }
                 }
@@ -334,9 +331,7 @@ struct GwaTopFileQuizTab: View {
                 if showAnswer && !question.explanation.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("해설").font(.system(size: 11, weight: .bold)).foregroundStyle(GwaTopHomeTheme.primary)
-                        Text(question.explanation)
-                            .font(.system(size: 12)).foregroundStyle(GwaTopHomeTheme.textPrimary)
-                            .fixedSize(horizontal: false, vertical: true)
+                        GwaTopMathText(question.explanation, fontSize: 12, color: GwaTopHomeTheme.textPrimary)
                     }
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -392,9 +387,7 @@ struct GwaTopFileQuizTab: View {
                     .background(isCorrect ? .green : (isSelected ? GwaTopHomeTheme.primary : Color.gray.opacity(0.2)))
                     .foregroundStyle(.white)
                     .clipShape(Circle())
-                Text(text)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                GwaTopMathText(text, fontSize: 13, color: GwaTopHomeTheme.textPrimary)
                 Spacer()
                 if isCorrect { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
                 if isWrong   { Image(systemName: "xmark.circle.fill").foregroundStyle(.red) }
