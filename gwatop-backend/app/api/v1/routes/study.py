@@ -11,7 +11,7 @@ import logging
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,6 +48,7 @@ def _normalize_scope(pages: str | None) -> str:
 async def study_get_ai_content(
     file_id: uuid.UUID,
     content_type: str,
+    response: Response,
     pages: str | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -57,6 +58,11 @@ async def study_get_ai_content(
     같은 파일에 'all', '1-3', '4-7' 처럼 여러 scope 가 공존할 수 있음.
     files.py 의 GET /files/{id}/ai-contents/{type} 와 path 가 같지만, FastAPI 라우터
     매칭 순서상 study.py 가 먼저 등록되도록 main.py 에서 include 순서 정리.
+
+    Cache-Control:
+      - ready 상태 (실제 콘텐츠 있음): private, max-age=60 — URLSession 이 1분 캐시
+        → 사용자가 탭 왔다 갔다 시 네트워크 요청 0회로 즉시 표시.
+      - pending 상태: no-store — 폴링이 매번 fresh 받게.
     """
     if content_type not in SUPPORTED_TYPES:
         raise HTTPException(status_code=400, detail=f"Unsupported content_type: {content_type}")
@@ -75,6 +81,8 @@ async def study_get_ai_content(
     )).scalar_one_or_none()
 
     if row is None:
+        # 아직 생성 안 됨 — 폴링이 곧 다시 호출하므로 캐시 금지.
+        response.headers["Cache-Control"] = "no-store"
         return {
             "file_id": str(file_id),
             "content_type": content_type,
@@ -84,6 +92,8 @@ async def study_get_ai_content(
             "file_status": file_row.status,
         }
 
+    # 생성된 결과는 1분간 URLSession 이 캐시 — 같은 file/type/scope 재요청 시 즉시.
+    response.headers["Cache-Control"] = "private, max-age=60"
     return {
         "file_id": str(file_id),
         "content_type": content_type,

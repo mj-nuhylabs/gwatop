@@ -16,6 +16,20 @@ struct GwaTopApp: App {
 
     init() {
         configureGoogleSignIn()
+        configureURLCache()
+    }
+
+    /// URLSession.shared 의 캐시 용량 확대 — 백엔드가 Cache-Control: max-age=N 으로 보내는
+    /// AI 콘텐츠 JSON 들을 더 많이 보관해 같은 탭/모드 재진입 시 네트워크 0회.
+    /// 기본값 (memory 4MB / disk 20MB) 은 PDF/이미지엔 작아서 금세 evict 됨 → 키운다.
+    private func configureURLCache() {
+        let memoryMB = 32
+        let diskMB = 200
+        URLCache.shared = URLCache(
+            memoryCapacity: memoryMB * 1024 * 1024,
+            diskCapacity: diskMB * 1024 * 1024,
+            diskPath: "gwatop-urlcache"
+        )
     }
 
     var body: some Scene {
