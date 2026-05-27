@@ -286,13 +286,21 @@ actor GwaTopAPIClient {
     }
 
     private func perform<Response: Decodable>(_ req: URLRequest) async throws -> Response {
+        let started = Date()
         let data: Data
         let resp: URLResponse
         do {
             (data, resp) = try await session.data(for: req)
         } catch {
+            // 전송 실패도 매우 긴 latency 로 기록 (네트워크 모니터에 신호).
+            let elapsedMs = Date().timeIntervalSince(started) * 1000
+            await GwaTopNetworkMonitor.shared.recordLatency(max(elapsedMs, 10_000))
             throw GwaTopAPIError.transport(error)
         }
+        // 정상 응답 latency 도 기록 — 네트워크 상태 추적용 rolling avg.
+        let elapsedMs = Date().timeIntervalSince(started) * 1000
+        await GwaTopNetworkMonitor.shared.recordLatency(elapsedMs)
+
         guard let http = resp as? HTTPURLResponse else {
             throw GwaTopAPIError.server(-1, "Invalid response")
         }

@@ -59,6 +59,9 @@ struct GwaTopFileStudyView: View {
 
                 VStack(spacing: 0) {
                     fileHeader
+                    // 네트워크가 느리거나 끊기면 사용자에게 알림 (AI 응답 지연 사전 안내).
+                    GwaTopNetworkBanner()
+                        .padding(.bottom, 6)
                     tabBar
                     Divider().opacity(0.3)
 
@@ -89,7 +92,10 @@ struct GwaTopFileStudyView: View {
                 // Speculative prefetch — 사용자가 인트로 + 페이지 범위 고르는 시간 동안
                 // 백엔드가 5종 학습 콘텐츠를 'all' scope 으로 미리 만들어 둠.
                 // 시작 버튼 클릭 시점엔 캐시 hit 확률이 매우 높아 ~1초 안에 결과 표시.
-                await GwaTopFileService.shared.prefetchAIContents(fileId: file.id)
+                async let aiPrefetch: () = GwaTopFileService.shared.prefetchAIContents(fileId: file.id)
+                // PDF 도 미리 다운로드 → PDF 탭 누르는 시점엔 캐시 hit 으로 즉시 표시.
+                GwaTopPDFCache.shared.load(fileId: file.id, fileType: file.fileType)
+                _ = await aiPrefetch
             }
         }
     }
@@ -169,22 +175,29 @@ struct GwaTopFileStudyView: View {
 struct GwaTopFilePDFTab: View {
     let file: GwaTopFileSummary
 
-    @State private var pdfDocument: PDFDocument? = nil
-    @State private var isLoading = false
+    @ObservedObject private var cache = GwaTopPDFCache.shared
     @State private var errorMessage: String? = nil
 
     var body: some View {
         ZStack {
             GwaTopHomeTheme.background
 
-            if let doc = pdfDocument {
+            if file.fileType != "pdf" {
+                VStack(spacing: 8) {
+                    Image(systemName: "doc")
+                        .foregroundStyle(.secondary).font(.system(size: 28))
+                    Text("이 파일은 PDF 형식이 아니에요 (\(file.fileType)).")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                }
+            } else if let doc = cache.document(for: file.id) {
+                // 캐시된 PDFDocument — 탭 전환 후 재진입 시에도 즉시 표시 (재다운로드 X).
                 GwaTopPDFKitView(document: doc)
                     .ignoresSafeArea(edges: .bottom)
             } else if let err = errorMessage {
                 VStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
-                        .font(.system(size: 24))
+                        .foregroundStyle(.red).font(.system(size: 24))
                     Text(err)
                         .font(.system(size: 13, weight: .semibold))
                         .multilineTextAlignment(.center)
@@ -194,35 +207,10 @@ struct GwaTopFilePDFTab: View {
                 ProgressView("PDF 불러오는 중…")
             }
         }
-        .task { await load() }
-    }
-
-    @MainActor
-    private func load() async {
-        guard file.fileType == "pdf" else {
-            errorMessage = "이 파일은 PDF 형식이 아니에요 (\(file.fileType))."
-            return
-        }
-        isLoading = true
-        defer { isLoading = false }
-        do {
-            let info = try await GwaTopFileService.shared.presignedDownloadURL(fileId: file.id)
-            guard let url = URL(string: info.url) else {
-                errorMessage = "다운로드 URL이 올바르지 않아요."
-                return
-            }
-            // PDFDocument(url:) 은 동기 호출이라 백그라운드에서 수행.
-            let doc = await Task.detached(priority: .userInitiated) {
-                PDFDocument(url: url)
-            }.value
-            if let doc {
-                pdfDocument = doc
-            } else {
-                errorMessage = "PDF를 열지 못했어요."
-            }
-        } catch {
-            if isCancellation(error) { return }
-            errorMessage = "PDF 다운로드 실패: \(error.localizedDescription)"
+        .task {
+            // 캐시가 비어 있으면 로드 시작. FileStudyView.task 에서 이미 호출했을 가능성 높지만
+            // idempotent 라 안전하게 한 번 더 호출.
+            cache.load(fileId: file.id, fileType: file.fileType)
         }
     }
 }
