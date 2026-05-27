@@ -21,6 +21,19 @@ def kst_now_naive() -> datetime:
     응답 datetime 컬럼이 사용자 화면 시간대와 일치하게 된다."""
     return datetime.now(_KST).replace(tzinfo=None)
 
+
+def to_naive_kst(dt: datetime | None) -> datetime | None:
+    """tz-aware datetime 을 받아 KST 로 변환 후 tzinfo 제거.
+    iOS 가 ISO 8601 (예: '2026-04-25T15:00:00.000Z') 로 보내면 FastAPI 가 tz-aware datetime
+    으로 파싱하는데, DB 컬럼은 naive 라 asyncpg 가 직접 비교 못 한다 → TypeError.
+    이 헬퍼로 모든 쿼리 직전에 변환한다.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt   # 이미 naive
+    return dt.astimezone(_KST).replace(tzinfo=None)
+
 # ----- FastAPI 요청용 (장수명 풀, 단일 이벤트루프) -----
 engine = create_async_engine(
     settings.DATABASE_URL,

@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_current_user
 from app.api.v1.deps_owned import owned_course, owned_schedule
-from app.core.database import get_db
+from app.core.database import get_db, to_naive_kst
 from app.models.course import Course
 from app.models.schedule import Schedule
 from app.models.semester import Semester
@@ -46,6 +46,10 @@ async def list_schedules(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    # iOS 가 'Z' (UTC) 붙은 ISO 보내면 tz-aware datetime — DB 컬럼은 naive 라 비교 실패.
+    start = to_naive_kst(start)
+    end = to_naive_kst(end)
+
     stmt = (
         select(Schedule, Course.name, Course.color)
         .join(Course, Schedule.course_id == Course.id)
@@ -86,6 +90,10 @@ async def calendar_summary(
     db: AsyncSession = Depends(get_db),
 ):
     """월간/주간 캘린더 점 표시용. 일별 type별 count만 반환 (payload 가벼움)."""
+    # tz-aware → naive KST 변환 (DB 컬럼이 naive 라 직접 비교 불가)
+    start_n = to_naive_kst(start) or start
+    end_n = to_naive_kst(end) or end
+
     day = func.date(Schedule.due_date)
     stmt = (
         select(day.label("day"), Schedule.type, func.count().label("cnt"))
@@ -93,8 +101,8 @@ async def calendar_summary(
         .join(Semester, Course.semester_id == Semester.id)
         .where(
             Semester.user_id == current_user.id,
-            Schedule.due_date >= start,
-            Schedule.due_date < end,
+            Schedule.due_date >= start_n,
+            Schedule.due_date < end_n,
         )
         .group_by(day, Schedule.type)
         .order_by(day)

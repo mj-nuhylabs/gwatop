@@ -44,6 +44,11 @@ async def list_todos(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    # tz-aware → naive KST (DB 컬럼이 naive 이므로)
+    from app.core.database import to_naive_kst
+    start = to_naive_kst(start)
+    end = to_naive_kst(end)
+
     stmt = (
         select(Todo, Course.name, Course.color)
         .join(Course, Todo.course_id == Course.id)
