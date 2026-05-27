@@ -66,6 +66,14 @@ class Settings(BaseSettings):
     # 정확도 회귀 위험 보수적 처리 — EC2 .env 에서 활성화한다.
     SYLLABUS_TABLE_EXTRACTION_ENABLED: bool = False
 
+    # --- AI 요약 노트 / 학습 콘텐츠 ---
+    # 기본은 gpt-4.1-nano — gpt-4o-mini 대비 ~2x 빠름, 품질도 학습 콘텐츠엔 충분.
+    # 품질 우선이면 .env 에서 OPENAI_SUMMARY_MODEL=gpt-4o-mini 또는 gpt-4o 로 교체.
+    OPENAI_SUMMARY_MODEL: str = "gpt-4.1-nano"
+    # 마인드맵·퀴즈는 응답이 길어 1200 으론 잘리는 경우 발생.
+    # 4000 정도면 nano/mini 모두 안전 마진. 비용은 사용한 만큼만 청구되므로 상한만 큼.
+    OPENAI_SUMMARY_MAX_TOKENS: int = 4000
+
     # --- Day 4: 강의 자료 자동 분류 ---
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
     # 파일명 regex 매칭 시 이 confidence를 부여한다. 강의계획서 weeks와 무관하게 신뢰.

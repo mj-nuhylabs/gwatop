@@ -365,3 +365,90 @@ async def set_file_week(
     await db.commit()
     await db.refresh(file_row)
     return FileResponse.model_validate(file_row)
+
+
+# ---------- 학습 탭: 다운로드 URL + AI 콘텐츠 ----------
+
+
+@router.get("/files/{file_id}/presigned-download")
+async def get_presigned_download(
+    file_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """학습 탭의 PDF 보기에서 사용할 일회용 GET URL. 기본 1시간 유효."""
+    file_row, _ = await owned_file(file_id, current_user, db)
+    try:
+        url = s3.generate_presigned_get_url(file_row.s3_key, expires_in=3600)
+    except Exception:
+        logger.exception("presigned GET URL 발급 실패 file=%s", file_id)
+        raise HTTPException(status_code=503, detail="Failed to generate download URL")
+    return {"url": url, "expires_in": 3600, "filename": file_row.filename}
+
+
+@router.get("/files/{file_id}/ai-contents/{content_type}")
+async def get_ai_content(
+    file_id: uuid.UUID,
+    content_type: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """AI 생성 콘텐츠 조회. content_type = summary | quiz | flashcard | …"""
+    from app.models.ai_content import AIContent
+
+    file_row, _ = await owned_file(file_id, current_user, db)
+    row = (await db.execute(
+        select(AIContent).where(
+            AIContent.file_id == file_row.id,
+            AIContent.content_type == content_type,
+        ).order_by(AIContent.generated_at.desc())
+    )).scalar_one_or_none()
+
+    if row is None:
+        # 아직 생성 전 상태. status로 클라이언트가 'AI가 작업 중이에요' 표시 가능.
+        return {
+            "file_id": str(file_id),
+            "content_type": content_type,
+            "status": "pending",
+            "content": None,
+            "file_status": file_row.status,
+        }
+
+    return {
+        "file_id": str(file_id),
+        "content_type": content_type,
+        "status": "ready",
+        "content": row.content,
+        "generated_at": row.generated_at.isoformat(),
+    }
+
+
+@router.post("/files/{file_id}/ai-contents/{content_type}/regenerate", status_code=status.HTTP_202_ACCEPTED)
+async def regenerate_ai_content(
+    file_id: uuid.UUID,
+    content_type: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """사용자가 강제 재생성 — 기존 row 삭제하고 큐에 재요청."""
+    from app.models.ai_content import AIContent
+    from sqlalchemy import delete
+    from app.tasks.file_tasks import generate_summary_task
+
+    file_row, _ = await owned_file(file_id, current_user, db)
+    await db.execute(
+        delete(AIContent).where(
+            AIContent.file_id == file_row.id,
+            AIContent.content_type == content_type,
+        )
+    )
+    await db.commit()
+
+    if content_type == "summary":
+        generate_summary_task.delay(str(file_id))
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{content_type} 재생성은 아직 지원되지 않습니다. 곧 추가될 예정.",
+        )
+    return {"file_id": str(file_id), "content_type": content_type, "status": "queued"}

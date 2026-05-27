@@ -11,6 +11,7 @@ from app.api.v1.routes.todos import router as todos_router
 from app.api.v1.routes.home import router as home_router
 from app.api.v1.routes.devices import router as devices_router
 from app.api.v1.routes.admin import router as admin_router
+from app.api.v1.routes.study import router as study_router
 from app.core.config import settings
 
 app = FastAPI(title="GwaTop API", version="1.0.0", docs_url="/docs", redoc_url="/redoc")
@@ -35,6 +36,9 @@ app.include_router(schedules_router, prefix="/v1")
 app.include_router(todos_router, prefix="/v1")
 app.include_router(home_router, prefix="/v1")
 app.include_router(devices_router, prefix="/v1")
+# study_router 는 files_router 의 /ai-contents/{type} 와 path 가 겹치므로
+# 더 구체적인 study_router (scope 쿼리 지원) 가 먼저 등록되어야 한다.
+app.include_router(study_router, prefix="/v1")
 app.include_router(admin_router, prefix="/v1")
 
 
