@@ -192,6 +192,81 @@ async def confirm_syllabus_upload(
     return FileConfirmResponse(file=FileResponse.model_validate(file_record))
 
 
+# ---------- Auto upload (사용자가 학기/과목/타입 지정 없이 아무거나 업로드) ----------
+# 워커가 텍스트 추출 후 syllabus vs material 자동 판정 + (material 이면) 과목 자동 매칭/생성.
+# 자세한 분기는 app/tasks/file_tasks.py 의 _auto_dispatch 참고.
+
+
+@router.post(
+    "/files/auto/presigned-url",
+    response_model=PresignedUrlResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def get_auto_presigned_url(
+    body: PresignedUrlRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """학기/과목/타입 지정 없는 업로드용 presigned URL. course_id=None, is_syllabus=False 로
+    생성하고 classification_source="auto_pending" 마커를 찍는다.
+    워커가 텍스트 보고 분류한 뒤 적절한 후속 파이프라인으로 디스패치한다.
+    """
+    _validate_upload(body)
+
+    storage_key = s3.build_storage_key(str(current_user.id), body.filename)
+    content_type = CONTENT_TYPES.get(body.file_type, "application/octet-stream")
+
+    try:
+        upload_url = s3.generate_presigned_put_url(storage_key, content_type)
+    except Exception:
+        logger.exception("presigned URL 발급 실패 (auto) user=%s", current_user.id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Failed to generate upload URL",
+        )
+
+    file_record = File(
+        course_id=None,
+        uploaded_by_user_id=current_user.id,
+        filename=body.filename,
+        file_type=body.file_type,
+        s3_key=storage_key,
+        size_bytes=body.file_size_bytes,
+        is_syllabus=False,
+        status="pending",
+        classification_source="auto_pending",  # 워커가 보고 자동 분기.
+    )
+    db.add(file_record)
+    await db.commit()
+    await db.refresh(file_record)
+
+    return PresignedUrlResponse(
+        upload_url=upload_url,
+        storage_key=storage_key,
+        file_id=file_record.id,
+    )
+
+
+@router.post(
+    "/files/auto/{file_id}/confirm",
+    response_model=FileConfirmResponse,
+)
+async def confirm_auto_upload(
+    file_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """auto 업로드 완료 신호. extract_text_task 트리거 → 워커가 분기."""
+    file_record, _ = await owned_file(file_id, current_user, db)
+    if file_record.classification_source != "auto_pending":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="이 엔드포인트는 자동 분류 업로드 전용입니다.",
+        )
+    extract_text_task.delay(str(file_id))
+    return FileConfirmResponse(file=FileResponse.model_validate(file_record))
+
+
 # 진행 중으로 간주할 status 값들. parsing 끝나면 "parsed" 또는 "failed" 로 전환.
 _IN_FLIGHT_STATUSES = ("pending", "uploading", "processing", "extracted", "parsing")
 

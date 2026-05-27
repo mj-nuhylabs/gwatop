@@ -46,6 +46,7 @@ from app.services.embedding_classifier import (
     deserialize_week_embeddings,
     serialize_week_embeddings,
 )
+from app.services.auto_classifier import detect_kind, guess_course_name
 from app.services.course_matcher import CourseMatchError, match_or_create_course
 from app.services.pdf_text import extract_tables_from_pdf, extract_text_from_pdf_bytes
 from app.services.syllabus_parser import SyllabusParseError, parse_syllabus
@@ -197,11 +198,81 @@ async def _run_extract(file_id: str, SessionLocal) -> None:
             file_id, len(text or ""), text_preview,
         )
 
+    # Auto-classify 분기: 사용자가 학기/과목/타입 지정 없이 올린 파일.
+    # 업로드 시점에 classification_source="auto_pending" 으로 marker 가 찍힘.
+    # 여기서 텍스트 보고 syllabus vs material 판정 + (material 이면) 과목 자동 매칭/생성.
+    if file_row.classification_source == "auto_pending":
+        await _auto_dispatch(file_id, SessionLocal)
+        return
+
     if file_row.is_syllabus and text:
         parse_syllabus_task.delay(file_id)
     elif not file_row.is_syllabus:
         # Day 4: 일반 강의 자료는 주차 자동 분류 파이프라인으로 넘긴다.
         # PDF가 아니어서 text가 None이어도 파일명 regex만으로 분류 시도할 수 있다.
+        classify_file_task.delay(file_id)
+
+
+# ---------- Auto upload dispatch ----------
+
+async def _auto_dispatch(file_id: str, SessionLocal) -> None:
+    """auto_pending 파일을 보고 syllabus / material 결정 후 적절한 후속 태스크 디스패치.
+
+    - syllabus 판정: is_syllabus=True, classification_source="auto_syllabus" → parse_syllabus_task
+    - material 판정: 과목 자동 매칭/신규생성 → course_id 채움 → classify_file_task
+    학기가 하나도 없으면 명확한 메시지로 실패 처리.
+    """
+    async with SessionLocal() as session:
+        file_row = await _load_file(session, UUID(file_id))
+        if file_row is None:
+            return
+
+        text = file_row.extracted_text or ""
+        decision = await detect_kind(text, file_row.filename)
+        logger.info(
+            "auto_dispatch: file=%s kind=%s confidence=%.2f reason=%s",
+            file_id, decision.kind, decision.confidence, decision.reason,
+        )
+
+        if decision.kind == "syllabus":
+            file_row.is_syllabus = True
+            file_row.classification_source = "auto_syllabus"
+            await session.commit()
+            if text.strip():
+                parse_syllabus_task.delay(file_id)
+            else:
+                await _mark_failed(
+                    session, file_row,
+                    "강의계획서로 판정됐으나 텍스트가 비어있어요. 이미지 PDF 인지 확인해주세요.",
+                )
+            return
+
+        # material — 과목 자동 매칭 또는 신규 생성.
+        user = await session.get(User, file_row.uploaded_by_user_id) if file_row.uploaded_by_user_id else None
+        if user is None:
+            await _mark_failed(session, file_row, "업로드 사용자 정보를 찾을 수 없어요.")
+            return
+
+        course_name = await guess_course_name(text, file_row.filename)
+        try:
+            course, _semester, created = await match_or_create_course(
+                session, user, course_name,
+            )
+        except CourseMatchError as exc:
+            await _mark_failed(
+                session, file_row,
+                f"활성 학기가 없어 과목을 자동 생성할 수 없어요. 학기를 먼저 만들어주세요. ({exc})",
+            )
+            return
+
+        file_row.course_id = course.id
+        file_row.is_syllabus = False
+        file_row.classification_source = "auto_material"
+        await session.commit()
+        logger.info(
+            "auto_dispatch: file=%s material → course=%s (%s, created=%s)",
+            file_id, course.id, course.name, created,
+        )
         classify_file_task.delay(file_id)
 
 
