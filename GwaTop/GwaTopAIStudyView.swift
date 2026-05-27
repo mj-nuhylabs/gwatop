@@ -249,12 +249,12 @@ struct GwaTopAIStudyView: View {
     private func errorBanner(_ msg: String, retry: @escaping () -> Void) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
+                .foregroundStyle(GwaTopHomeTheme.danger)
                 .padding(.top, 1)
             VStack(alignment: .leading, spacing: 8) {
                 Text(msg)
                     .font(.gwaTopSystem(size: 12, weight: .semibold))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(GwaTopHomeTheme.danger)
                     .fixedSize(horizontal: false, vertical: true)
                 Button(action: retry) {
                     HStack(spacing: 4) {
@@ -266,7 +266,7 @@ struct GwaTopAIStudyView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
-                    .background(.red)
+                    .background(GwaTopHomeTheme.danger)
                     .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
@@ -275,7 +275,7 @@ struct GwaTopAIStudyView: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.red.opacity(0.08))
+        .background(GwaTopHomeTheme.danger.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 

@@ -211,7 +211,7 @@ struct GwaTopAssignmentsView: View {
         VStack(spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.gwaTopSystem(size: 32))
-                .foregroundStyle(.orange)
+                .foregroundStyle(GwaTopHomeTheme.warning)
             Text("불러오기 실패")
                 .font(.gwaTopSystem(size: 17, weight: .bold))
                 .foregroundStyle(GwaTopHomeTheme.textPrimary)

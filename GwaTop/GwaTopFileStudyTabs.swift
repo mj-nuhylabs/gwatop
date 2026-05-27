@@ -142,14 +142,14 @@ private struct GwaTopErrorBanner: View {
     let message: String
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(GwaTopHomeTheme.danger)
             Text(message).font(.gwaTopSystem(size: 14, weight: .bold))
-                .foregroundStyle(.red)
+                .foregroundStyle(GwaTopHomeTheme.danger)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.red.opacity(0.08))
+        .background(GwaTopHomeTheme.danger.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
@@ -429,7 +429,7 @@ struct GwaTopFileQuizTab: View {
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 if revealed, let ans = question.answer {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("정답").font(.gwaTopSystem(size: 13, weight: .bold)).foregroundStyle(.green)
+                        Text("정답").font(.gwaTopSystem(size: 13, weight: .bold)).foregroundStyle(GwaTopHomeTheme.success)
                         GwaTopMathText(ans, fontSize: 15, color: GwaTopHomeTheme.textPrimary)
                     }
                 }
@@ -513,8 +513,8 @@ struct GwaTopFileQuizTab: View {
         let isSelected = attempt.selectedChoice == idx
         let isCorrect = revealed && question.answerIndex == idx
         let isWrong = revealed && isSelected && question.answerIndex != idx
-        let bg: Color = isCorrect ? Color.green.opacity(0.15)
-            : isWrong ? Color.red.opacity(0.12)
+        let bg: Color = isCorrect ? GwaTopHomeTheme.success.opacity(0.15)
+            : isWrong ? GwaTopHomeTheme.danger.opacity(0.12)
             : (isSelected ? GwaTopHomeTheme.primary.opacity(0.10) : Color.gray.opacity(0.05))
         return Button {
             if !revealed { updateAttempt { $0.selectedChoice = idx } }
@@ -523,13 +523,13 @@ struct GwaTopFileQuizTab: View {
                 Text("\(["A","B","C","D","E","F"][min(idx, 5)])")
                     .font(.gwaTopSystem(size: 13, weight: .heavy))
                     .frame(width: 22, height: 22)
-                    .background(isCorrect ? .green : (isSelected ? GwaTopHomeTheme.primary : Color.gray.opacity(0.2)))
+                    .background(isCorrect ? GwaTopHomeTheme.success : (isSelected ? GwaTopHomeTheme.primary : Color.gray.opacity(0.2)))
                     .foregroundStyle(.white)
                     .clipShape(Circle())
                 GwaTopMathText(text, fontSize: 15, color: GwaTopHomeTheme.textPrimary)
                 Spacer()
-                if isCorrect { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
-                if isWrong   { Image(systemName: "xmark.circle.fill").foregroundStyle(.red) }
+                if isCorrect { Image(systemName: "checkmark.circle.fill").foregroundStyle(GwaTopHomeTheme.success) }
+                if isWrong   { Image(systemName: "xmark.circle.fill").foregroundStyle(GwaTopHomeTheme.danger) }
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -597,11 +597,11 @@ struct GwaTopFileQuizTab: View {
                     if isCorrect {
                         Label("정답", systemImage: "checkmark.circle.fill")
                             .font(.gwaTopSystem(size: 12, weight: .heavy))
-                            .foregroundStyle(.green)
+                            .foregroundStyle(GwaTopHomeTheme.success)
                     } else if userChose != nil {
                         Label("오답", systemImage: "xmark.circle.fill")
                             .font(.gwaTopSystem(size: 12, weight: .heavy))
-                            .foregroundStyle(.red)
+                            .foregroundStyle(GwaTopHomeTheme.danger)
                     } else {
                         Text("미응답")
                             .font(.gwaTopSystem(size: 12, weight: .heavy))
@@ -616,21 +616,21 @@ struct GwaTopFileQuizTab: View {
                     ForEach(Array(choices.enumerated()), id: \.offset) { cIdx, choice in
                         let isAnswer = cIdx == correctIdx
                         let isPicked = cIdx == userChose
-                        let bg: Color = isAnswer ? Color.green.opacity(0.15)
-                            : (isPicked ? Color.red.opacity(0.12) : Color.gray.opacity(0.05))
+                        let bg: Color = isAnswer ? GwaTopHomeTheme.success.opacity(0.15)
+                            : (isPicked ? GwaTopHomeTheme.danger.opacity(0.12) : Color.gray.opacity(0.05))
                         HStack {
                             Text("\(["A","B","C","D","E","F"][min(cIdx, 5)])")
                                 .font(.gwaTopSystem(size: 12, weight: .heavy))
                                 .frame(width: 20, height: 20)
-                                .background(isAnswer ? .green : (isPicked ? .red : Color.gray.opacity(0.2)))
+                                .background(isAnswer ? GwaTopHomeTheme.success : (isPicked ? GwaTopHomeTheme.danger : Color.gray.opacity(0.2)))
                                 .foregroundStyle(.white)
                                 .clipShape(Circle())
                             GwaTopMathText(choice, fontSize: 14, color: GwaTopHomeTheme.textPrimary)
                             Spacer()
                             if isAnswer {
-                                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                                Image(systemName: "checkmark.circle.fill").foregroundStyle(GwaTopHomeTheme.success)
                             } else if isPicked {
-                                Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
+                                Image(systemName: "xmark.circle.fill").foregroundStyle(GwaTopHomeTheme.danger)
                             }
                         }
                         .padding(8)
@@ -653,7 +653,7 @@ struct GwaTopFileQuizTab: View {
                     }
                     if let ans = question.answer {
                         Text("정답").font(.gwaTopSystem(size: 12, weight: .bold))
-                            .foregroundStyle(.green)
+                            .foregroundStyle(GwaTopHomeTheme.success)
                         GwaTopMathText(ans, fontSize: 14, color: GwaTopHomeTheme.textPrimary)
                     }
                 }
@@ -939,9 +939,9 @@ struct GwaTopFileFlashcardTab: View {
             }
             Spacer()
             Label("\(knownIds.count)", systemImage: "checkmark.circle.fill")
-                .font(.gwaTopSystem(size: 13, weight: .bold)).foregroundStyle(.green)
+                .font(.gwaTopSystem(size: 13, weight: .bold)).foregroundStyle(GwaTopHomeTheme.success)
             Label("\(unknownIds.count)", systemImage: "xmark.circle.fill")
-                .font(.gwaTopSystem(size: 13, weight: .bold)).foregroundStyle(.red)
+                .font(.gwaTopSystem(size: 13, weight: .bold)).foregroundStyle(GwaTopHomeTheme.danger)
                 .padding(.leading, 6)
         }
     }
@@ -972,9 +972,9 @@ struct GwaTopFileFlashcardTab: View {
                 .font(.gwaTopSystem(size: 18, weight: .bold))
             HStack(spacing: 14) {
                 Label("\(knownIds.count)", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(GwaTopHomeTheme.success)
                 Label("\(unknownIds.count)", systemImage: "xmark.circle.fill")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(GwaTopHomeTheme.danger)
             }
             .font(.gwaTopSystem(size: 14, weight: .semibold))
             Button {
@@ -1055,8 +1055,8 @@ struct GwaTopFileFlashcardTab: View {
                 Text("몰라요")
                     .font(.gwaTopSystem(size: 16, weight: .bold))
                     .frame(maxWidth: .infinity).frame(height: 48)
-                    .foregroundStyle(.red)
-                    .background(Color.red.opacity(0.1))
+                    .foregroundStyle(GwaTopHomeTheme.danger)
+                    .background(GwaTopHomeTheme.danger.opacity(0.1))
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
             Button {
@@ -1066,7 +1066,7 @@ struct GwaTopFileFlashcardTab: View {
                     .font(.gwaTopSystem(size: 16, weight: .bold))
                     .frame(maxWidth: .infinity).frame(height: 48)
                     .foregroundStyle(.white)
-                    .background(Color.green)
+                    .background(GwaTopHomeTheme.success)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
         }
@@ -1599,12 +1599,13 @@ struct GwaTopFileMemorizeTab: View {
         .gwaTopCard(radius: 14)
     }
 
-    /// 중요도 1~5 → 액센트 색상. 따뜻한 오렌지 계열 → 무채색 그라데이션.
+    /// 중요도 1~5 → 액센트 색상. Claude warm 톤에 맞춘 코랄 → 무채색 그라데이션.
+    /// 원색 오렌지/노랑 대신 primary 코랄을 단계적으로 톤다운해 brand 일관성 유지.
     private static func accentColor(for importance: Int) -> Color {
         switch importance {
-        case 5: return Color(red: 0.99, green: 0.42, blue: 0.18)
-        case 4: return Color(red: 1.0,  green: 0.60, blue: 0.18)
-        case 3: return Color(red: 0.95, green: 0.74, blue: 0.18)
+        case 5: return GwaTopHomeTheme.primary                          // 가장 진한 코랄
+        case 4: return GwaTopHomeTheme.primary.opacity(0.75)            // 옅은 코랄
+        case 3: return GwaTopHomeTheme.warning                          // muted amber
         case 2: return GwaTopHomeTheme.textSecondary.opacity(0.7)
         default: return GwaTopHomeTheme.textSecondary.opacity(0.45)
         }
@@ -2097,7 +2098,7 @@ struct GwaTopFileNotesTab: View {
         while let range = lcSource.range(of: lcQuery, range: searchStart..<lcSource.endIndex) {
             if let lower = AttributedString.Index(range.lowerBound, within: attr),
                let upper = AttributedString.Index(range.upperBound, within: attr) {
-                attr[lower..<upper].backgroundColor = Color.yellow.opacity(0.35)
+                attr[lower..<upper].backgroundColor = GwaTopHomeTheme.warning.opacity(0.35)
                 attr[lower..<upper].foregroundColor = GwaTopHomeTheme.textPrimary
             }
             searchStart = range.upperBound
@@ -2177,7 +2178,7 @@ struct GwaTopNoteEditorSheet: View {
                     if let errorMessage {
                         Text(errorMessage)
                             .font(.gwaTopSystem(size: 13))
-                            .foregroundStyle(.red)
+                            .foregroundStyle(GwaTopHomeTheme.danger)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
@@ -3116,7 +3117,7 @@ enum InkColor: CaseIterable {
         switch self {
         case .black:  return GwaTopHomeTheme.textPrimary
         case .blue:   return GwaTopHomeTheme.primary
-        case .red:    return Color(red: 0.95, green: 0.27, blue: 0.32)
+        case .red:    return GwaTopHomeTheme.danger
         case .green:  return GwaTopHomeTheme.success
         case .orange: return GwaTopHomeTheme.warning
         }

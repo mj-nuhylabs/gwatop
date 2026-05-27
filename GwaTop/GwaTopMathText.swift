@@ -304,7 +304,7 @@ struct GwaTopRichText: View {
         _ markdown: String,
         fontSize: CGFloat = 15,
         color: Color = .primary,
-        accent: Color = .blue
+        accent: Color = GwaTopHomeTheme.primary
     ) {
         self.markdown = markdown
         self.fontSize = fontSize

@@ -131,7 +131,7 @@ struct GwaTopScheduleEditSheet: View {
                     if let msg = errorMessage {
                         Text(msg)
                             .font(.gwaTopSystem(size: 13, weight: .medium))
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(GwaTopHomeTheme.warning)
                     }
 
                     Button(action: submit) {

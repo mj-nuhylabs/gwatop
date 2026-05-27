@@ -153,7 +153,7 @@ struct GwaTopSyllabusUploadSheet: View {
             if isLoadingCourses {
                 HStack { ProgressView(); Text("과목 목록 불러오는 중…").font(.gwaTopSystem(size: 13)) }
             } else if let err = courseLoadError {
-                Text(err).font(.gwaTopSystem(size: 13)).foregroundStyle(.orange)
+                Text(err).font(.gwaTopSystem(size: 13)).foregroundStyle(GwaTopHomeTheme.warning)
             } else if courses.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("등록된 과목이 없습니다.")
@@ -235,9 +235,9 @@ struct GwaTopSyllabusUploadSheet: View {
             case .uploading:
                 statusRow(icon: "arrow.up.circle.fill", text: phaseMessage, tint: GwaTopHomeTheme.primary)
             case .dispatched:
-                statusRow(icon: "sparkles", text: phaseMessage, tint: .green)
+                statusRow(icon: "sparkles", text: phaseMessage, tint: GwaTopHomeTheme.success)
             case .failed(let msg):
-                statusRow(icon: "exclamationmark.triangle.fill", text: msg, tint: .orange)
+                statusRow(icon: "exclamationmark.triangle.fill", text: msg, tint: GwaTopHomeTheme.warning)
             }
         }
     }

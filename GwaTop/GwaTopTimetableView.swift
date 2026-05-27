@@ -132,7 +132,7 @@ struct GwaTopTimetableView: View {
     }
 
     private func courseBlock(_ block: TimetableBlock) -> some View {
-        let color = block.course.color.map(Color.gwaTopHex) ?? .blue
+        let color = block.course.color.map(Color.gwaTopHex) ?? GwaTopHomeTheme.primary
         return VStack(alignment: .leading, spacing: 2) {
             Text(block.course.name)
                 .font(.gwaTopSystem(size: 11, weight: .bold))
@@ -167,7 +167,7 @@ struct GwaTopTimetableView: View {
                     ForEach(withSchedule) { c in
                         HStack(spacing: 6) {
                             Circle()
-                                .fill(c.color.map(Color.gwaTopHex) ?? .blue)
+                                .fill(c.color.map(Color.gwaTopHex) ?? GwaTopHomeTheme.primary)
                                 .frame(width: 8, height: 8)
                             Text(c.name)
                                 .font(.gwaTopSystem(size: 11, weight: .semibold))

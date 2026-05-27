@@ -159,7 +159,7 @@ struct GwaTopLoginView: View {
                 HStack(spacing: 10) {
                     Text("G")
                         .font(.system(size: 18, weight: .heavy, design: .rounded))
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(GwaTopHomeTheme.primary)
                         .frame(width: 26, height: 26)
                         .background(.white)
                         .clipShape(Circle())

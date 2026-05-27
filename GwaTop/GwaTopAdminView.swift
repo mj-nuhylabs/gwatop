@@ -194,7 +194,7 @@ struct GwaTopAdminView: View {
     private func userRow(_ u: GwaTopAdminUserBrief) -> some View {
         HStack(spacing: 12) {
             Circle()
-                .fill(u.provider == "google" ? Color.red.opacity(0.18) : GwaTopHomeTheme.primary.opacity(0.18))
+                .fill(u.provider == "google" ? GwaTopHomeTheme.danger.opacity(0.18) : GwaTopHomeTheme.primary.opacity(0.18))
                 .frame(width: 32, height: 32)
                 .overlay(
                     Text(String(u.name.prefix(1)).uppercased())
@@ -243,8 +243,8 @@ struct GwaTopAdminView: View {
                     Text("SYL")
                         .font(.gwaTopSystem(size: 9, weight: .heavy))
                         .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(Color.purple.opacity(0.15))
-                        .foregroundStyle(Color.purple)
+                        .background(GwaTopHomeTheme.primary.opacity(0.15))
+                        .foregroundStyle(GwaTopHomeTheme.primary)
                         .clipShape(Capsule())
                 }
                 Text(f.filename)
@@ -270,10 +270,10 @@ struct GwaTopAdminView: View {
 
     private func statusColor(_ s: String) -> Color {
         switch s {
-        case "classified", "parsed":              return .green
+        case "classified", "parsed":              return GwaTopHomeTheme.success
         case "classifying", "parsing",
-             "processing", "extracting":         return .orange
-        case "failed":                            return .red
+             "processing", "extracting":         return GwaTopHomeTheme.warning
+        case "failed":                            return GwaTopHomeTheme.danger
         case "unclassified":                      return .gray
         default:                                  return GwaTopHomeTheme.textSecondary
         }
@@ -343,15 +343,15 @@ struct GwaTopAdminView: View {
 
     private func errorBanner(_ msg: String) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(GwaTopHomeTheme.danger)
             Text(msg)
                 .font(.gwaTopSystem(size: 12, weight: .semibold))
-                .foregroundStyle(.red)
+                .foregroundStyle(GwaTopHomeTheme.danger)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.red.opacity(0.08))
+        .background(GwaTopHomeTheme.danger.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
@@ -447,7 +447,7 @@ struct GwaTopAdminUserDetailSheet: View {
                         } else if let err = errorMessage {
                             Text(err)
                                 .font(.gwaTopSystem(size: 12, weight: .semibold))
-                                .foregroundStyle(.red)
+                                .foregroundStyle(GwaTopHomeTheme.danger)
                         } else if let d = detail {
                             countsCard(d)
                             section(title: "학기") {
@@ -461,7 +461,7 @@ struct GwaTopAdminUserDetailSheet: View {
                                         if s.isActive {
                                             Text("active")
                                                 .font(.gwaTopSystem(size: 10, weight: .bold))
-                                                .foregroundStyle(.green)
+                                                .foregroundStyle(GwaTopHomeTheme.success)
                                         }
                                     }
                                     .padding(.horizontal, 12).padding(.vertical, 8)
@@ -501,7 +501,7 @@ struct GwaTopAdminUserDetailSheet: View {
                                             }
                                         }
                                         .buttonStyle(.plain)
-                                        .foregroundStyle(.red)
+                                        .foregroundStyle(GwaTopHomeTheme.danger)
                                         .disabled(deletingFileId != nil)
                                     }
                                     .padding(.horizontal, 12).padding(.vertical, 8)
@@ -524,7 +524,7 @@ struct GwaTopAdminUserDetailSheet: View {
                                 ForEach(d.todos) { t in
                                     HStack {
                                         Image(systemName: t.isDone ? "checkmark.square.fill" : "square")
-                                            .foregroundStyle(t.isDone ? .green : .gray)
+                                            .foregroundStyle(t.isDone ? GwaTopHomeTheme.success : .gray)
                                             .font(.gwaTopSystem(size: 12))
                                         Text(t.title).font(.gwaTopSystem(size: 12, weight: .semibold))
                                             .lineLimit(1)
@@ -540,7 +540,7 @@ struct GwaTopAdminUserDetailSheet: View {
                                 section(title: "디바이스") {
                                     ForEach(d.devices) { dev in
                                         HStack {
-                                            Image(systemName: "iphone").foregroundStyle(.blue)
+                                            Image(systemName: "iphone").foregroundStyle(GwaTopHomeTheme.primary)
                                             Text(dev.platform).font(.gwaTopSystem(size: 12))
                                             Spacer()
                                             Text(dev.apnsTokenPreview)
@@ -596,7 +596,7 @@ struct GwaTopAdminUserDetailSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("위험 영역")
                 .font(.gwaTopSystem(size: 13, weight: .heavy))
-                .foregroundStyle(.red)
+                .foregroundStyle(GwaTopHomeTheme.danger)
 
             VStack(spacing: 10) {
                 destructiveButton(
@@ -615,11 +615,11 @@ struct GwaTopAdminUserDetailSheet: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.red.opacity(0.06))
+        .background(GwaTopHomeTheme.danger.opacity(0.06))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.red.opacity(0.18), lineWidth: 1)
+                .stroke(GwaTopHomeTheme.danger.opacity(0.18), lineWidth: 1)
         )
     }
 
@@ -628,14 +628,14 @@ struct GwaTopAdminUserDetailSheet: View {
             HStack(spacing: 12) {
                 Image(systemName: icon)
                     .font(.gwaTopSystem(size: 14, weight: .bold))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(GwaTopHomeTheme.danger)
                     .frame(width: 32, height: 32)
-                    .background(Color.red.opacity(0.12))
+                    .background(GwaTopHomeTheme.danger.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(label)
                         .font(.gwaTopSystem(size: 13, weight: .bold))
-                        .foregroundStyle(.red)
+                        .foregroundStyle(GwaTopHomeTheme.danger)
                     Text(subtitle)
                         .font(.gwaTopSystem(size: 11, weight: .medium))
                         .foregroundStyle(GwaTopHomeTheme.textSecondary)
@@ -645,7 +645,7 @@ struct GwaTopAdminUserDetailSheet: View {
                 Spacer()
                 Image(systemName: "chevron.right")
                     .font(.gwaTopSystem(size: 10, weight: .semibold))
-                    .foregroundStyle(.red.opacity(0.6))
+                    .foregroundStyle(GwaTopHomeTheme.danger.opacity(0.6))
             }
             .padding(12)
             .background(.white)
@@ -656,7 +656,7 @@ struct GwaTopAdminUserDetailSheet: View {
 
     private func resultBanner(_ msg: String) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(GwaTopHomeTheme.success)
             Text(msg)
                 .font(.gwaTopSystem(size: 12, weight: .semibold))
                 .foregroundStyle(.primary)
@@ -664,7 +664,7 @@ struct GwaTopAdminUserDetailSheet: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.green.opacity(0.1))
+        .background(GwaTopHomeTheme.success.opacity(0.1))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 

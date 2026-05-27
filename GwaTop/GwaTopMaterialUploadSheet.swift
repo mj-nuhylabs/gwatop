@@ -93,7 +93,7 @@ struct GwaTopMaterialUploadSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("AI 자동 분류")
                 .font(.gwaTopSystem(size: 13, weight: .bold))
-                .foregroundStyle(.blue)
+                .foregroundStyle(GwaTopHomeTheme.primary)
             Text("강의 자료를 업로드하면 주차별로 자동 정리돼요.")
                 .font(.gwaTopSystem(size: 18, weight: .bold))
                 .foregroundStyle(.primary)
@@ -124,7 +124,7 @@ struct GwaTopMaterialUploadSheet: View {
             } else if let loadError {
                 Text(loadError)
                     .font(.gwaTopSystem(size: 13, weight: .semibold))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(GwaTopHomeTheme.danger)
             } else if courses.isEmpty {
                 Text("등록된 과목이 없어요. 먼저 학기/과목을 추가해 주세요.")
                     .font(.gwaTopSystem(size: 13, weight: .medium))
@@ -205,7 +205,7 @@ struct GwaTopMaterialUploadSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(GwaTopHomeTheme.success)
                     .font(.gwaTopSystem(size: 18, weight: .bold))
                 Text(message)
                     .font(.gwaTopSystem(size: 13, weight: .semibold))
@@ -233,14 +233,14 @@ struct GwaTopMaterialUploadSheet: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.green.opacity(0.08))
+        .background(GwaTopHomeTheme.success.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private func errorBanner(_ message: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
+                .foregroundStyle(GwaTopHomeTheme.danger)
                 .font(.gwaTopSystem(size: 18, weight: .bold))
             Text(message)
                 .font(.gwaTopSystem(size: 13, weight: .semibold))
@@ -249,7 +249,7 @@ struct GwaTopMaterialUploadSheet: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.red.opacity(0.08))
+        .background(GwaTopHomeTheme.danger.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 

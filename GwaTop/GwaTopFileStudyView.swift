@@ -250,7 +250,7 @@ struct GwaTopFilePDFTab: View {
             } else {
                 Text("이 파일은 PDF 형식이 아니에요 (\(file.fileType)).")
                     .font(.gwaTopSystem(size: 15, weight: .bold))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(GwaTopHomeTheme.warning)
             }
         }
         .padding(14)
@@ -793,11 +793,11 @@ struct GwaTopFileSummaryTab: View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "lightbulb.fill")
                 .font(.gwaTopSystem(size: 18, weight: .bold))
-                .foregroundStyle(.orange)
+                .foregroundStyle(GwaTopHomeTheme.warning)
             VStack(alignment: .leading, spacing: 4) {
                 Text("학습 팁")
                     .font(.gwaTopSystem(size: 13, weight: .bold))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(GwaTopHomeTheme.warning)
                 GwaTopMathText(
                     s.studyTip,
                     fontSize: 15, weight: .semibold,
@@ -807,7 +807,7 @@ struct GwaTopFileSummaryTab: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.orange.opacity(0.08))
+        .background(GwaTopHomeTheme.warning.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
@@ -836,15 +836,15 @@ struct GwaTopFileSummaryTab: View {
 
     private func errorBanner(_ msg: String) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(GwaTopHomeTheme.danger)
             Text(msg)
                 .font(.gwaTopSystem(size: 14, weight: .bold))
-                .foregroundStyle(.red)
+                .foregroundStyle(GwaTopHomeTheme.danger)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.red.opacity(0.08))
+        .background(GwaTopHomeTheme.danger.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 

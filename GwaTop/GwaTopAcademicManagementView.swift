@@ -26,7 +26,7 @@ struct GwaTopAcademicManagementView: View {
                 Section {
                     Text(errorMessage)
                         .font(.gwaTopSystem(size: 13))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(GwaTopHomeTheme.warning)
                 }
             }
 
@@ -56,7 +56,7 @@ struct GwaTopAcademicManagementView: View {
                             Button {
                                 Task { await setActive(semester) }
                             } label: { Label("활성", systemImage: "star.fill") }
-                            .tint(.orange)
+                            .tint(GwaTopHomeTheme.warning)
                         }
                     }
                 }
@@ -90,8 +90,8 @@ struct GwaTopAcademicManagementView: View {
                             .font(.gwaTopSystem(size: 10, weight: .heavy))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Color.orange.opacity(0.18))
-                            .foregroundStyle(.orange)
+                            .background(GwaTopHomeTheme.warning.opacity(0.18))
+                            .foregroundStyle(GwaTopHomeTheme.warning)
                             .clipShape(Capsule())
                     }
                 }
@@ -192,7 +192,7 @@ struct GwaTopCourseListView: View {
             if let errorMessage {
                 Text(errorMessage)
                     .font(.gwaTopSystem(size: 13))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(GwaTopHomeTheme.warning)
             }
 
             NavigationLink {

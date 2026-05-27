@@ -67,7 +67,7 @@ struct GwaTopFileNoteView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(debug?.course.name ?? "강의 자료")
                 .font(.gwaTopSystem(size: 12, weight: .bold))
-                .foregroundStyle(.blue)
+                .foregroundStyle(GwaTopHomeTheme.primary)
             Text(file.filename)
                 .font(.gwaTopSystem(size: 18, weight: .bold))
                 .foregroundStyle(.primary)
@@ -99,7 +99,7 @@ struct GwaTopFileNoteView: View {
 
             if let conf = file.aiConfidence, file.status == "classified" {
                 ProgressView(value: max(0, min(1, conf)))
-                    .tint(.green)
+                    .tint(GwaTopHomeTheme.success)
                 Text("자동 분류 신뢰도: \(Int(conf * 100))%")
                     .font(.gwaTopSystem(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
@@ -108,7 +108,7 @@ struct GwaTopFileNoteView: View {
             if let err = file.parseError {
                 Text("⚠️ \(err)")
                     .font(.gwaTopSystem(size: 12, weight: .semibold))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(GwaTopHomeTheme.danger)
             }
         }
         .padding(14)
@@ -124,7 +124,7 @@ struct GwaTopFileNoteView: View {
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Image(systemName: "doc.text.magnifyingglass")
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(GwaTopHomeTheme.primary)
                 Text("추출된 텍스트")
                     .font(.gwaTopSystem(size: 14, weight: .bold))
                 Spacer()
@@ -162,15 +162,15 @@ struct GwaTopFileNoteView: View {
 
     private func errorBanner(_ message: String) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(GwaTopHomeTheme.danger)
             Text(message)
                 .font(.gwaTopSystem(size: 12, weight: .semibold))
-                .foregroundStyle(.red)
+                .foregroundStyle(GwaTopHomeTheme.danger)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.red.opacity(0.08))
+        .background(GwaTopHomeTheme.danger.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 

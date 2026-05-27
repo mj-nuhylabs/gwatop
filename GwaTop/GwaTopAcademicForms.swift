@@ -41,7 +41,7 @@ struct GwaTopNewSemesterFormView: View {
             }
 
             if let errorMessage {
-                Section { Text(errorMessage).foregroundStyle(.orange) }
+                Section { Text(errorMessage).foregroundStyle(GwaTopHomeTheme.warning) }
             }
 
             Section {
@@ -194,7 +194,7 @@ struct GwaTopCourseFormView: View {
             }
 
             if let errorMessage {
-                Section { Text(errorMessage).foregroundStyle(.orange) }
+                Section { Text(errorMessage).foregroundStyle(GwaTopHomeTheme.warning) }
             }
 
             Section {

@@ -383,7 +383,7 @@ struct GwaTopCalendarView: View {
                 ForEach(weekdaySymbols, id: \.self) { symbol in
                     Text(symbol)
                         .font(.gwaTopSystem(size: 12, weight: .bold))
-                        .foregroundStyle(symbol == "일" ? .red.opacity(0.75) : GwaTopHomeTheme.textSecondary)
+                        .foregroundStyle(symbol == "일" ? GwaTopHomeTheme.danger.opacity(0.75) : GwaTopHomeTheme.textSecondary)
                         .frame(maxWidth: .infinity)
                 }
 
@@ -504,7 +504,7 @@ struct GwaTopCalendarView: View {
     private func errorBanner(message: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
+                .foregroundStyle(GwaTopHomeTheme.warning)
             VStack(alignment: .leading, spacing: 4) {
                 Text("일정을 불러오지 못했어요")
                     .font(.gwaTopSystem(size: 13, weight: .heavy))
@@ -778,8 +778,8 @@ private struct GwaTopCalendarEventDetailSheet: View {
                             .font(.gwaTopSystem(size: 15, weight: .heavy))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 13)
-                            .background(Color.red.opacity(0.1))
-                            .foregroundStyle(.red)
+                            .background(GwaTopHomeTheme.danger.opacity(0.1))
+                            .foregroundStyle(GwaTopHomeTheme.danger)
                             .clipShape(RoundedRectangle(cornerRadius: 14))
                         }
                     }

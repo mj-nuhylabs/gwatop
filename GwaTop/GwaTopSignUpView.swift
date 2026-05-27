@@ -171,11 +171,11 @@ struct GwaTopSignUpView: View {
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "exclamationmark.circle.fill")
                         .font(.gwaTopSystem(size: 14, weight: .bold))
-                        .foregroundStyle(.red)
+                        .foregroundStyle(GwaTopHomeTheme.danger)
 
                     Text(errorMessage)
                         .font(.gwaTopSystem(size: 13, weight: .semibold))
-                        .foregroundStyle(.red)
+                        .foregroundStyle(GwaTopHomeTheme.danger)
                         .lineSpacing(3)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

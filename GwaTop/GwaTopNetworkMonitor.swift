@@ -114,13 +114,13 @@ struct GwaTopNetworkBanner: View {
             case .offline:
                 row(icon: "wifi.slash",
                     text: "오프라인 상태에요. 와이파이 또는 데이터 연결을 확인해 주세요.",
-                    bg: Color.red.opacity(0.12),
-                    fg: Color.red)
+                    bg: GwaTopHomeTheme.danger.opacity(0.12),
+                    fg: GwaTopHomeTheme.danger)
             case .slow:
                 row(icon: "wifi.exclamationmark",
                     text: "네트워크가 느려요. AI 응답이 평소보다 늦어질 수 있어요.",
-                    bg: Color.orange.opacity(0.15),
-                    fg: Color.orange)
+                    bg: GwaTopHomeTheme.warning.opacity(0.15),
+                    fg: GwaTopHomeTheme.warning)
             case .good:
                 EmptyView()
             }

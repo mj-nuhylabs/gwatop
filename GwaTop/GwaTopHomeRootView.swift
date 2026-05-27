@@ -366,7 +366,7 @@ struct GwaTopSettingsView: View {
                             .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)
                             .frame(height: 54)
-                            .background(Color.red)
+                            .background(GwaTopHomeTheme.danger)
                             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     }
                     .padding(.top, 10)
@@ -620,8 +620,8 @@ struct GwaTopTodayTask: Identifiable {
     init(todo: GwaTopTodoDTO) {
         let (priorityText, icon, color): (String, String, Color) = {
             switch todo.priority {
-            case "high":   return ("긴급", "exclamationmark", .red)
-            case "medium": return ("중요", "flag.fill", .orange)
+            case "high":   return ("긴급", "exclamationmark", GwaTopHomeTheme.danger)
+            case "medium": return ("중요", "flag.fill", GwaTopHomeTheme.warning)
             default:       return ("일반", "circle", .gray)
             }
         }()
@@ -631,14 +631,14 @@ struct GwaTopTodayTask: Identifiable {
         self.dueText = GwaTopDateFormatters.koMonthDayTime.string(from: todo.dueDate)
         self.priorityText = todo.isDone ? "완료" : priorityText
         self.iconName = todo.isDone ? "checkmark" : icon
-        self.color = todo.isDone ? .green : (todo.courseColor.map(Color.gwaTopHex) ?? color)
+        self.color = todo.isDone ? GwaTopHomeTheme.success : (todo.courseColor.map(Color.gwaTopHex) ?? color)
         self.isDone = todo.isDone
     }
 
     static let mockData: [GwaTopTodayTask] = [
-        GwaTopTodayTask(title: "데이터베이스 과제 ERD 초안", subject: "데이터베이스", dueText: "오늘 23:59", priorityText: "긴급", iconName: "exclamationmark", color: .red, isDone: false),
-        GwaTopTodayTask(title: "자료구조 3주차 복습", subject: "자료구조", dueText: "오늘 18:00", priorityText: "중요", iconName: "book.fill", color: .orange, isDone: false),
-        GwaTopTodayTask(title: "캡스톤 회의록 정리", subject: "캡스톤", dueText: "완료", priorityText: "완료", iconName: "checkmark", color: .green, isDone: true)
+        GwaTopTodayTask(title: "데이터베이스 과제 ERD 초안", subject: "데이터베이스", dueText: "오늘 23:59", priorityText: "긴급", iconName: "exclamationmark", color: GwaTopHomeTheme.danger, isDone: false),
+        GwaTopTodayTask(title: "자료구조 3주차 복습", subject: "자료구조", dueText: "오늘 18:00", priorityText: "중요", iconName: "book.fill", color: GwaTopHomeTheme.warning, isDone: false),
+        GwaTopTodayTask(title: "캡스톤 회의록 정리", subject: "캡스톤", dueText: "완료", priorityText: "완료", iconName: "checkmark", color: GwaTopHomeTheme.success, isDone: true)
     ]
 }
 
@@ -650,10 +650,15 @@ struct GwaTopSubject: Identifiable {
     let iconName: String
     let color: Color
 
+    // 과목 색상 — Claude warm 톤에 맞춘 muted multi-tone (mindmap canvas 와 동일 팔레트).
+    // 원색 blue/purple/orange 대신 톤다운된 슬레이트/올리브/플럼으로 구분.
     static let mockData: [GwaTopSubject] = [
-        GwaTopSubject(name: "데이터베이스", progress: 0.72, nextSchedule: "과제 마감 D-1", iconName: "server.rack", color: .blue),
-        GwaTopSubject(name: "자료구조", progress: 0.58, nextSchedule: "퀴즈 D-3", iconName: "point.3.connected.trianglepath.dotted", color: .purple),
-        GwaTopSubject(name: "캡스톤디자인", progress: 0.41, nextSchedule: "회의 내일", iconName: "lightbulb.fill", color: .orange)
+        GwaTopSubject(name: "데이터베이스", progress: 0.72, nextSchedule: "과제 마감 D-1", iconName: "server.rack",
+                      color: Color(red: 0.40, green: 0.52, blue: 0.66)),   // muted slate
+        GwaTopSubject(name: "자료구조", progress: 0.58, nextSchedule: "퀴즈 D-3", iconName: "point.3.connected.trianglepath.dotted",
+                      color: Color(red: 0.58, green: 0.54, blue: 0.42)),   // muted olive
+        GwaTopSubject(name: "캡스톤디자인", progress: 0.41, nextSchedule: "회의 내일", iconName: "lightbulb.fill",
+                      color: Color(red: 0.55, green: 0.45, blue: 0.55))    // muted plum
     ]
 }
 
@@ -671,8 +676,9 @@ struct GwaTopHomeTheme {
     static let secondary = Color(red: 0.88, green: 0.60, blue: 0.46)      // #e09975 근방
 
     // semantic — 의미 명확성 위해 시스템 톤 유지, warm 배경과 조화되도록 약간 톤 다운.
-    static let success = Color(red: 0.32, green: 0.69, blue: 0.42)        // warm green
-    static let warning = Color(red: 0.93, green: 0.62, blue: 0.20)        // warm orange
+    static let success = Color(red: 0.32, green: 0.55, blue: 0.36)        // muted warm green
+    static let warning = Color(red: 0.83, green: 0.55, blue: 0.22)        // muted warm amber
+    static let danger  = Color(red: 0.72, green: 0.30, blue: 0.26)        // muted warm red — Claude warm 톤과 어울리는 에러/destructive
 
     // 배경 — Claude warm off-white.
     static let background = Color(red: 0.980, green: 0.976, blue: 0.961)  // #faf9f5

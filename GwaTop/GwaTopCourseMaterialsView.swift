@@ -93,7 +93,7 @@ struct GwaTopCourseMaterialsView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("AI 자동 분류")
                 .font(.gwaTopSystem(size: 12, weight: .bold))
-                .foregroundStyle(.blue)
+                .foregroundStyle(GwaTopHomeTheme.primary)
             Text("주차별로 자동 정리된 강의 자료를 확인하세요.")
                 .font(.gwaTopSystem(size: 17, weight: .bold))
                 .foregroundStyle(.primary)
@@ -235,14 +235,14 @@ struct GwaTopCourseMaterialsView: View {
 
     private func errorBanner(_ message: String) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(GwaTopHomeTheme.danger)
             Text(message)
                 .font(.gwaTopSystem(size: 12, weight: .semibold))
-                .foregroundStyle(.red)
+                .foregroundStyle(GwaTopHomeTheme.danger)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.red.opacity(0.08))
+        .background(GwaTopHomeTheme.danger.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
