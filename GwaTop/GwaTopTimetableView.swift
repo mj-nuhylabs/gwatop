@@ -58,7 +58,7 @@ struct GwaTopTimetableView: View {
                 ForEach(0..<hours, id: \.self) { i in
                     HStack {
                         Text("\(startHour + i):00")
-                            .font(.system(size: 10, weight: .medium))
+                            .font(.gwaTopSystem(size: 10, weight: .medium))
                             .foregroundStyle(.secondary)
                             .padding(.top, -6)
                             .frame(maxWidth: .infinity, alignment: .trailing)
@@ -92,7 +92,7 @@ struct GwaTopTimetableView: View {
     ) -> some View {
         VStack(spacing: 0) {
             Text(dayLabel[day] ?? day)
-                .font(.system(size: 12, weight: .bold))
+                .font(.gwaTopSystem(size: 12, weight: .bold))
                 .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity)
                 .frame(height: headerHeight)
@@ -135,13 +135,13 @@ struct GwaTopTimetableView: View {
         let color = block.course.color.map(Color.gwaTopHex) ?? .blue
         return VStack(alignment: .leading, spacing: 2) {
             Text(block.course.name)
-                .font(.system(size: 11, weight: .bold))
+                .font(.gwaTopSystem(size: 11, weight: .bold))
                 .foregroundStyle(.white)
                 .lineLimit(2)
                 .minimumScaleFactor(0.8)
             if let prof = block.course.professor, !prof.isEmpty {
                 Text(prof)
-                    .font(.system(size: 9, weight: .medium))
+                    .font(.gwaTopSystem(size: 9, weight: .medium))
                     .foregroundStyle(.white.opacity(0.85))
                     .lineLimit(1)
             }
@@ -161,7 +161,7 @@ struct GwaTopTimetableView: View {
         return AnyView(
             VStack(alignment: .leading, spacing: 8) {
                 Text("과목")
-                    .font(.system(size: 12, weight: .bold))
+                    .font(.gwaTopSystem(size: 12, weight: .bold))
                     .foregroundStyle(.secondary)
                 FlowHStack(spacing: 8, runSpacing: 6) {
                     ForEach(withSchedule) { c in
@@ -170,7 +170,7 @@ struct GwaTopTimetableView: View {
                                 .fill(c.color.map(Color.gwaTopHex) ?? .blue)
                                 .frame(width: 8, height: 8)
                             Text(c.name)
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(.gwaTopSystem(size: 11, weight: .semibold))
                                 .foregroundStyle(.primary)
                         }
                         .padding(.horizontal, 8)
@@ -189,13 +189,13 @@ struct GwaTopTimetableView: View {
     private var emptyState: some View {
         VStack(spacing: 10) {
             Image(systemName: "calendar.day.timeline.left")
-                .font(.system(size: 36, weight: .light))
+                .font(.gwaTopSystem(size: 36, weight: .light))
                 .foregroundStyle(.tertiary)
             Text("등록된 시간표가 아직 없어요")
-                .font(.system(size: 15, weight: .bold))
+                .font(.gwaTopSystem(size: 15, weight: .bold))
                 .foregroundStyle(.primary)
             Text("강의계획서를 업로드하면 강의 시간이 자동으로 채워져요.")
-                .font(.system(size: 12, weight: .medium))
+                .font(.gwaTopSystem(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }

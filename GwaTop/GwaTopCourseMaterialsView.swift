@@ -92,13 +92,13 @@ struct GwaTopCourseMaterialsView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("AI 자동 분류")
-                .font(.system(size: 12, weight: .bold))
+                .font(.gwaTopSystem(size: 12, weight: .bold))
                 .foregroundStyle(.blue)
             Text("주차별로 자동 정리된 강의 자료를 확인하세요.")
-                .font(.system(size: 17, weight: .bold))
+                .font(.gwaTopSystem(size: 17, weight: .bold))
                 .foregroundStyle(.primary)
             Text("자료를 탭하면 추출된 필기 노트(텍스트)를 볼 수 있어요.")
-                .font(.system(size: 12, weight: .medium))
+                .font(.gwaTopSystem(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -109,14 +109,14 @@ struct GwaTopCourseMaterialsView: View {
     private var coursePicker: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("과목")
-                .font(.system(size: 13, weight: .bold))
+                .font(.gwaTopSystem(size: 13, weight: .bold))
                 .foregroundStyle(.secondary)
 
             if isLoadingCourses {
                 ProgressView().padding(.vertical, 8)
             } else if courses.isEmpty {
                 Text("등록된 과목이 없어요.")
-                    .font(.system(size: 13))
+                    .font(.gwaTopSystem(size: 13))
                     .foregroundStyle(.secondary)
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -143,7 +143,7 @@ struct GwaTopCourseMaterialsView: View {
                     .fill(c.color.map(Color.gwaTopHex) ?? .gray.opacity(0.4))
                     .frame(width: 8, height: 8)
                 Text(c.name.isEmpty ? "이름 없는 과목" : c.name)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.gwaTopSystem(size: 13, weight: .semibold))
                     .foregroundStyle(isSelected ? .white : .primary)
             }
             .padding(.horizontal, 12)
@@ -157,7 +157,7 @@ struct GwaTopCourseMaterialsView: View {
     private func weekSection(title: String, files: [GwaTopFileSummary]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
-                .font(.system(size: 13, weight: .bold))
+                .font(.gwaTopSystem(size: 13, weight: .bold))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 4)
 
@@ -178,7 +178,7 @@ struct GwaTopCourseMaterialsView: View {
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: iconName(for: f.fileType))
-                    .font(.system(size: 18, weight: .bold))
+                    .font(.gwaTopSystem(size: 18, weight: .bold))
                     .foregroundStyle(GwaTopHomeTheme.primary)
                     .frame(width: 38, height: 38)
                     .background(GwaTopHomeTheme.primary.opacity(0.1))
@@ -186,14 +186,14 @@ struct GwaTopCourseMaterialsView: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(f.filename)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.gwaTopSystem(size: 14, weight: .semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                         .truncationMode(.middle)
 
                     HStack(spacing: 6) {
                         Text(badge.label)
-                            .font(.system(size: 11, weight: .bold))
+                            .font(.gwaTopSystem(size: 11, weight: .bold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3)
@@ -202,7 +202,7 @@ struct GwaTopCourseMaterialsView: View {
 
                         if let src = f.classificationSource {
                             Text(GwaTopClassificationSource.label(src))
-                                .font(.system(size: 11, weight: .medium))
+                                .font(.gwaTopSystem(size: 11, weight: .medium))
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -211,7 +211,7 @@ struct GwaTopCourseMaterialsView: View {
                 Spacer()
 
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .bold))
+                    .font(.gwaTopSystem(size: 12, weight: .bold))
                     .foregroundStyle(.tertiary)
             }
             .padding(12)
@@ -223,10 +223,10 @@ struct GwaTopCourseMaterialsView: View {
     private func placeholder(text: String) -> some View {
         VStack(spacing: 8) {
             Image(systemName: "tray")
-                .font(.system(size: 28, weight: .light))
+                .font(.gwaTopSystem(size: 28, weight: .light))
                 .foregroundStyle(.tertiary)
             Text(text)
-                .font(.system(size: 13, weight: .medium))
+                .font(.gwaTopSystem(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
@@ -237,7 +237,7 @@ struct GwaTopCourseMaterialsView: View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
             Text(message)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.gwaTopSystem(size: 12, weight: .semibold))
                 .foregroundStyle(.red)
         }
         .padding(12)

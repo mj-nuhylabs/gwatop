@@ -80,7 +80,7 @@ struct GwaTopAIStudyView: View {
                         showUploadSheet = true
                     } label: {
                         Image(systemName: "doc.badge.arrow.up")
-                            .font(.system(size: 15, weight: .bold))
+                            .font(.gwaTopSystem(size: 15, weight: .bold))
                             .foregroundStyle(GwaTopHomeTheme.primary)
                             .frame(width: 38, height: 38)
                             .background(.white)
@@ -119,10 +119,10 @@ struct GwaTopAIStudyView: View {
     private var intro: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("AI 학습")
-                .font(.system(size: 13, weight: .bold))
+                .font(.gwaTopSystem(size: 13, weight: .bold))
                 .foregroundStyle(GwaTopHomeTheme.primary)
             Text("자료를 골라 요약·퀴즈·플래시카드로 학습하세요")
-                .font(.system(size: 18, weight: .bold))
+                .font(.gwaTopSystem(size: 18, weight: .bold))
                 .foregroundStyle(GwaTopHomeTheme.textPrimary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -134,7 +134,7 @@ struct GwaTopAIStudyView: View {
                 ProgressView().padding(.vertical, 8)
             } else if courses.isEmpty {
                 Text("등록된 과목이 없어요.")
-                    .font(.system(size: 13))
+                    .font(.gwaTopSystem(size: 13))
                     .foregroundStyle(GwaTopHomeTheme.textSecondary)
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -158,7 +158,7 @@ struct GwaTopAIStudyView: View {
                     .fill(c.color.map(Color.gwaTopHex) ?? Color.gray.opacity(0.4))
                     .frame(width: 8, height: 8)
                 Text(c.name.isEmpty ? "이름 없는 과목" : c.name)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.gwaTopSystem(size: 13, weight: .semibold))
                     .foregroundStyle(isSelected ? .white : GwaTopHomeTheme.textPrimary)
             }
             .padding(.horizontal, 12)
@@ -172,7 +172,7 @@ struct GwaTopAIStudyView: View {
     private func weekSection(title: String, files: [GwaTopFileSummary]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.system(size: 12, weight: .bold))
+                .font(.gwaTopSystem(size: 12, weight: .bold))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
                 .padding(.leading, 4)
 
@@ -188,7 +188,7 @@ struct GwaTopAIStudyView: View {
     private func fileRow(_ f: GwaTopFileSummary) -> some View {
         HStack(spacing: 12) {
             Image(systemName: icon(for: f.fileType))
-                .font(.system(size: 18, weight: .bold))
+                .font(.gwaTopSystem(size: 18, weight: .bold))
                 .foregroundStyle(GwaTopHomeTheme.primary)
                 .frame(width: 40, height: 40)
                 .background(GwaTopHomeTheme.primary.opacity(0.1))
@@ -196,7 +196,7 @@ struct GwaTopAIStudyView: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(f.filename)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.gwaTopSystem(size: 14, weight: .semibold))
                     .foregroundStyle(GwaTopHomeTheme.textPrimary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -206,7 +206,7 @@ struct GwaTopAIStudyView: View {
             Spacer()
 
             Image(systemName: "chevron.right")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.gwaTopSystem(size: 11, weight: .semibold))
                 .foregroundStyle(.tertiary)
         }
         .padding(12)
@@ -218,7 +218,7 @@ struct GwaTopAIStudyView: View {
         let badge = GwaTopFileStatusBadge.from(f)
         return HStack(spacing: 6) {
             Text(badge.label)
-                .font(.system(size: 10, weight: .bold))
+                .font(.gwaTopSystem(size: 10, weight: .bold))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 2)
@@ -226,7 +226,7 @@ struct GwaTopAIStudyView: View {
                 .clipShape(Capsule())
             if let src = f.classificationSource {
                 Text(GwaTopClassificationSource.label(src))
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.gwaTopSystem(size: 10, weight: .medium))
                     .foregroundStyle(GwaTopHomeTheme.textSecondary)
             }
         }
@@ -235,10 +235,10 @@ struct GwaTopAIStudyView: View {
     private func placeholder(_ msg: String) -> some View {
         VStack(spacing: 8) {
             Image(systemName: "tray")
-                .font(.system(size: 26, weight: .light))
+                .font(.gwaTopSystem(size: 26, weight: .light))
                 .foregroundStyle(.tertiary)
             Text(msg)
-                .font(.system(size: 13, weight: .medium))
+                .font(.gwaTopSystem(size: 13, weight: .medium))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
                 .multilineTextAlignment(.center)
         }
@@ -253,15 +253,15 @@ struct GwaTopAIStudyView: View {
                 .padding(.top, 1)
             VStack(alignment: .leading, spacing: 8) {
                 Text(msg)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.gwaTopSystem(size: 12, weight: .semibold))
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
                 Button(action: retry) {
                     HStack(spacing: 4) {
                         Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 11, weight: .bold))
+                            .font(.gwaTopSystem(size: 11, weight: .bold))
                         Text("다시 시도")
-                            .font(.system(size: 11, weight: .bold))
+                            .font(.gwaTopSystem(size: 11, weight: .bold))
                     }
                     .foregroundStyle(.white)
                     .padding(.horizontal, 10)

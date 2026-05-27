@@ -114,7 +114,7 @@ struct GwaTopHomeView: View {
         HStack(alignment: .center, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(currentDateText)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.gwaTopSystem(size: 14, weight: .semibold))
                     .foregroundStyle(GwaTopHomeTheme.textSecondary)
 
                 Text("안녕하세요, \(user.firstDisplayName)님")
@@ -122,7 +122,7 @@ struct GwaTopHomeView: View {
                     .foregroundStyle(GwaTopHomeTheme.textPrimary)
 
                 Text(user.email.isEmpty ? "오늘도 학점을 향해 한 걸음 더 가볼까요?" : user.email)
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.gwaTopSystem(size: 15, weight: .medium))
                     .foregroundStyle(GwaTopHomeTheme.textSecondary)
                     .lineLimit(1)
             }
@@ -146,11 +146,11 @@ struct GwaTopHomeView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("이번 주 학습 현황")
-                        .font(.system(size: 20, weight: .bold))
+                        .font(.gwaTopSystem(size: 20, weight: .bold))
                         .foregroundStyle(.white)
 
                     Text("이번 주 할 일 \(total)개 중 \(done)개 완료")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.gwaTopSystem(size: 14, weight: .medium))
                         .foregroundStyle(.white.opacity(0.82))
                 }
 
@@ -169,7 +169,7 @@ struct GwaTopHomeView: View {
                         .animation(.spring(response: 0.5), value: rate)
 
                     Text("\(percent)%")
-                        .font(.system(size: 15, weight: .heavy))
+                        .font(.gwaTopSystem(size: 15, weight: .heavy))
                         .foregroundStyle(.white)
                 }
             }
@@ -181,9 +181,8 @@ struct GwaTopHomeView: View {
             }
         }
         .padding(20)
-        .background(GwaTopHomeTheme.primaryGradient)
+        .background(GwaTopHomeTheme.primary)
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .shadow(color: GwaTopHomeTheme.primary.opacity(0.22), radius: 18, x: 0, y: 12)
     }
 
     private var aiRecommendationCard: some View {
@@ -215,17 +214,17 @@ struct GwaTopHomeView: View {
                         .frame(width: 44, height: 44)
 
                     Image(systemName: "sparkles")
-                        .font(.system(size: 19, weight: .bold))
+                        .font(.gwaTopSystem(size: 19, weight: .bold))
                         .foregroundStyle(GwaTopHomeTheme.primary)
                 }
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(labelText)
-                        .font(.system(size: 18, weight: .bold))
+                        .font(.gwaTopSystem(size: 18, weight: .bold))
                         .foregroundStyle(GwaTopHomeTheme.textPrimary)
 
                     Text("\(user.firstDisplayName)님이 확인할 임박 일정")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.gwaTopSystem(size: 13, weight: .medium))
                         .foregroundStyle(GwaTopHomeTheme.textSecondary)
                 }
 
@@ -233,7 +232,7 @@ struct GwaTopHomeView: View {
             }
 
             Text(bodyText)
-                .font(.system(size: 15, weight: .medium))
+                .font(.gwaTopSystem(size: 15, weight: .medium))
                 .foregroundStyle(GwaTopHomeTheme.textPrimary)
                 .lineSpacing(4)
         }
@@ -260,14 +259,14 @@ struct GwaTopHomeView: View {
                     HStack(spacing: 8) {
                         ProgressView()
                         Text("불러오는 중…")
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.gwaTopSystem(size: 13, weight: .medium))
                             .foregroundStyle(GwaTopHomeTheme.textSecondary)
                     }
                     .padding(.vertical, 22)
                     .frame(maxWidth: .infinity)
                 } else {
                     Text("표시할 할 일이 없어요.")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.gwaTopSystem(size: 13, weight: .medium))
                         .foregroundStyle(GwaTopHomeTheme.textSecondary)
                         .padding(.vertical, 26)
                         .frame(maxWidth: .infinity)
@@ -293,11 +292,11 @@ struct GwaTopHomeView: View {
         HStack(alignment: .bottom) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
-                    .font(.system(size: 21, weight: .bold))
+                    .font(.gwaTopSystem(size: 21, weight: .bold))
                     .foregroundStyle(GwaTopHomeTheme.textPrimary)
 
                 Text(subtitle)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.gwaTopSystem(size: 13, weight: .medium))
                     .foregroundStyle(GwaTopHomeTheme.textSecondary)
             }
 
@@ -332,11 +331,11 @@ struct GwaTopSettingsView: View {
                             .foregroundStyle(GwaTopHomeTheme.textPrimary)
 
                         Text(user.email)
-                            .font(.system(size: 15, weight: .medium))
+                            .font(.gwaTopSystem(size: 15, weight: .medium))
                             .foregroundStyle(GwaTopHomeTheme.textSecondary)
 
                         Text("로그인 방식: \(user.loginProvider)")
-                            .font(.system(size: 13, weight: .bold))
+                            .font(.gwaTopSystem(size: 13, weight: .bold))
                             .foregroundStyle(GwaTopHomeTheme.primary)
                             .padding(.top, 2)
                     }
@@ -363,7 +362,7 @@ struct GwaTopSettingsView: View {
                         onLogout?()
                     } label: {
                         Text("로그아웃")
-                            .font(.system(size: 16, weight: .bold))
+                            .font(.gwaTopSystem(size: 16, weight: .bold))
                             .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)
                             .frame(height: 54)
@@ -389,20 +388,20 @@ struct GwaTopSettingsRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: iconName)
-                .font(.system(size: 16, weight: .bold))
+                .font(.gwaTopSystem(size: 16, weight: .bold))
                 .foregroundStyle(GwaTopHomeTheme.primary)
                 .frame(width: 36, height: 36)
                 .background(GwaTopHomeTheme.primary.opacity(0.10))
                 .clipShape(Circle())
 
             Text(title)
-                .font(.system(size: 15, weight: .bold))
+                .font(.gwaTopSystem(size: 15, weight: .bold))
                 .foregroundStyle(GwaTopHomeTheme.textPrimary)
 
             Spacer()
 
             Text(value.isEmpty ? "-" : value)
-                .font(.system(size: 13, weight: .medium))
+                .font(.gwaTopSystem(size: 13, weight: .medium))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
                 .lineLimit(1)
         }
@@ -437,7 +436,7 @@ struct GwaTopStatCard: View {
     var body: some View {
         VStack(spacing: 5) {
             Text(title)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.gwaTopSystem(size: 11, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.76))
 
             HStack(alignment: .firstTextBaseline, spacing: 2) {
@@ -446,7 +445,7 @@ struct GwaTopStatCard: View {
                     .foregroundStyle(.white)
 
                 Text(unit)
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.gwaTopSystem(size: 11, weight: .bold))
                     .foregroundStyle(.white.opacity(0.86))
             }
         }
@@ -474,14 +473,14 @@ struct GwaTopTodayTaskRow: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(task.title)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.gwaTopSystem(size: 15, weight: .semibold))
                     .foregroundStyle(GwaTopHomeTheme.textPrimary)
                     .strikethrough(task.isDone, color: GwaTopHomeTheme.textSecondary)
                     .opacity(task.isDone ? 0.55 : 1)
                     .lineLimit(1)
 
                 Text("\(task.subject) · \(task.dueText)")
-                    .font(.system(size: 12, weight: .regular))
+                    .font(.gwaTopSystem(size: 12, weight: .regular))
                     .foregroundStyle(GwaTopHomeTheme.textSecondary)
                     .lineLimit(1)
             }
@@ -490,11 +489,11 @@ struct GwaTopTodayTaskRow: View {
 
             // 우선순위 라벨 — 컬러 캡슐 대신 단정한 텍스트.
             Text(task.priorityText)
-                .font(.system(size: 11, weight: .medium))
+                .font(.gwaTopSystem(size: 11, weight: .medium))
                 .foregroundStyle(task.isDone ? GwaTopHomeTheme.textSecondary : task.color)
 
             Image(systemName: "chevron.right")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.gwaTopSystem(size: 11, weight: .semibold))
                 .foregroundStyle(Color.gray.opacity(0.4))
         }
         .padding(.horizontal, 16)
@@ -515,17 +514,17 @@ struct GwaTopSubjectProgressCard: View {
                         .frame(width: 48, height: 48)
 
                     Image(systemName: subject.iconName)
-                        .font(.system(size: 19, weight: .bold))
+                        .font(.gwaTopSystem(size: 19, weight: .bold))
                         .foregroundStyle(subject.color)
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(subject.name)
-                        .font(.system(size: 16, weight: .bold))
+                        .font(.gwaTopSystem(size: 16, weight: .bold))
                         .foregroundStyle(GwaTopHomeTheme.textPrimary)
 
                     Text("다음 일정: \(subject.nextSchedule)")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.gwaTopSystem(size: 12, weight: .medium))
                         .foregroundStyle(GwaTopHomeTheme.textSecondary)
                 }
 
@@ -566,7 +565,7 @@ struct GwaTopPlaceholderTabView: View {
 
                 VStack(spacing: 14) {
                     Image(systemName: iconName)
-                        .font(.system(size: 44, weight: .bold))
+                        .font(.gwaTopSystem(size: 44, weight: .bold))
                         .foregroundStyle(GwaTopHomeTheme.primary)
 
                     Text(title)
@@ -574,7 +573,7 @@ struct GwaTopPlaceholderTabView: View {
                         .foregroundStyle(GwaTopHomeTheme.textPrimary)
 
                     Text(subtitle)
-                        .font(.system(size: 15, weight: .medium))
+                        .font(.gwaTopSystem(size: 15, weight: .medium))
                         .foregroundStyle(GwaTopHomeTheme.textSecondary)
                         .multilineTextAlignment(.center)
                         .lineSpacing(4)

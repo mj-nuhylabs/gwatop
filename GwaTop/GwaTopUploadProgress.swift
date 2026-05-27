@@ -183,7 +183,7 @@ struct GwaTopUploadProgressBanner: View {
     private func bannerRow(_ job: GwaTopUploadJob) -> some View {
         HStack(spacing: 12) {
             iconFor(job.phase)
-                .font(.system(size: 14, weight: .bold))
+                .font(.gwaTopSystem(size: 14, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(width: 32, height: 32)
                 .background(backgroundColor(job.phase))
@@ -191,12 +191,12 @@ struct GwaTopUploadProgressBanner: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(job.filename)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.gwaTopSystem(size: 13, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.middle)
 
                 Text(statusText(job))
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.gwaTopSystem(size: 11, weight: .medium))
                     .foregroundStyle(GwaTopHomeTheme.textSecondary)
 
                 if job.phase == .uploading {
@@ -214,7 +214,7 @@ struct GwaTopUploadProgressBanner: View {
                     GwaTopUploadProgress.shared.dismiss(id: job.id)
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.gwaTopSystem(size: 11, weight: .bold))
                         .foregroundStyle(GwaTopHomeTheme.textSecondary)
                 }
             }

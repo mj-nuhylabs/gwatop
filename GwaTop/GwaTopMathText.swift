@@ -53,7 +53,7 @@ struct GwaTopMathText: View {
         } else {
             // 수식 없으면 가벼운 SwiftUI Text 로 — WebView 부담 없음.
             Text(text)
-                .font(.system(size: fontSize, weight: weight))
+                .font(.gwaTopSystem(size: fontSize, weight: weight))
                 .foregroundStyle(textColor)
                 .fixedSize(horizontal: false, vertical: true)
         }

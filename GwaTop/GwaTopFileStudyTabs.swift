@@ -35,7 +35,7 @@ struct GwaTopScopeSelector: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("범위 선택")
-                .font(.system(size: 13, weight: .bold))
+                .font(.gwaTopSystem(size: 13, weight: .bold))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
 
             HStack(spacing: 8) {
@@ -54,7 +54,7 @@ struct GwaTopScopeSelector: View {
                     Image(systemName: "doc.text").foregroundStyle(GwaTopHomeTheme.textSecondary)
                     TextField("예: 1-3 또는 5", text: $customText)
                         .keyboardType(.numbersAndPunctuation)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.gwaTopSystem(size: 15, weight: .semibold))
                         .onChange(of: customText) { _, newValue in
                             scope = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
                         }
@@ -74,7 +74,7 @@ struct GwaTopScopeSelector: View {
     private func pill(label: String, active: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(label)
-                .font(.system(size: 14, weight: .bold))
+                .font(.gwaTopSystem(size: 14, weight: .bold))
                 .foregroundStyle(active ? .white : GwaTopHomeTheme.textPrimary)
                 .padding(.horizontal, 12).padding(.vertical, 7)
                 .background(active ? GwaTopHomeTheme.primary : Color.gray.opacity(0.1))
@@ -100,7 +100,7 @@ private struct GwaTopGenerateButton: View {
                     Image(systemName: "sparkles")
                 }
                 Text(isLoading ? "생성 중…" : title)
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.gwaTopSystem(size: 16, weight: .bold))
             }
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
@@ -121,7 +121,7 @@ private struct GwaTopRegenerateButton: View {
             HStack(spacing: 6) {
                 if isLoading { ProgressView().scaleEffect(0.7) } else { Image(systemName: "arrow.clockwise") }
                 Text(isLoading ? "재생성 중…" : "다시 만들기")
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.gwaTopSystem(size: 15, weight: .bold))
             }
             .foregroundStyle(GwaTopHomeTheme.primary)
             .frame(maxWidth: .infinity).frame(height: 42)
@@ -143,7 +143,7 @@ private struct GwaTopErrorBanner: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
-            Text(message).font(.system(size: 14, weight: .bold))
+            Text(message).font(.gwaTopSystem(size: 14, weight: .bold))
                 .foregroundStyle(.red)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -225,13 +225,12 @@ struct GwaTopFileQuizTab: View {
                     HStack(spacing: 8) {
                         Image(systemName: "play.fill")
                         Text("퀴즈 시작")
-                            .font(.system(size: 17, weight: .bold))
+                            .font(.gwaTopSystem(size: 17, weight: .bold))
                     }
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity).frame(height: 52)
                     .background(GwaTopHomeTheme.primary)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .shadow(color: GwaTopHomeTheme.primary.opacity(0.3), radius: 8, y: 4)
                 }
             }
             .padding(16)
@@ -241,7 +240,7 @@ struct GwaTopFileQuizTab: View {
     private var modeSelector: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("정답 공개 방식")
-                .font(.system(size: 13, weight: .bold))
+                .font(.gwaTopSystem(size: 13, weight: .bold))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
             HStack(spacing: 8) {
                 ForEach(GwaTopQuizMode.allCases) { m in
@@ -249,7 +248,7 @@ struct GwaTopFileQuizTab: View {
                         mode = m
                     } label: {
                         Text(m.label)
-                            .font(.system(size: 14, weight: .bold))
+                            .font(.gwaTopSystem(size: 14, weight: .bold))
                             .foregroundStyle(mode == m ? .white : GwaTopHomeTheme.textPrimary)
                             .padding(.horizontal, 12).padding(.vertical, 7)
                             .frame(maxWidth: .infinity)
@@ -260,7 +259,7 @@ struct GwaTopFileQuizTab: View {
                 }
             }
             Text(mode.helper)
-                .font(.system(size: 12))
+                .font(.gwaTopSystem(size: 12))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
         }
         .padding(12)
@@ -295,7 +294,7 @@ struct GwaTopFileQuizTab: View {
                             } else {
                                 HStack(spacing: 10) {
                                     ProgressView()
-                                    Text("준비 중…").font(.system(size: 15, weight: .semibold))
+                                    Text("준비 중…").font(.gwaTopSystem(size: 15, weight: .semibold))
                                         .foregroundStyle(GwaTopHomeTheme.textSecondary)
                                 }
                                 .padding(16)
@@ -332,7 +331,7 @@ struct GwaTopFileQuizTab: View {
                     Image(systemName: "sparkles")
                 }
                 Text(isGenerating ? "새 문제 만드는 중…" : "다른 문제로 새 퀴즈")
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.gwaTopSystem(size: 15, weight: .bold))
             }
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity).frame(height: 42)
@@ -352,7 +351,7 @@ struct GwaTopFileQuizTab: View {
         HStack(spacing: 10) {
             ProgressView()
             Text("AI가 퀴즈를 만드는 중이에요…")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.gwaTopSystem(size: 15, weight: .semibold))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
         }
         .padding(16)
@@ -364,9 +363,9 @@ struct GwaTopFileQuizTab: View {
     private var introCard: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("자료 기반 퀴즈")
-                .font(.system(size: 17, weight: .bold))
+                .font(.gwaTopSystem(size: 17, weight: .bold))
             Text("객관식 5~7개 + 주관식 2~3개를 자동으로 만들어드려요. 페이지 범위를 좁히면 더 정확합니다.")
-                .font(.system(size: 14))
+                .font(.gwaTopSystem(size: 14))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -398,11 +397,11 @@ struct GwaTopFileQuizTab: View {
         return VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Text("문제 \(safeIndex + 1) / \(total)")
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.gwaTopSystem(size: 13, weight: .bold))
                     .foregroundStyle(GwaTopHomeTheme.primary)
                 Spacer()
                 Text(question.type == "multiple_choice" ? "객관식" : "주관식")
-                    .font(.system(size: 12, weight: .heavy))
+                    .font(.gwaTopSystem(size: 12, weight: .heavy))
                     .padding(.horizontal, 7).padding(.vertical, 2)
                     .background(Color.gray.opacity(0.1))
                     .foregroundStyle(GwaTopHomeTheme.textSecondary)
@@ -424,13 +423,13 @@ struct GwaTopFileQuizTab: View {
                             set: { v in updateAttempt { $0.shortAnswerInput = v } }
                           ),
                           axis: .vertical)
-                    .font(.system(size: 16))
+                    .font(.gwaTopSystem(size: 16))
                     .padding(12)
                     .background(Color.gray.opacity(0.06))
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 if revealed, let ans = question.answer {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("정답").font(.system(size: 13, weight: .bold)).foregroundStyle(.green)
+                        Text("정답").font(.gwaTopSystem(size: 13, weight: .bold)).foregroundStyle(.green)
                         GwaTopMathText(ans, fontSize: 15, color: GwaTopHomeTheme.textPrimary)
                     }
                 }
@@ -438,7 +437,7 @@ struct GwaTopFileQuizTab: View {
 
             if revealed && !question.explanation.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("해설").font(.system(size: 13, weight: .bold)).foregroundStyle(GwaTopHomeTheme.primary)
+                    Text("해설").font(.gwaTopSystem(size: 13, weight: .bold)).foregroundStyle(GwaTopHomeTheme.primary)
                     GwaTopMathText(question.explanation, fontSize: 14, color: GwaTopHomeTheme.textPrimary)
                 }
                 .padding(10)
@@ -467,7 +466,7 @@ struct GwaTopFileQuizTab: View {
                     Image(systemName: "chevron.left")
                     Text("이전")
                 }
-                .font(.system(size: 15, weight: .bold))
+                .font(.gwaTopSystem(size: 15, weight: .bold))
                 .frame(maxWidth: .infinity).frame(height: 44)
                 .foregroundStyle(safeIndex == 0 ? Color.gray : GwaTopHomeTheme.primary)
                 .background(Color.gray.opacity(0.08))
@@ -480,7 +479,7 @@ struct GwaTopFileQuizTab: View {
                     updateAttempt { $0.hasRevealedAnswer = true }
                 } label: {
                     Text("제출")
-                        .font(.system(size: 15, weight: .bold))
+                        .font(.gwaTopSystem(size: 15, weight: .bold))
                         .frame(maxWidth: .infinity).frame(height: 44)
                         .foregroundStyle(.white)
                         .background(GwaTopHomeTheme.primary)
@@ -494,7 +493,7 @@ struct GwaTopFileQuizTab: View {
                         Text(isLast ? (mode == .batch ? "결과 보기" : "처음으로") : "다음")
                         if !isLast { Image(systemName: "chevron.right") }
                     }
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.gwaTopSystem(size: 15, weight: .bold))
                     .frame(maxWidth: .infinity).frame(height: 44)
                     .foregroundStyle(.white)
                     .background(GwaTopHomeTheme.primary)
@@ -522,7 +521,7 @@ struct GwaTopFileQuizTab: View {
         } label: {
             HStack {
                 Text("\(["A","B","C","D","E","F"][min(idx, 5)])")
-                    .font(.system(size: 13, weight: .heavy))
+                    .font(.gwaTopSystem(size: 13, weight: .heavy))
                     .frame(width: 22, height: 22)
                     .background(isCorrect ? .green : (isSelected ? GwaTopHomeTheme.primary : Color.gray.opacity(0.2)))
                     .foregroundStyle(.white)
@@ -552,11 +551,11 @@ struct GwaTopFileQuizTab: View {
         return VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("결과")
-                    .font(.system(size: 18, weight: .heavy))
+                    .font(.gwaTopSystem(size: 18, weight: .heavy))
                     .foregroundStyle(GwaTopHomeTheme.textPrimary)
                 if mcTotal > 0 {
                     Text("객관식 \(mcCount) / \(mcTotal) 정답")
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.gwaTopSystem(size: 14, weight: .bold))
                         .foregroundStyle(GwaTopHomeTheme.primary)
                 }
             }
@@ -573,7 +572,7 @@ struct GwaTopFileQuizTab: View {
                 resetPlayerState()
             } label: {
                 Text("다시 풀기")
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.gwaTopSystem(size: 15, weight: .bold))
                     .foregroundStyle(GwaTopHomeTheme.primary)
                     .frame(maxWidth: .infinity).frame(height: 44)
                     .background(GwaTopHomeTheme.primary.opacity(0.1))
@@ -591,21 +590,21 @@ struct GwaTopFileQuizTab: View {
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("문제 \(idx + 1) / \(total)")
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.gwaTopSystem(size: 13, weight: .bold))
                     .foregroundStyle(GwaTopHomeTheme.primary)
                 Spacer()
                 if question.type == "multiple_choice" {
                     if isCorrect {
                         Label("정답", systemImage: "checkmark.circle.fill")
-                            .font(.system(size: 12, weight: .heavy))
+                            .font(.gwaTopSystem(size: 12, weight: .heavy))
                             .foregroundStyle(.green)
                     } else if userChose != nil {
                         Label("오답", systemImage: "xmark.circle.fill")
-                            .font(.system(size: 12, weight: .heavy))
+                            .font(.gwaTopSystem(size: 12, weight: .heavy))
                             .foregroundStyle(.red)
                     } else {
                         Text("미응답")
-                            .font(.system(size: 12, weight: .heavy))
+                            .font(.gwaTopSystem(size: 12, weight: .heavy))
                             .foregroundStyle(GwaTopHomeTheme.textSecondary)
                     }
                 }
@@ -621,7 +620,7 @@ struct GwaTopFileQuizTab: View {
                             : (isPicked ? Color.red.opacity(0.12) : Color.gray.opacity(0.05))
                         HStack {
                             Text("\(["A","B","C","D","E","F"][min(cIdx, 5)])")
-                                .font(.system(size: 12, weight: .heavy))
+                                .font(.gwaTopSystem(size: 12, weight: .heavy))
                                 .frame(width: 20, height: 20)
                                 .background(isAnswer ? .green : (isPicked ? .red : Color.gray.opacity(0.2)))
                                 .foregroundStyle(.white)
@@ -643,17 +642,17 @@ struct GwaTopFileQuizTab: View {
             } else {
                 VStack(alignment: .leading, spacing: 6) {
                     if !attempt.shortAnswerInput.isEmpty {
-                        Text("내 답").font(.system(size: 12, weight: .bold))
+                        Text("내 답").font(.gwaTopSystem(size: 12, weight: .bold))
                             .foregroundStyle(GwaTopHomeTheme.textSecondary)
                         Text(attempt.shortAnswerInput)
-                            .font(.system(size: 14))
+                            .font(.gwaTopSystem(size: 14))
                             .padding(8)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(Color.gray.opacity(0.06))
                             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     }
                     if let ans = question.answer {
-                        Text("정답").font(.system(size: 12, weight: .bold))
+                        Text("정답").font(.gwaTopSystem(size: 12, weight: .bold))
                             .foregroundStyle(.green)
                         GwaTopMathText(ans, fontSize: 14, color: GwaTopHomeTheme.textPrimary)
                     }
@@ -662,7 +661,7 @@ struct GwaTopFileQuizTab: View {
 
             if !question.explanation.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("해설").font(.system(size: 12, weight: .bold)).foregroundStyle(GwaTopHomeTheme.primary)
+                    Text("해설").font(.gwaTopSystem(size: 12, weight: .bold)).foregroundStyle(GwaTopHomeTheme.primary)
                     GwaTopMathText(question.explanation, fontSize: 13, color: GwaTopHomeTheme.textPrimary)
                 }
                 .padding(8)
@@ -807,13 +806,12 @@ struct GwaTopFileFlashcardTab: View {
                     HStack(spacing: 8) {
                         Image(systemName: "play.fill")
                         Text("플래시카드 시작")
-                            .font(.system(size: 17, weight: .bold))
+                            .font(.gwaTopSystem(size: 17, weight: .bold))
                     }
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity).frame(height: 52)
                     .background(GwaTopHomeTheme.primary)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .shadow(color: GwaTopHomeTheme.primary.opacity(0.3), radius: 8, y: 4)
                 }
             }
             .padding(16)
@@ -833,7 +831,7 @@ struct GwaTopFileFlashcardTab: View {
                             } else {
                                 HStack(spacing: 10) {
                                     ProgressView()
-                                    Text("준비 중…").font(.system(size: 15, weight: .semibold))
+                                    Text("준비 중…").font(.gwaTopSystem(size: 15, weight: .semibold))
                                         .foregroundStyle(GwaTopHomeTheme.textSecondary)
                                 }
                                 .padding(16).frame(maxWidth: .infinity, alignment: .leading)
@@ -880,7 +878,7 @@ struct GwaTopFileFlashcardTab: View {
         HStack(spacing: 10) {
             ProgressView()
             Text("AI가 플래시카드를 만드는 중이에요…")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.gwaTopSystem(size: 15, weight: .semibold))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
         }
         .padding(16)
@@ -891,9 +889,9 @@ struct GwaTopFileFlashcardTab: View {
 
     private var introCard: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("어려운 개념 카드").font(.system(size: 17, weight: .bold))
+            Text("어려운 개념 카드").font(.gwaTopSystem(size: 17, weight: .bold))
             Text("핵심 용어를 단어장 카드로 만들어 \"알아요/몰라요\"로 스스로 점검할 수 있어요.")
-                .font(.system(size: 14)).foregroundStyle(GwaTopHomeTheme.textSecondary)
+                .font(.gwaTopSystem(size: 14)).foregroundStyle(GwaTopHomeTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
@@ -916,7 +914,7 @@ struct GwaTopFileFlashcardTab: View {
                     }
                 } label: {
                     Text(f.label)
-                        .font(.system(size: 13, weight: .bold))
+                        .font(.gwaTopSystem(size: 13, weight: .bold))
                         .padding(.horizontal, 12).padding(.vertical, 6)
                         .foregroundStyle(active ? .white : GwaTopHomeTheme.textPrimary)
                         .background(active ? GwaTopHomeTheme.primary : Color.gray.opacity(0.1))
@@ -931,19 +929,19 @@ struct GwaTopFileFlashcardTab: View {
         HStack {
             if filteredCards.isEmpty {
                 Text("0 / 0")
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.gwaTopSystem(size: 13, weight: .bold))
                     .foregroundStyle(GwaTopHomeTheme.textSecondary)
             } else {
                 let pos = min(currentIndex, filteredCards.count - 1) + 1
                 Text("\(pos) / \(filteredCards.count)")
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.gwaTopSystem(size: 13, weight: .bold))
                     .foregroundStyle(GwaTopHomeTheme.primary)
             }
             Spacer()
             Label("\(knownIds.count)", systemImage: "checkmark.circle.fill")
-                .font(.system(size: 13, weight: .bold)).foregroundStyle(.green)
+                .font(.gwaTopSystem(size: 13, weight: .bold)).foregroundStyle(.green)
             Label("\(unknownIds.count)", systemImage: "xmark.circle.fill")
-                .font(.system(size: 13, weight: .bold)).foregroundStyle(.red)
+                .font(.gwaTopSystem(size: 13, weight: .bold)).foregroundStyle(.red)
                 .padding(.leading, 6)
         }
     }
@@ -951,11 +949,11 @@ struct GwaTopFileFlashcardTab: View {
     /// 필터 결과가 비어 있을 때 안내.
     private var emptyFilterCard: some View {
         VStack(spacing: 6) {
-            Image(systemName: "tray").font(.system(size: 28))
+            Image(systemName: "tray").font(.gwaTopSystem(size: 28))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
             Text(filter == .known ? "아직 \"알아요\" 표시한 카드가 없어요"
                                   : "아직 \"몰라요\" 표시한 카드가 없어요")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.gwaTopSystem(size: 14, weight: .semibold))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
         }
         .padding(28)
@@ -968,17 +966,17 @@ struct GwaTopFileFlashcardTab: View {
     private var completionCard: some View {
         VStack(spacing: 14) {
             Image(systemName: "checkmark.seal.fill")
-                .font(.system(size: 42))
+                .font(.gwaTopSystem(size: 42))
                 .foregroundStyle(GwaTopHomeTheme.primary)
             Text("이 묶음을 모두 봤어요!")
-                .font(.system(size: 18, weight: .bold))
+                .font(.gwaTopSystem(size: 18, weight: .bold))
             HStack(spacing: 14) {
                 Label("\(knownIds.count)", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
                 Label("\(unknownIds.count)", systemImage: "xmark.circle.fill")
                     .foregroundStyle(.red)
             }
-            .font(.system(size: 14, weight: .semibold))
+            .font(.gwaTopSystem(size: 14, weight: .semibold))
             Button {
                 currentIndex = 0
                 isFlipped = false
@@ -987,7 +985,7 @@ struct GwaTopFileFlashcardTab: View {
                 HStack(spacing: 6) {
                     Image(systemName: "arrow.counterclockwise")
                     Text("처음으로 돌아가기")
-                        .font(.system(size: 16, weight: .bold))
+                        .font(.gwaTopSystem(size: 16, weight: .bold))
                 }
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity).frame(height: 48)
@@ -1011,9 +1009,9 @@ struct GwaTopFileFlashcardTab: View {
                 if isFlipped {
                     VStack(spacing: 12) {
                         Text("정의 / 설명")
-                            .font(.system(size: 12, weight: .bold)).foregroundStyle(.white.opacity(0.8))
+                            .font(.gwaTopSystem(size: 12, weight: .bold)).foregroundStyle(.white.opacity(0.8))
                         Text(card.back)
-                            .font(.system(size: 17, weight: .semibold))
+                            .font(.gwaTopSystem(size: 17, weight: .semibold))
                             .foregroundStyle(.white)
                             .multilineTextAlignment(.center)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1023,14 +1021,14 @@ struct GwaTopFileFlashcardTab: View {
                 } else {
                     VStack(spacing: 12) {
                         Text("용어 / 개념")
-                            .font(.system(size: 12, weight: .bold)).foregroundStyle(.white.opacity(0.8))
+                            .font(.gwaTopSystem(size: 12, weight: .bold)).foregroundStyle(.white.opacity(0.8))
                         Text(card.front)
                             .font(.system(size: 24, weight: .heavy, design: .rounded))
                             .foregroundStyle(.white)
                             .multilineTextAlignment(.center)
                         if let hint = card.hint, !hint.isEmpty {
                             Text("힌트: \(hint)")
-                                .font(.system(size: 13)).foregroundStyle(.white.opacity(0.85))
+                                .font(.gwaTopSystem(size: 13)).foregroundStyle(.white.opacity(0.85))
                         }
                     }
                     .padding(20)
@@ -1055,7 +1053,7 @@ struct GwaTopFileFlashcardTab: View {
                 mark(known: false); advance()
             } label: {
                 Text("몰라요")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.gwaTopSystem(size: 16, weight: .bold))
                     .frame(maxWidth: .infinity).frame(height: 48)
                     .foregroundStyle(.red)
                     .background(Color.red.opacity(0.1))
@@ -1065,7 +1063,7 @@ struct GwaTopFileFlashcardTab: View {
                 mark(known: true); advance()
             } label: {
                 Text("알아요")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.gwaTopSystem(size: 16, weight: .bold))
                     .frame(maxWidth: .infinity).frame(height: 48)
                     .foregroundStyle(.white)
                     .background(Color.green)
@@ -1083,7 +1081,7 @@ struct GwaTopFileFlashcardTab: View {
                 if isAddingMore { ProgressView().scaleEffect(0.7) }
                 else { Image(systemName: "plus.circle") }
                 Text(isAddingMore ? "새 카드 만드는 중…" : "플래시카드 더 만들기")
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.gwaTopSystem(size: 15, weight: .bold))
             }
             .foregroundStyle(GwaTopHomeTheme.primary)
             .frame(maxWidth: .infinity).frame(height: 42)
@@ -1251,13 +1249,12 @@ struct GwaTopFileMindmapTab: View {
                     HStack(spacing: 8) {
                         Image(systemName: "play.fill")
                         Text("마인드맵 시작")
-                            .font(.system(size: 17, weight: .bold))
+                            .font(.gwaTopSystem(size: 17, weight: .bold))
                     }
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity).frame(height: 52)
                     .background(GwaTopHomeTheme.primary)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .shadow(color: GwaTopHomeTheme.primary.opacity(0.3), radius: 8, y: 4)
                 }
             }
             .padding(16)
@@ -1275,7 +1272,7 @@ struct GwaTopFileMindmapTab: View {
                             GwaTopMindmapCanvas(mindmap: m)
                                 .frame(minHeight: 600)
                             Text("드래그로 이동 · 우측 버튼 또는 핀치로 확대/축소 · 더블탭으로 초기화")
-                                .font(.system(size: 13, weight: .semibold))
+                                .font(.gwaTopSystem(size: 13, weight: .semibold))
                                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
                                 .frame(maxWidth: .infinity)
                             GwaTopRegenerateButton(isLoading: isGenerating) {
@@ -1286,7 +1283,7 @@ struct GwaTopFileMindmapTab: View {
                         } else {
                             HStack(spacing: 10) {
                                 ProgressView()
-                                Text("준비 중…").font(.system(size: 15, weight: .semibold))
+                                Text("준비 중…").font(.gwaTopSystem(size: 15, weight: .semibold))
                                     .foregroundStyle(GwaTopHomeTheme.textSecondary)
                             }
                             .padding(16).frame(maxWidth: .infinity, alignment: .leading)
@@ -1311,7 +1308,7 @@ struct GwaTopFileMindmapTab: View {
         HStack(spacing: 10) {
             ProgressView()
             Text("AI가 트리 구조를 그리는 중이에요…")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.gwaTopSystem(size: 15, weight: .semibold))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
         }
         .padding(16)
@@ -1322,9 +1319,9 @@ struct GwaTopFileMindmapTab: View {
 
     private var introCard: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("개념 마인드맵").font(.system(size: 17, weight: .bold))
+            Text("개념 마인드맵").font(.gwaTopSystem(size: 17, weight: .bold))
             Text("자료의 핵심 개념을 트리 구조로 시각화해드려요.")
-                .font(.system(size: 14)).foregroundStyle(GwaTopHomeTheme.textSecondary)
+                .font(.gwaTopSystem(size: 14)).foregroundStyle(GwaTopHomeTheme.textSecondary)
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)
         .background(.white).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -1407,11 +1404,11 @@ struct MindmapNodeView: View {
                     Image(systemName: hasChildren
                           ? (expanded ? "chevron.down" : "chevron.right")
                           : "circle.fill")
-                        .font(.system(size: hasChildren ? 9 : 5, weight: .bold))
+                        .font(.gwaTopSystem(size: hasChildren ? 9 : 5, weight: .bold))
                         .foregroundStyle(hasChildren ? GwaTopHomeTheme.primary : Color.gray)
                         .frame(width: 14)
                     Text(node.label)
-                        .font(.system(size: 15 - CGFloat(depth - 1), weight: depth <= 2 ? .bold : .semibold))
+                        .font(.gwaTopSystem(size: 15 - CGFloat(depth - 1), weight: depth <= 2 ? .bold : .semibold))
                         .foregroundStyle(GwaTopHomeTheme.textPrimary)
                 }
             }
@@ -1465,13 +1462,12 @@ struct GwaTopFileMemorizeTab: View {
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "play.fill")
-                        Text("암기 포인트 보기").font(.system(size: 17, weight: .bold))
+                        Text("암기 포인트 보기").font(.gwaTopSystem(size: 17, weight: .bold))
                     }
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity).frame(height: 52)
                     .background(GwaTopHomeTheme.primary)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .shadow(color: GwaTopHomeTheme.primary.opacity(0.3), radius: 8, y: 4)
                 }
             }
             .padding(16)
@@ -1495,7 +1491,7 @@ struct GwaTopFileMemorizeTab: View {
                         } else {
                             HStack(spacing: 10) {
                                 ProgressView()
-                                Text("준비 중…").font(.system(size: 15, weight: .semibold))
+                                Text("준비 중…").font(.gwaTopSystem(size: 15, weight: .semibold))
                                     .foregroundStyle(GwaTopHomeTheme.textSecondary)
                             }
                             .padding(16).frame(maxWidth: .infinity, alignment: .leading)
@@ -1520,7 +1516,7 @@ struct GwaTopFileMemorizeTab: View {
         HStack(spacing: 10) {
             ProgressView()
             Text("AI가 암기 포인트를 정리하는 중이에요…")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.gwaTopSystem(size: 15, weight: .semibold))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)
@@ -1529,9 +1525,9 @@ struct GwaTopFileMemorizeTab: View {
 
     private var introCard: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("시험 대비 암기 포인트").font(.system(size: 17, weight: .bold))
+            Text("시험 대비 암기 포인트").font(.gwaTopSystem(size: 17, weight: .bold))
             Text("자료에서 시험에 자주 출제될 만한 사실/공식/정의/날짜를 뽑아드려요.")
-                .font(.system(size: 14)).foregroundStyle(GwaTopHomeTheme.textSecondary)
+                .font(.gwaTopSystem(size: 14)).foregroundStyle(GwaTopHomeTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)
@@ -1551,7 +1547,7 @@ struct GwaTopFileMemorizeTab: View {
                                 .fill(GwaTopHomeTheme.textSecondary.opacity(0.35))
                                 .frame(width: 12, height: 2)
                             Text(cat)
-                                .font(.system(size: 11, weight: .heavy))
+                                .font(.gwaTopSystem(size: 11, weight: .heavy))
                                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
                                 .tracking(1.6)
                         }
@@ -1678,13 +1674,12 @@ struct GwaTopFileTopicsTab: View {
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "play.fill")
-                        Text("주요 개념 보기").font(.system(size: 17, weight: .bold))
+                        Text("주요 개념 보기").font(.gwaTopSystem(size: 17, weight: .bold))
                     }
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity).frame(height: 52)
                     .background(GwaTopHomeTheme.primary)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .shadow(color: GwaTopHomeTheme.primary.opacity(0.3), radius: 8, y: 4)
                 }
             }
             .padding(16)
@@ -1708,7 +1703,7 @@ struct GwaTopFileTopicsTab: View {
                         } else {
                             HStack(spacing: 10) {
                                 ProgressView()
-                                Text("준비 중…").font(.system(size: 15, weight: .semibold))
+                                Text("준비 중…").font(.gwaTopSystem(size: 15, weight: .semibold))
                                     .foregroundStyle(GwaTopHomeTheme.textSecondary)
                             }
                             .padding(16).frame(maxWidth: .infinity, alignment: .leading)
@@ -1733,7 +1728,7 @@ struct GwaTopFileTopicsTab: View {
         HStack(spacing: 10) {
             ProgressView()
             Text("AI가 주요 개념을 정리하는 중이에요…")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.gwaTopSystem(size: 15, weight: .semibold))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)
@@ -1742,9 +1737,9 @@ struct GwaTopFileTopicsTab: View {
 
     private var introCard: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("주요 개념").font(.system(size: 17, weight: .bold))
+            Text("주요 개념").font(.gwaTopSystem(size: 17, weight: .bold))
             Text("자료의 핵심 개념을 짧은 설명과 예시로 정리해드려요.")
-                .font(.system(size: 14)).foregroundStyle(GwaTopHomeTheme.textSecondary)
+                .font(.gwaTopSystem(size: 14)).foregroundStyle(GwaTopHomeTheme.textSecondary)
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)
         .background(.white).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -1908,12 +1903,12 @@ struct GwaTopFileNotesTab: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "square.and.pencil")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.gwaTopSystem(size: 15, weight: .semibold))
                 Text("새 노트")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.gwaTopSystem(size: 15, weight: .semibold))
                 Spacer()
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.gwaTopSystem(size: 12, weight: .semibold))
                     .foregroundStyle(GwaTopHomeTheme.textTertiary)
             }
             .foregroundStyle(GwaTopHomeTheme.primary)
@@ -1933,10 +1928,10 @@ struct GwaTopFileNotesTab: View {
     private var searchField: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 14, weight: .medium))
+                .font(.gwaTopSystem(size: 14, weight: .medium))
                 .foregroundStyle(GwaTopHomeTheme.textTertiary)
             TextField("노트 검색", text: $searchQuery)
-                .font(.system(size: 15))
+                .font(.gwaTopSystem(size: 15))
                 .focused($searchFocused)
                 .submitLabel(.search)
                 .textInputAutocapitalization(.never)
@@ -1946,7 +1941,7 @@ struct GwaTopFileNotesTab: View {
                     searchQuery = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 15))
+                        .font(.gwaTopSystem(size: 15))
                         .foregroundStyle(GwaTopHomeTheme.textTertiary)
                 }
                 .buttonStyle(.plain)
@@ -1963,13 +1958,13 @@ struct GwaTopFileNotesTab: View {
     private var emptyState: some View {
         VStack(spacing: 10) {
             Image(systemName: "note.text")
-                .font(.system(size: 28, weight: .light))
+                .font(.gwaTopSystem(size: 28, weight: .light))
                 .foregroundStyle(GwaTopHomeTheme.textTertiary)
             Text("아직 노트가 없어요")
-                .font(.system(size: 15, weight: .medium))
+                .font(.gwaTopSystem(size: 15, weight: .medium))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
             Text("위의 ‘새 노트’ 로 시작해보세요")
-                .font(.system(size: 13))
+                .font(.gwaTopSystem(size: 13))
                 .foregroundStyle(GwaTopHomeTheme.textTertiary)
         }
         .frame(maxWidth: .infinity)
@@ -1979,10 +1974,10 @@ struct GwaTopFileNotesTab: View {
     private var noMatchState: some View {
         VStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 22, weight: .light))
+                .font(.gwaTopSystem(size: 22, weight: .light))
                 .foregroundStyle(GwaTopHomeTheme.textTertiary)
             Text("일치하는 노트가 없어요")
-                .font(.system(size: 14, weight: .medium))
+                .font(.gwaTopSystem(size: 14, weight: .medium))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
         }
         .frame(maxWidth: .infinity)
@@ -2009,7 +2004,7 @@ struct GwaTopFileNotesTab: View {
                     }
                     if content.isInk {
                         Text(content.previewText.isEmpty ? "손글씨 노트" : content.previewText)
-                            .font(.system(size: 14))
+                            .font(.gwaTopSystem(size: 14))
                             .foregroundStyle(GwaTopHomeTheme.textSecondary)
                             .lineLimit(2)
                     } else {
@@ -2018,7 +2013,7 @@ struct GwaTopFileNotesTab: View {
                                         color: GwaTopHomeTheme.textSecondary, lineLimit: 3)
                     }
                     Text(shortDate(n.updatedAt))
-                        .font(.system(size: 12))
+                        .font(.gwaTopSystem(size: 12))
                         .foregroundStyle(GwaTopHomeTheme.textTertiary)
                         .padding(.top, 2)
                 }
@@ -2063,7 +2058,7 @@ struct GwaTopFileNotesTab: View {
 
     private func fallbackIcon(systemName: String) -> some View {
         Image(systemName: systemName)
-            .font(.system(size: 16, weight: .medium))
+            .font(.gwaTopSystem(size: 16, weight: .medium))
             .foregroundStyle(GwaTopHomeTheme.primary)
             .frame(width: 32, height: 32)
             .background(GwaTopHomeTheme.primary.opacity(0.08))
@@ -2079,13 +2074,13 @@ struct GwaTopFileNotesTab: View {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         if q.isEmpty {
             Text(text)
-                .font(.system(size: size, weight: weight))
+                .font(.gwaTopSystem(size: size, weight: weight))
                 .foregroundStyle(color)
                 .lineLimit(lineLimit)
                 .multilineTextAlignment(.leading)
         } else {
             Text(Self.attributed(text, highlight: q))
-                .font(.system(size: size, weight: weight))
+                .font(.gwaTopSystem(size: size, weight: weight))
                 .foregroundStyle(color)
                 .lineLimit(lineLimit)
                 .multilineTextAlignment(.leading)
@@ -2181,7 +2176,7 @@ struct GwaTopNoteEditorSheet: View {
 
                     if let errorMessage {
                         Text(errorMessage)
-                            .font(.system(size: 13))
+                            .font(.gwaTopSystem(size: 13))
                             .foregroundStyle(.red)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -2210,7 +2205,7 @@ struct GwaTopNoteEditorSheet: View {
 
     private var titleField: some View {
         TextField("제목", text: $noteTitle)
-            .font(.system(size: 22, weight: .semibold))
+            .font(.gwaTopSystem(size: 22, weight: .semibold))
             .focused($titleFocused)
             .padding(.horizontal, 4)
             .padding(.vertical, 4)
@@ -2226,9 +2221,9 @@ struct GwaTopNoteEditorSheet: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: m == .text ? "textformat" : "pencil.tip")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.gwaTopSystem(size: 13, weight: .semibold))
                         Text(m == .text ? "텍스트" : "손글씨")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.gwaTopSystem(size: 14, weight: .semibold))
                     }
                     .foregroundStyle(mode == m ? GwaTopHomeTheme.textPrimary : GwaTopHomeTheme.textSecondary)
                     .frame(maxWidth: .infinity)
@@ -2251,7 +2246,7 @@ struct GwaTopNoteEditorSheet: View {
 
     private var textCanvas: some View {
         TextEditor(text: $noteBody)
-            .font(.system(size: 17))
+            .font(.gwaTopSystem(size: 17))
             .scrollContentBackground(.hidden)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
@@ -2285,7 +2280,7 @@ struct GwaTopNoteEditorSheet: View {
             inkToolbar
 
             TextField("캡션 (선택)", text: $noteBody)
-                .font(.system(size: 14))
+                .font(.gwaTopSystem(size: 14))
                 .padding(.horizontal, 12)
                 .frame(height: 36)
                 .background(GwaTopHomeTheme.surface)
@@ -2337,7 +2332,7 @@ struct GwaTopNoteEditorSheet: View {
                 drawing = PKDrawing()
             } label: {
                 Image(systemName: "trash")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.gwaTopSystem(size: 14, weight: .semibold))
                     .foregroundStyle(GwaTopHomeTheme.textSecondary)
                     .frame(width: 32, height: 32)
                     .background(Color.black.opacity(0.04))
@@ -2362,7 +2357,7 @@ struct GwaTopNoteEditorSheet: View {
             applyTool()
         } label: {
             Image(systemName: systemName)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.gwaTopSystem(size: 14, weight: .semibold))
                 .foregroundStyle(inkStyle == style ? .white : GwaTopHomeTheme.textPrimary)
                 .frame(width: 32, height: 32)
                 .background(inkStyle == style ? GwaTopHomeTheme.primary : Color.black.opacity(0.04))
@@ -2541,18 +2536,18 @@ struct GwaTopFileTutorTab: View {
     private var emptyState: some View {
         VStack(spacing: 14) {
             Image(systemName: "sparkles")
-                .font(.system(size: 38, weight: .regular))
+                .font(.gwaTopSystem(size: 38, weight: .regular))
                 .foregroundStyle(GwaTopHomeTheme.primary.opacity(0.55))
             Text("이 자료에 대해 무엇이든 물어보세요")
-                .font(.system(size: 17, weight: .bold))
+                .font(.gwaTopSystem(size: 17, weight: .bold))
             Text("이해 안 가는 부분, 시험에 나올 만한 포인트,\n사진 속 수식을 풀어달라고 부탁하기 등 자유롭게.")
-                .font(.system(size: 14))
+                .font(.gwaTopSystem(size: 14))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
                 .multilineTextAlignment(.center)
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("이렇게 물어볼 수 있어요")
-                    .font(.system(size: 12, weight: .bold))
+                    .font(.gwaTopSystem(size: 12, weight: .bold))
                     .foregroundStyle(GwaTopHomeTheme.textSecondary)
                 ForEach(suggestedPrompts, id: \.self) { prompt in
                     Button {
@@ -2560,10 +2555,10 @@ struct GwaTopFileTutorTab: View {
                     } label: {
                         HStack {
                             Image(systemName: "arrow.up.right")
-                                .font(.system(size: 11, weight: .bold))
+                                .font(.gwaTopSystem(size: 11, weight: .bold))
                                 .foregroundStyle(GwaTopHomeTheme.primary)
                             Text(prompt)
-                                .font(.system(size: 14))
+                                .font(.gwaTopSystem(size: 14))
                                 .foregroundStyle(GwaTopHomeTheme.textPrimary)
                                 .multilineTextAlignment(.leading)
                             Spacer()
@@ -2606,14 +2601,14 @@ struct GwaTopFileTutorTab: View {
         HStack(alignment: .top, spacing: 8) {
             Spacer(minLength: 30)
             Text(msg.body)
-                .font(.system(size: 15))
+                .font(.gwaTopSystem(size: 15))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 12).padding(.vertical, 9)
                 .background(GwaTopHomeTheme.primary)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .fixedSize(horizontal: false, vertical: true)
             Image(systemName: "person.fill")
-                .font(.system(size: 14, weight: .bold))
+                .font(.gwaTopSystem(size: 14, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(width: 28, height: 28)
                 .background(Color.gray)
@@ -2624,7 +2619,7 @@ struct GwaTopFileTutorTab: View {
     private func assistantBubble(_ msg: GwaTopTutorMessage) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "sparkles")
-                .font(.system(size: 14, weight: .bold))
+                .font(.gwaTopSystem(size: 14, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(width: 28, height: 28)
                 .background(GwaTopHomeTheme.primary)
@@ -2652,7 +2647,7 @@ struct GwaTopFileTutorTab: View {
                 UIPasteboard.general.string = msg.body
             } label: {
                 Label("복사", systemImage: "doc.on.doc")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.gwaTopSystem(size: 12, weight: .semibold))
                     .foregroundStyle(GwaTopHomeTheme.primary)
             }
             .buttonStyle(.plain)
@@ -2661,14 +2656,14 @@ struct GwaTopFileTutorTab: View {
                 enlargedMessage = msg
             } label: {
                 Label("크게 보기", systemImage: "arrow.up.left.and.arrow.down.right")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.gwaTopSystem(size: 12, weight: .semibold))
                     .foregroundStyle(GwaTopHomeTheme.primary)
             }
             .buttonStyle(.plain)
 
             ShareLink(item: msg.body, preview: SharePreview("AI 튜터 답변")) {
                 Label("공유", systemImage: "square.and.arrow.up")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.gwaTopSystem(size: 12, weight: .semibold))
                     .foregroundStyle(GwaTopHomeTheme.primary)
             }
             .buttonStyle(.plain)
@@ -2677,7 +2672,7 @@ struct GwaTopFileTutorTab: View {
                 downloadAsText(msg)
             } label: {
                 Label("저장", systemImage: "arrow.down.doc")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.gwaTopSystem(size: 12, weight: .semibold))
                     .foregroundStyle(GwaTopHomeTheme.primary)
             }
             .buttonStyle(.plain)
@@ -2711,7 +2706,7 @@ struct GwaTopFileTutorTab: View {
     private var streamingRow: some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "sparkles")
-                .font(.system(size: 14, weight: .bold))
+                .font(.gwaTopSystem(size: 14, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(width: 28, height: 28)
                 .background(GwaTopHomeTheme.primary)
@@ -2723,7 +2718,7 @@ struct GwaTopFileTutorTab: View {
                     // 가벼운 SwiftUI Text 로 즉시 표시하고, 완료된 메시지(`.done`)는 어차피
                     // messages 배열에 append 되어 assistantBubble 의 GwaTopRichText 로 다시 렌더된다.
                     Text(streamingBody)
-                        .font(.system(size: 15))
+                        .font(.gwaTopSystem(size: 15))
                         .foregroundStyle(GwaTopHomeTheme.textPrimary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .fixedSize(horizontal: false, vertical: true)
@@ -2745,14 +2740,14 @@ struct GwaTopFileTutorTab: View {
         return HStack(spacing: 8) {
             ProgressView().scaleEffect(0.7)
             Image(systemName: stage.icon)
-                .font(.system(size: 12, weight: .bold))
+                .font(.gwaTopSystem(size: 12, weight: .bold))
                 .foregroundStyle(GwaTopHomeTheme.primary)
             Text(stage.label)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.gwaTopSystem(size: 13, weight: .semibold))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
             Spacer()
             Text(formatElapsed(elapsed))
-                .font(.system(size: 11, weight: .bold).monospacedDigit())
+                .font(.gwaTopSystem(size: 11, weight: .bold).monospacedDigit())
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
                 .padding(.horizontal, 6).padding(.vertical, 2)
                 .background(Color.gray.opacity(0.1))
@@ -2796,7 +2791,7 @@ struct GwaTopFileTutorTab: View {
                             attachedImages.removeAll { $0.id == att.id }
                         } label: {
                             Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 16))
+                                .font(.gwaTopSystem(size: 16))
                                 .foregroundStyle(.white, .black.opacity(0.7))
                         }
                         .offset(x: 6, y: -6)
@@ -2822,7 +2817,7 @@ struct GwaTopFileTutorTab: View {
                         ProgressView().scaleEffect(0.7)
                     } else {
                         Image(systemName: "photo.on.rectangle.angled")
-                            .font(.system(size: 17, weight: .semibold))
+                            .font(.gwaTopSystem(size: 17, weight: .semibold))
                             .foregroundStyle(GwaTopHomeTheme.primary)
                     }
                 }
@@ -2833,7 +2828,7 @@ struct GwaTopFileTutorTab: View {
             }
 
             TextField("질문을 입력하세요", text: $input, axis: .vertical)
-                .font(.system(size: 16))
+                .font(.gwaTopSystem(size: 16))
                 .lineLimit(1...5)
                 .padding(.horizontal, 12).padding(.vertical, 10)
                 .background(.white)
@@ -2843,7 +2838,7 @@ struct GwaTopFileTutorTab: View {
                 Task { await send() }
             } label: {
                 Image(systemName: "paperplane.fill")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.gwaTopSystem(size: 16, weight: .bold))
                     .foregroundStyle(.white)
                     .frame(width: 42, height: 42)
                     .background(canSend ? GwaTopHomeTheme.primary : Color.gray.opacity(0.5))

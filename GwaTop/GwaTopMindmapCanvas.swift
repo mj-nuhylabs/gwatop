@@ -277,7 +277,7 @@ struct GwaTopMindmapCanvas: View {
     private func zoomButton(systemName: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.gwaTopSystem(size: 12, weight: .semibold))
                 .foregroundStyle(Color(white: 0.30))
                 .frame(width: 28, height: 28)
                 .contentShape(Rectangle())
@@ -298,7 +298,7 @@ struct GwaTopMindmapCanvas: View {
         case 0:
             // root — 다크 슬레이트, 살짝만 둥근 사각.
             Text(node.label)
-                .font(.system(size: 17, weight: .heavy))
+                .font(.gwaTopSystem(size: 17, weight: .heavy))
                 .foregroundStyle(.white)
                 .lineLimit(3)
                 .multilineTextAlignment(.center)
@@ -315,7 +315,7 @@ struct GwaTopMindmapCanvas: View {
                     .fill(node.color)
                     .frame(width: 4, height: 22)
                 Text(node.label)
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.gwaTopSystem(size: 16, weight: .bold))
                     .foregroundStyle(Color(white: 0.12))
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
@@ -323,9 +323,9 @@ struct GwaTopMindmapCanvas: View {
                 if node.childCount > 0 {
                     HStack(spacing: 3) {
                         Image(systemName: node.isExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 10, weight: .bold))
+                            .font(.gwaTopSystem(size: 10, weight: .bold))
                         Text("\(node.childCount)")
-                            .font(.system(size: 12, weight: .bold))
+                            .font(.gwaTopSystem(size: 12, weight: .bold))
                     }
                     .foregroundStyle(node.color)
                     .padding(.horizontal, 6)
@@ -347,7 +347,7 @@ struct GwaTopMindmapCanvas: View {
         default:
             // 2단계 leaf — 더 옅은 톤, 동일한 살짝 둥근 사각.
             Text(node.label)
-                .font(.system(size: 14, weight: .bold))
+                .font(.gwaTopSystem(size: 14, weight: .bold))
                 .foregroundStyle(Color(white: 0.15))
                 .lineLimit(2)
                 .multilineTextAlignment(.center)

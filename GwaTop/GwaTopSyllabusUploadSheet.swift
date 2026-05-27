@@ -61,7 +61,7 @@ struct GwaTopSyllabusUploadSheet: View {
                                 ProgressView().tint(.white).padding(.trailing, 6)
                             }
                             Text(actionButtonTitle)
-                                .font(.system(size: 16, weight: .heavy))
+                                .font(.gwaTopSystem(size: 16, weight: .heavy))
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
@@ -112,14 +112,14 @@ struct GwaTopSyllabusUploadSheet: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             Image(systemName: "doc.badge.arrow.up.fill")
-                .font(.system(size: 30, weight: .bold))
+                .font(.gwaTopSystem(size: 30, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(width: 64, height: 64)
-                .background(GwaTopHomeTheme.primaryGradient)
+                .background(GwaTopHomeTheme.primary)
                 .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
 
             Text("강의계획서를 업로드하면 AI가 시험·과제 일정을 자동으로 캘린더에 등록합니다.")
-                .font(.system(size: 14, weight: .medium))
+                .font(.gwaTopSystem(size: 14, weight: .medium))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
                 .lineSpacing(4)
         }
@@ -130,7 +130,7 @@ struct GwaTopSyllabusUploadSheet: View {
             HStack {
                 sectionTitle("1. 과목 선택")
                 Text("(선택)")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.gwaTopSystem(size: 12, weight: .semibold))
                     .foregroundStyle(GwaTopHomeTheme.textSecondary)
                 Spacer()
                 Button {
@@ -140,29 +140,29 @@ struct GwaTopSyllabusUploadSheet: View {
                         Image(systemName: "plus.circle.fill")
                         Text("새 과목 추가")
                     }
-                    .font(.system(size: 13, weight: .heavy))
+                    .font(.gwaTopSystem(size: 13, weight: .heavy))
                     .foregroundStyle(GwaTopHomeTheme.primary)
                 }
             }
 
             Text("과목을 선택하지 않으면 AI가 강의계획서를 분석해서 자동으로 매칭하거나 새 과목을 만들어 줍니다.")
-                .font(.system(size: 12, weight: .medium))
+                .font(.gwaTopSystem(size: 12, weight: .medium))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
                 .lineSpacing(2)
 
             if isLoadingCourses {
-                HStack { ProgressView(); Text("과목 목록 불러오는 중…").font(.system(size: 13)) }
+                HStack { ProgressView(); Text("과목 목록 불러오는 중…").font(.gwaTopSystem(size: 13)) }
             } else if let err = courseLoadError {
-                Text(err).font(.system(size: 13)).foregroundStyle(.orange)
+                Text(err).font(.gwaTopSystem(size: 13)).foregroundStyle(.orange)
             } else if courses.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("등록된 과목이 없습니다.")
-                        .font(.system(size: 14, weight: .heavy))
+                        .font(.gwaTopSystem(size: 14, weight: .heavy))
                         .foregroundStyle(GwaTopHomeTheme.textPrimary)
                     Text(semesters.isEmpty
                          ? "먼저 학기를 등록해 주세요. (강의계획서 자동 매칭은 학기가 1개 이상 있어야 동작합니다.)"
                          : "그대로 업로드하면 AI가 새 과목을 자동 생성합니다.")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.gwaTopSystem(size: 12, weight: .medium))
                         .foregroundStyle(GwaTopHomeTheme.textSecondary)
                 }
                 .padding(14)
@@ -214,7 +214,7 @@ struct GwaTopSyllabusUploadSheet: View {
                     Spacer()
                     if pickedFileData != nil {
                         Text("\((pickedFileData?.count ?? 0) / 1024) KB")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.gwaTopSystem(size: 12, weight: .medium))
                             .foregroundStyle(GwaTopHomeTheme.textSecondary)
                     }
                 }
@@ -259,7 +259,7 @@ struct GwaTopSyllabusUploadSheet: View {
 
     private func sectionTitle(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 15, weight: .heavy))
+            .font(.gwaTopSystem(size: 15, weight: .heavy))
             .foregroundStyle(GwaTopHomeTheme.textPrimary)
     }
 
@@ -267,7 +267,7 @@ struct GwaTopSyllabusUploadSheet: View {
         HStack(spacing: 10) {
             Image(systemName: icon).foregroundStyle(tint)
             Text(text)
-                .font(.system(size: 13, weight: .medium))
+                .font(.gwaTopSystem(size: 13, weight: .medium))
                 .foregroundStyle(GwaTopHomeTheme.textPrimary)
             Spacer()
         }

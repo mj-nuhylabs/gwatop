@@ -53,10 +53,10 @@ struct GwaTopScheduleEditSheet: View {
                     VStack(alignment: .leading, spacing: 6) {
                         label("과목")
                         if isLoadingCourses {
-                            HStack { ProgressView(); Text("불러오는 중…").font(.system(size: 13)) }
+                            HStack { ProgressView(); Text("불러오는 중…").font(.gwaTopSystem(size: 13)) }
                         } else if courses.isEmpty {
                             Text("과목이 없습니다. 강의계획서 업로드 화면에서 먼저 과목을 등록하세요.")
-                                .font(.system(size: 13, weight: .medium))
+                                .font(.gwaTopSystem(size: 13, weight: .medium))
                                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
                                 .padding(14)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -130,7 +130,7 @@ struct GwaTopScheduleEditSheet: View {
 
                     if let msg = errorMessage {
                         Text(msg)
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.gwaTopSystem(size: 13, weight: .medium))
                             .foregroundStyle(.orange)
                     }
 
@@ -138,7 +138,7 @@ struct GwaTopScheduleEditSheet: View {
                         HStack {
                             if isSubmitting { ProgressView().tint(.white).padding(.trailing, 6) }
                             Text(submitButtonTitle)
-                                .font(.system(size: 16, weight: .heavy))
+                                .font(.gwaTopSystem(size: 16, weight: .heavy))
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
@@ -166,7 +166,7 @@ struct GwaTopScheduleEditSheet: View {
 
     private func label(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 13, weight: .heavy))
+            .font(.gwaTopSystem(size: 13, weight: .heavy))
             .foregroundStyle(GwaTopHomeTheme.textPrimary)
     }
 

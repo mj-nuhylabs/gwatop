@@ -25,7 +25,7 @@ struct GwaTopAcademicManagementView: View {
             if let errorMessage {
                 Section {
                     Text(errorMessage)
-                        .font(.system(size: 13))
+                        .font(.gwaTopSystem(size: 13))
                         .foregroundStyle(.orange)
                 }
             }
@@ -33,7 +33,7 @@ struct GwaTopAcademicManagementView: View {
             Section("학기") {
                 if semesters.isEmpty && !isLoading {
                     Text("등록된 학기가 없습니다.")
-                        .font(.system(size: 14))
+                        .font(.gwaTopSystem(size: 14))
                         .foregroundStyle(.secondary)
                 }
                 ForEach(semesters) { semester in
@@ -84,10 +84,10 @@ struct GwaTopAcademicManagementView: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text(s.name)
-                        .font(.system(size: 16, weight: .heavy))
+                        .font(.gwaTopSystem(size: 16, weight: .heavy))
                     if s.isActive {
                         Text("활성")
-                            .font(.system(size: 10, weight: .heavy))
+                            .font(.gwaTopSystem(size: 10, weight: .heavy))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(Color.orange.opacity(0.18))
@@ -96,13 +96,13 @@ struct GwaTopAcademicManagementView: View {
                     }
                 }
                 Text(formatDateRange(s.startDate, s.endDate))
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.gwaTopSystem(size: 12, weight: .medium))
                     .foregroundStyle(.secondary)
             }
             Spacer()
             let count = courses.filter { $0.semesterId == s.id }.count
             Text("\(count)과목")
-                .font(.system(size: 12, weight: .heavy))
+                .font(.gwaTopSystem(size: 12, weight: .heavy))
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, 4)
@@ -164,7 +164,7 @@ struct GwaTopCourseListView: View {
         List {
             if courses.isEmpty {
                 Text("이 학기에 등록된 과목이 없습니다.")
-                    .font(.system(size: 14))
+                    .font(.gwaTopSystem(size: 14))
                     .foregroundStyle(.secondary)
             }
             ForEach(courses) { course in
@@ -191,7 +191,7 @@ struct GwaTopCourseListView: View {
 
             if let errorMessage {
                 Text(errorMessage)
-                    .font(.system(size: 13))
+                    .font(.gwaTopSystem(size: 13))
                     .foregroundStyle(.orange)
             }
 
@@ -224,10 +224,10 @@ struct GwaTopCourseListView: View {
                 .fill(Color.gwaTopHex(c.color ?? "#4F8EF7"))
                 .frame(width: 12, height: 12)
             VStack(alignment: .leading, spacing: 2) {
-                Text(c.name).font(.system(size: 16, weight: .heavy))
+                Text(c.name).font(.gwaTopSystem(size: 16, weight: .heavy))
                 if let professor = c.professor, !professor.isEmpty {
                     Text(professor)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.gwaTopSystem(size: 12, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
             }

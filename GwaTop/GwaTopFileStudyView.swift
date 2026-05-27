@@ -118,7 +118,7 @@ struct GwaTopFileStudyView: View {
     private var fileHeader: some View {
         HStack(spacing: 12) {
             Image(systemName: "doc.text")
-                .font(.system(size: 16, weight: .medium))
+                .font(.gwaTopSystem(size: 16, weight: .medium))
                 .foregroundStyle(GwaTopHomeTheme.primary)
                 .frame(width: 32, height: 32)
                 .background(GwaTopHomeTheme.primary.opacity(0.08))
@@ -126,13 +126,13 @@ struct GwaTopFileStudyView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(file.filename)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.gwaTopSystem(size: 15, weight: .semibold))
                     .foregroundStyle(GwaTopHomeTheme.textPrimary)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 if let w = file.week {
                     Text("\(w)주차")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.gwaTopSystem(size: 12, weight: .medium))
                         .foregroundStyle(GwaTopHomeTheme.textSecondary)
                 }
             }
@@ -167,9 +167,9 @@ struct GwaTopFileStudyView: View {
             VStack(spacing: 5) {
                 HStack(spacing: 5) {
                     Image(systemName: tab.icon)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.gwaTopSystem(size: 12, weight: .semibold))
                     Text(tab.label)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.gwaTopSystem(size: 14, weight: .semibold))
                 }
                 .foregroundStyle(isSelected ? GwaTopHomeTheme.textPrimary : GwaTopHomeTheme.textSecondary)
                 .padding(.horizontal, 10)
@@ -211,7 +211,7 @@ struct GwaTopFilePDFTab: View {
                     HStack(spacing: 8) {
                         Image(systemName: "doc.richtext.fill")
                         Text("PDF 보기")
-                            .font(.system(size: 17, weight: .bold))
+                            .font(.gwaTopSystem(size: 17, weight: .bold))
                     }
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity).frame(height: 52)
@@ -219,7 +219,6 @@ struct GwaTopFilePDFTab: View {
                                 ? GwaTopHomeTheme.primary
                                 : Color.gray.opacity(0.5))
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .shadow(color: GwaTopHomeTheme.primary.opacity(0.3), radius: 8, y: 4)
                 }
                 .disabled(file.fileType != "pdf")
             }
@@ -238,19 +237,19 @@ struct GwaTopFilePDFTab: View {
     private var introCard: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("원본 PDF")
-                .font(.system(size: 13, weight: .bold))
+                .font(.gwaTopSystem(size: 13, weight: .bold))
                 .foregroundStyle(GwaTopHomeTheme.primary)
             if file.fileType == "pdf" {
                 Text("PDF 를 크게 보면서 검색·페이지 이동·확대/축소 도구를 사용할 수 있어요.")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.gwaTopSystem(size: 16, weight: .semibold))
                     .foregroundStyle(GwaTopHomeTheme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                 Text("핀치 줌, 페이지 번호 입력으로 이동, 검색 결과 하이라이트 지원.")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.gwaTopSystem(size: 14, weight: .medium))
                     .foregroundStyle(GwaTopHomeTheme.textSecondary)
             } else {
                 Text("이 파일은 PDF 형식이 아니에요 (\(file.fileType)).")
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.gwaTopSystem(size: 15, weight: .bold))
                     .foregroundStyle(.orange)
             }
         }
@@ -393,7 +392,7 @@ struct GwaTopPDFPlayerView: View {
                     VStack(spacing: 14) {
                         ProgressView()
                         Text("PDF 불러오는 중…")
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.gwaTopSystem(size: 15, weight: .semibold))
                             .foregroundStyle(GwaTopHomeTheme.textSecondary)
                     }
                 }
@@ -441,7 +440,7 @@ struct GwaTopPDFPlayerView: View {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
             TextField("검색어 입력", text: $model.searchText)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.gwaTopSystem(size: 15, weight: .semibold))
                 .submitLabel(.search)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
@@ -449,17 +448,17 @@ struct GwaTopPDFPlayerView: View {
 
             if !model.searchResults.isEmpty {
                 Text("\(model.currentSearchIndex + 1) / \(model.searchResults.count)")
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.gwaTopSystem(size: 13, weight: .bold))
                     .foregroundStyle(GwaTopHomeTheme.primary)
                 Button { model.prevResult() } label: {
-                    Image(systemName: "chevron.up").font(.system(size: 14, weight: .bold))
+                    Image(systemName: "chevron.up").font(.gwaTopSystem(size: 14, weight: .bold))
                 }
                 Button { model.nextResult() } label: {
-                    Image(systemName: "chevron.down").font(.system(size: 14, weight: .bold))
+                    Image(systemName: "chevron.down").font(.gwaTopSystem(size: 14, weight: .bold))
                 }
             } else if !model.searchText.isEmpty {
                 Text("결과 없음")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.gwaTopSystem(size: 12, weight: .semibold))
                     .foregroundStyle(GwaTopHomeTheme.textSecondary)
             }
         }
@@ -474,7 +473,7 @@ struct GwaTopPDFPlayerView: View {
                 model.goToPage(model.currentPage - 1)
             } label: {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.gwaTopSystem(size: 16, weight: .bold))
                     .frame(width: 42, height: 42)
                     .background(.white)
                     .clipShape(Circle())
@@ -488,9 +487,9 @@ struct GwaTopPDFPlayerView: View {
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "doc.text")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.gwaTopSystem(size: 12, weight: .bold))
                     Text("\(model.currentPage + 1) / \(max(model.totalPages, 1))")
-                        .font(.system(size: 15, weight: .bold))
+                        .font(.gwaTopSystem(size: 15, weight: .bold))
                 }
                 .foregroundStyle(GwaTopHomeTheme.textPrimary)
                 .padding(.horizontal, 16).padding(.vertical, 10)
@@ -502,7 +501,7 @@ struct GwaTopPDFPlayerView: View {
                 model.goToPage(model.currentPage + 1)
             } label: {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.gwaTopSystem(size: 16, weight: .bold))
                     .frame(width: 42, height: 42)
                     .background(.white)
                     .clipShape(Circle())
@@ -603,13 +602,12 @@ struct GwaTopFileSummaryTab: View {
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "doc.text.magnifyingglass")
-                        Text("요약 보기").font(.system(size: 17, weight: .bold))
+                        Text("요약 보기").font(.gwaTopSystem(size: 17, weight: .bold))
                     }
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity).frame(height: 52)
                     .background(GwaTopHomeTheme.primary)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .shadow(color: GwaTopHomeTheme.primary.opacity(0.3), radius: 8, y: 4)
                 }
             }
             .padding(16)
@@ -619,14 +617,14 @@ struct GwaTopFileSummaryTab: View {
     private var introCard: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("AI 요약")
-                .font(.system(size: 13, weight: .bold))
+                .font(.gwaTopSystem(size: 13, weight: .bold))
                 .foregroundStyle(GwaTopHomeTheme.primary)
             Text("자료를 한 줄 요약 + 핵심 포인트 + 섹션별로 정리해드려요.")
-                .font(.system(size: 16, weight: .bold))
+                .font(.gwaTopSystem(size: 16, weight: .bold))
                 .foregroundStyle(GwaTopHomeTheme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
             Text("PDF 전체를 빠르게 훑어볼 때 유용해요.")
-                .font(.system(size: 14))
+                .font(.gwaTopSystem(size: 14))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
         }
         .padding(14)
@@ -682,7 +680,7 @@ struct GwaTopFileSummaryTab: View {
         HStack(spacing: 12) {
             ProgressView()
             Text(msg)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.gwaTopSystem(size: 15, weight: .semibold))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -695,7 +693,7 @@ struct GwaTopFileSummaryTab: View {
     private func headlineCard(_ s: GwaTopAISummary) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("핵심 한 줄")
-                .font(.system(size: 13, weight: .bold))
+                .font(.gwaTopSystem(size: 13, weight: .bold))
                 .foregroundStyle(GwaTopHomeTheme.primary)
             // LaTeX 수식 자동 감지 → KaTeX 렌더 / 없으면 plain Text 폴백.
             GwaTopMathText(
@@ -713,13 +711,13 @@ struct GwaTopFileSummaryTab: View {
     private func keyPointsCard(_ s: GwaTopAISummary) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("핵심 포인트")
-                .font(.system(size: 14, weight: .bold))
+                .font(.gwaTopSystem(size: 14, weight: .bold))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(Array(s.keyPoints.enumerated()), id: \.offset) { idx, point in
                     HStack(alignment: .top, spacing: 10) {
                         Text("\(idx + 1)")
-                            .font(.system(size: 13, weight: .bold))
+                            .font(.gwaTopSystem(size: 13, weight: .bold))
                             .foregroundStyle(.white)
                             .frame(width: 18, height: 18)
                             .background(GwaTopHomeTheme.primary)
@@ -744,12 +742,12 @@ struct GwaTopFileSummaryTab: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 6) {
                 Text("섹션별 요약")
-                    .font(.system(size: 14, weight: .bold))
+                    .font(.gwaTopSystem(size: 14, weight: .bold))
                     .foregroundStyle(GwaTopHomeTheme.textSecondary)
                 if s.sections.count > 3 {
                     // 섹션이 많을 때 내부 스크롤이 있음을 시각적으로 안내.
                     Text("스크롤")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.gwaTopSystem(size: 11, weight: .semibold))
                         .foregroundStyle(GwaTopHomeTheme.textSecondary.opacity(0.7))
                         .padding(.horizontal, 6).padding(.vertical, 2)
                         .background(GwaTopHomeTheme.textSecondary.opacity(0.08))
@@ -794,11 +792,11 @@ struct GwaTopFileSummaryTab: View {
     private func studyTipCard(_ s: GwaTopAISummary) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "lightbulb.fill")
-                .font(.system(size: 18, weight: .bold))
+                .font(.gwaTopSystem(size: 18, weight: .bold))
                 .foregroundStyle(.orange)
             VStack(alignment: .leading, spacing: 4) {
                 Text("학습 팁")
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.gwaTopSystem(size: 13, weight: .bold))
                     .foregroundStyle(.orange)
                 GwaTopMathText(
                     s.studyTip,
@@ -824,7 +822,7 @@ struct GwaTopFileSummaryTab: View {
                     Image(systemName: "arrow.clockwise")
                 }
                 Text(isRegenerating ? "재생성 중…" : "요약 다시 만들기")
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.gwaTopSystem(size: 15, weight: .bold))
             }
             .frame(maxWidth: .infinity)
             .frame(height: 44)
@@ -840,7 +838,7 @@ struct GwaTopFileSummaryTab: View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
             Text(msg)
-                .font(.system(size: 14, weight: .bold))
+                .font(.gwaTopSystem(size: 14, weight: .bold))
                 .foregroundStyle(.red)
                 .fixedSize(horizontal: false, vertical: true)
         }

@@ -78,7 +78,7 @@ struct GwaTopLoginView: View {
                     .shadow(color: .black.opacity(0.08), radius: 20, x: 0, y: 10)
 
                 Image(systemName: "graduationcap.fill")
-                    .font(.system(size: 34, weight: .bold))
+                    .font(.gwaTopSystem(size: 34, weight: .bold))
                     .foregroundStyle(GwaTopTheme.primary)
             }
 
@@ -88,7 +88,7 @@ struct GwaTopLoginView: View {
                     .foregroundStyle(.white)
 
                 Text("강의계획서부터 학습 자료까지\nAI가 정리해주는 대학생 학습 플래너")
-                    .font(.system(size: 16, weight: .medium))
+                    .font(.gwaTopSystem(size: 16, weight: .medium))
                     .foregroundStyle(.white.opacity(0.88))
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
@@ -112,11 +112,11 @@ struct GwaTopLoginView: View {
         VStack(spacing: 18) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("로그인")
-                    .font(.system(size: 24, weight: .bold))
+                    .font(.gwaTopSystem(size: 24, weight: .bold))
                     .foregroundStyle(GwaTopTheme.textPrimary)
 
                 Text("계정에 로그인하고 나만의 학기와 과목을 설정해보세요.")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.gwaTopSystem(size: 14, weight: .medium))
                     .foregroundStyle(GwaTopTheme.textSecondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -138,25 +138,17 @@ struct GwaTopLoginView: View {
                 )
             }
 
-            Button {
+            Button("이메일로 로그인") {
                 handleEmailLogin()
-            } label: {
-                Text("이메일로 로그인")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 54)
-                    .background(GwaTopTheme.primary)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .shadow(color: GwaTopTheme.primary.opacity(0.28), radius: 12, x: 0, y: 8)
             }
+            .gwaTopPrimaryButton(size: .large)
             .disabled(email.isEmpty || password.isEmpty || isLoading)
             .opacity(email.isEmpty || password.isEmpty ? 0.55 : 1.0)
 
             HStack(spacing: 12) {
                 Rectangle().fill(GwaTopTheme.line).frame(height: 1)
                 Text("또는")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.gwaTopSystem(size: 13, weight: .semibold))
                     .foregroundStyle(GwaTopTheme.textSecondary)
                 Rectangle().fill(GwaTopTheme.line).frame(height: 1)
             }
@@ -173,7 +165,7 @@ struct GwaTopLoginView: View {
                         .clipShape(Circle())
 
                     Text("Google로 계속하기")
-                        .font(.system(size: 16, weight: .bold))
+                        .font(.gwaTopSystem(size: 16, weight: .bold))
                         .foregroundStyle(GwaTopTheme.textPrimary)
                 }
                 .frame(maxWidth: .infinity)
@@ -189,12 +181,12 @@ struct GwaTopLoginView: View {
 
             HStack(spacing: 4) {
                 Text("아직 계정이 없나요?")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.gwaTopSystem(size: 14, weight: .medium))
                     .foregroundStyle(GwaTopTheme.textSecondary)
 
                 NavigationLink(destination: GwaTopSignUpView(onSignUpSuccess: onLoginSuccess)) {
                     Text("회원가입")
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.gwaTopSystem(size: 14, weight: .bold))
                         .foregroundStyle(GwaTopTheme.primary)
                 }
             }
@@ -206,7 +198,7 @@ struct GwaTopLoginView: View {
 
     private var policyText: some View {
         Text("로그인 또는 회원가입을 진행하면 GwaTop의 이용약관과 개인정보처리방침에 동의한 것으로 간주됩니다.")
-            .font(.system(size: 12, weight: .medium))
+            .font(.gwaTopSystem(size: 12, weight: .medium))
             .foregroundStyle(.white.opacity(0.72))
             .multilineTextAlignment(.center)
             .lineSpacing(3)
@@ -313,12 +305,12 @@ struct GwaTopTextField: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.system(size: 13, weight: .bold))
+                .font(.gwaTopSystem(size: 13, weight: .bold))
                 .foregroundStyle(GwaTopTheme.textPrimary)
 
             HStack(spacing: 12) {
                 Image(systemName: iconName)
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.gwaTopSystem(size: 15, weight: .bold))
                     .foregroundStyle(GwaTopTheme.primary)
                     .frame(width: 22)
 
@@ -326,7 +318,7 @@ struct GwaTopTextField: View {
                     .keyboardType(keyboardType)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled(true)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.gwaTopSystem(size: 15, weight: .semibold))
             }
             .padding(.horizontal, 14)
             .frame(height: 52)
@@ -345,12 +337,12 @@ struct GwaTopPasswordField: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.system(size: 13, weight: .bold))
+                .font(.gwaTopSystem(size: 13, weight: .bold))
                 .foregroundStyle(GwaTopTheme.textPrimary)
 
             HStack(spacing: 12) {
                 Image(systemName: "lock.fill")
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.gwaTopSystem(size: 15, weight: .bold))
                     .foregroundStyle(GwaTopTheme.primary)
                     .frame(width: 22)
 
@@ -363,13 +355,13 @@ struct GwaTopPasswordField: View {
                 }
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled(true)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.gwaTopSystem(size: 15, weight: .semibold))
 
                 Button {
                     isVisible.toggle()
                 } label: {
                     Image(systemName: isVisible ? "eye.slash.fill" : "eye.fill")
-                        .font(.system(size: 15, weight: .bold))
+                        .font(.gwaTopSystem(size: 15, weight: .bold))
                         .foregroundStyle(GwaTopTheme.textSecondary)
                 }
             }
@@ -388,11 +380,11 @@ struct FeaturePill: View {
     var body: some View {
         VStack(spacing: 8) {
             Image(systemName: iconName)
-                .font(.system(size: 18, weight: .bold))
+                .font(.gwaTopSystem(size: 18, weight: .bold))
                 .foregroundStyle(.white)
 
             Text(title)
-                .font(.system(size: 12, weight: .bold))
+                .font(.gwaTopSystem(size: 12, weight: .bold))
                 .foregroundStyle(.white.opacity(0.92))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
@@ -419,9 +411,9 @@ struct GwaTopTheme {
     static let textSecondary = Color(red: 0.420, green: 0.408, blue: 0.384) // #6b6862
     static let line          = Color.black.opacity(0.08)                   // #00000014
 
+    /// 로그인/회원가입 화면 dramatic 배경 — Claude warm beige → coral 그라데이션.
+    /// 메인 앱은 평면 코랄 톤이지만 entry point 는 브랜드 인상을 위해 그라데이션 유지.
     static var backgroundGradient: LinearGradient {
-        // 따뜻한 베이지 → 옅은 코랄 → 짙은 코랄로 흐르는 부드러운 배경.
-        // Claude 톤 #faf9f5 / #cc785c 를 기준으로 시각적 부드러움 유지.
         LinearGradient(
             colors: [
                 Color(red: 0.980, green: 0.957, blue: 0.925),  // warm off-white #faf4ec

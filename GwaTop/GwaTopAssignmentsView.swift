@@ -154,7 +154,7 @@ struct GwaTopAssignmentsView: View {
         let total = group.assignments.count
         return HStack(spacing: 12) {
             Image(systemName: group.course.iconName)
-                .font(.system(size: 16, weight: .bold))
+                .font(.gwaTopSystem(size: 16, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(width: 38, height: 38)
                 .background(group.course.color)
@@ -162,10 +162,10 @@ struct GwaTopAssignmentsView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(group.course.name)
-                    .font(.system(size: 16, weight: .heavy))
+                    .font(.gwaTopSystem(size: 16, weight: .heavy))
                     .foregroundStyle(GwaTopHomeTheme.textPrimary)
                 Text(activeCount > 0 ? "남은 과제 \(activeCount)개" : "모두 완료 ✓")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.gwaTopSystem(size: 12, weight: .semibold))
                     .foregroundStyle(activeCount > 0 ? GwaTopHomeTheme.textSecondary : GwaTopHomeTheme.success)
             }
 
@@ -180,7 +180,7 @@ struct GwaTopAssignmentsView: View {
                 .clipShape(Capsule())
 
             Image(systemName: "chevron.down")
-                .font(.system(size: 12, weight: .bold))
+                .font(.gwaTopSystem(size: 12, weight: .bold))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
                 .rotationEffect(.degrees(isCollapsed ? -90 : 0))
         }
@@ -198,7 +198,7 @@ struct GwaTopAssignmentsView: View {
         VStack(spacing: 12) {
             ProgressView()
             Text("불러오는 중...")
-                .font(.system(size: 13, weight: .medium))
+                .font(.gwaTopSystem(size: 13, weight: .medium))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
         }
         .padding(40)
@@ -210,19 +210,19 @@ struct GwaTopAssignmentsView: View {
     private func errorState(_ message: String) -> some View {
         VStack(spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 32))
+                .font(.gwaTopSystem(size: 32))
                 .foregroundStyle(.orange)
             Text("불러오기 실패")
-                .font(.system(size: 17, weight: .bold))
+                .font(.gwaTopSystem(size: 17, weight: .bold))
                 .foregroundStyle(GwaTopHomeTheme.textPrimary)
             Text(message)
-                .font(.system(size: 13, weight: .medium))
+                .font(.gwaTopSystem(size: 13, weight: .medium))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
                 .multilineTextAlignment(.center)
             Button("다시 시도") {
                 Task { await load() }
             }
-            .font(.system(size: 14, weight: .bold))
+            .font(.gwaTopSystem(size: 14, weight: .bold))
             .foregroundStyle(.white)
             .padding(.horizontal, 18)
             .padding(.vertical, 10)
@@ -283,7 +283,7 @@ struct GwaTopAssignmentsView: View {
                         .foregroundStyle(.white)
 
                     Text("마감이 가까운 과제부터 차근차근 처리해요")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.gwaTopSystem(size: 14, weight: .medium))
                         .foregroundStyle(.white.opacity(0.84))
                 }
 
@@ -294,7 +294,7 @@ struct GwaTopAssignmentsView: View {
                         .font(.system(size: 22, weight: .heavy, design: .rounded))
                         .foregroundStyle(.white)
                     Text("완료율")
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.gwaTopSystem(size: 11, weight: .bold))
                         .foregroundStyle(.white.opacity(0.76))
                 }
                 .frame(width: 72, height: 72)
@@ -321,9 +321,8 @@ struct GwaTopAssignmentsView: View {
             }
         }
         .padding(20)
-        .background(GwaTopHomeTheme.primaryGradient)
+        .background(GwaTopHomeTheme.primary)
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .shadow(color: GwaTopHomeTheme.primary.opacity(0.22), radius: 18, x: 0, y: 12)
     }
 
     private var filterSegment: some View {
@@ -335,13 +334,16 @@ struct GwaTopAssignmentsView: View {
                     }
                 } label: {
                     Text(filter.title)
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.gwaTopSystem(size: 14, weight: .bold))
                         .foregroundStyle(selectedFilter == filter ? .white : GwaTopHomeTheme.textSecondary)
                         .frame(maxWidth: .infinity)
                         .frame(height: 42)
                         .background(selectedFilter == filter ? GwaTopHomeTheme.primary : .white)
                         .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-                        .shadow(color: selectedFilter == filter ? GwaTopHomeTheme.primary.opacity(0.20) : .clear, radius: 10, x: 0, y: 6)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                                .strokeBorder(selectedFilter == filter ? .clear : GwaTopHomeTheme.line, lineWidth: 1)
+                        )
                 }
             }
         }
@@ -350,15 +352,15 @@ struct GwaTopAssignmentsView: View {
     private var emptyState: some View {
         VStack(spacing: 12) {
             Image(systemName: "checkmark.seal.fill")
-                .font(.system(size: 42, weight: .bold))
+                .font(.gwaTopSystem(size: 42, weight: .bold))
                 .foregroundStyle(GwaTopHomeTheme.success)
 
             Text("표시할 과제가 없어요")
-                .font(.system(size: 19, weight: .bold))
+                .font(.gwaTopSystem(size: 19, weight: .bold))
                 .foregroundStyle(GwaTopHomeTheme.textPrimary)
 
             Text("필터를 바꾸거나 새 과제를 추가하면 여기에 나타납니다.")
-                .font(.system(size: 14, weight: .medium))
+                .font(.gwaTopSystem(size: 14, weight: .medium))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
                 .multilineTextAlignment(.center)
         }
@@ -430,7 +432,7 @@ private struct GwaTopAssignmentHeaderMetric: View {
     var body: some View {
         VStack(spacing: 4) {
             Text(title)
-                .font(.system(size: 11, weight: .bold))
+                .font(.gwaTopSystem(size: 11, weight: .bold))
                 .foregroundStyle(.white.opacity(0.72))
 
             HStack(alignment: .firstTextBaseline, spacing: 2) {
@@ -438,7 +440,7 @@ private struct GwaTopAssignmentHeaderMetric: View {
                     .font(.system(size: 18, weight: .heavy, design: .rounded))
                     .foregroundStyle(.white)
                 Text(unit)
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.gwaTopSystem(size: 10, weight: .bold))
                     .foregroundStyle(.white.opacity(0.84))
             }
         }
@@ -463,7 +465,7 @@ private struct GwaTopAssignmentCard: View {
                             .frame(width: 42, height: 42)
 
                         Image(systemName: assignment.isCompleted ? "checkmark" : "circle")
-                            .font(.system(size: 16, weight: .bold))
+                            .font(.gwaTopSystem(size: 16, weight: .bold))
                             .foregroundStyle(assignment.isCompleted ? .white : assignment.course.color)
                     }
                 }
@@ -472,7 +474,7 @@ private struct GwaTopAssignmentCard: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 7) {
                         Text(assignment.course.name)
-                            .font(.system(size: 12, weight: .bold))
+                            .font(.gwaTopSystem(size: 12, weight: .bold))
                             .foregroundStyle(assignment.course.color)
                             .padding(.horizontal, 9)
                             .padding(.vertical, 5)
@@ -480,7 +482,7 @@ private struct GwaTopAssignmentCard: View {
                             .clipShape(Capsule())
 
                         Text(assignment.priority.displayTitle)
-                            .font(.system(size: 12, weight: .bold))
+                            .font(.gwaTopSystem(size: 12, weight: .bold))
                             .foregroundStyle(assignment.priority.color)
                             .padding(.horizontal, 9)
                             .padding(.vertical, 5)
@@ -489,13 +491,13 @@ private struct GwaTopAssignmentCard: View {
                     }
 
                     Text(assignment.title)
-                        .font(.system(size: 17, weight: .heavy))
+                        .font(.gwaTopSystem(size: 17, weight: .heavy))
                         .foregroundStyle(GwaTopHomeTheme.textPrimary)
                         .strikethrough(assignment.isCompleted, color: GwaTopHomeTheme.textSecondary)
 
                     if !assignment.description.isEmpty {
                         Text(assignment.description)
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.gwaTopSystem(size: 13, weight: .medium))
                             .foregroundStyle(GwaTopHomeTheme.textSecondary)
                             .lineSpacing(3)
                             .lineLimit(2)
@@ -505,7 +507,7 @@ private struct GwaTopAssignmentCard: View {
                 Spacer(minLength: 6)
 
                 Text(assignment.dDayText)
-                    .font(.system(size: 12, weight: .heavy))
+                    .font(.gwaTopSystem(size: 12, weight: .heavy))
                     .foregroundStyle(assignment.isCompleted ? GwaTopHomeTheme.success : assignment.priority.color)
                     .padding(.horizontal, 9)
                     .padding(.vertical, 7)
@@ -525,18 +527,18 @@ private struct GwaTopAssignmentCard: View {
                     Label("AI 자동", systemImage: "sparkles")
                 }
             }
-            .font(.system(size: 12, weight: .semibold))
+            .font(.gwaTopSystem(size: 12, weight: .semibold))
             .foregroundStyle(GwaTopHomeTheme.textSecondary)
 
             if !assignment.recommendedAction.isEmpty {
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "sparkles")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.gwaTopSystem(size: 12, weight: .bold))
                         .foregroundStyle(GwaTopHomeTheme.primary)
                         .padding(.top, 2)
 
                     Text(assignment.recommendedAction)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.gwaTopSystem(size: 13, weight: .medium))
                         .foregroundStyle(GwaTopHomeTheme.textPrimary)
                         .lineSpacing(3)
                 }

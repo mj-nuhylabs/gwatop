@@ -136,9 +136,9 @@ struct GwaTopCourseFormView: View {
                     } else if semesters.isEmpty {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("등록된 학기가 없습니다.")
-                                .font(.system(size: 14, weight: .heavy))
+                                .font(.gwaTopSystem(size: 14, weight: .heavy))
                             Text("아래 ‘새 학기 추가’로 먼저 만드세요.")
-                                .font(.system(size: 12))
+                                .font(.gwaTopSystem(size: 12))
                                 .foregroundStyle(.secondary)
                         }
                     } else {

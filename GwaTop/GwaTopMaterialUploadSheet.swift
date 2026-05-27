@@ -61,7 +61,7 @@ struct GwaTopMaterialUploadSheet: View {
                     VStack(spacing: 12) {
                         ProgressView().tint(.white).scaleEffect(1.4)
                         Text("업로드 중…")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.gwaTopSystem(size: 14, weight: .semibold))
                             .foregroundStyle(.white)
                     }
                 }
@@ -92,13 +92,13 @@ struct GwaTopMaterialUploadSheet: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("AI 자동 분류")
-                .font(.system(size: 13, weight: .bold))
+                .font(.gwaTopSystem(size: 13, weight: .bold))
                 .foregroundStyle(.blue)
             Text("강의 자료를 업로드하면 주차별로 자동 정리돼요.")
-                .font(.system(size: 18, weight: .bold))
+                .font(.gwaTopSystem(size: 18, weight: .bold))
                 .foregroundStyle(.primary)
             Text("PDF / PPTX / DOCX 지원. 업로드 후 백엔드에서 텍스트 추출과 임베딩 기반 분류를 진행합니다.")
-                .font(.system(size: 13, weight: .medium))
+                .font(.gwaTopSystem(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -110,24 +110,24 @@ struct GwaTopMaterialUploadSheet: View {
     private var courseCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("어느 과목인가요?")
-                .font(.system(size: 15, weight: .bold))
+                .font(.gwaTopSystem(size: 15, weight: .bold))
                 .foregroundStyle(.primary)
 
             if isLoadingCourses {
                 HStack {
                     ProgressView()
                     Text("과목 불러오는 중…")
-                        .font(.system(size: 13))
+                        .font(.gwaTopSystem(size: 13))
                         .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 12)
             } else if let loadError {
                 Text(loadError)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.gwaTopSystem(size: 13, weight: .semibold))
                     .foregroundStyle(.red)
             } else if courses.isEmpty {
                 Text("등록된 과목이 없어요. 먼저 학기/과목을 추가해 주세요.")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.gwaTopSystem(size: 13, weight: .medium))
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(courses) { course in
@@ -152,11 +152,11 @@ struct GwaTopMaterialUploadSheet: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(course.name)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.gwaTopSystem(size: 15, weight: .semibold))
                         .foregroundStyle(.primary)
                     if let prof = course.professor, !prof.isEmpty {
                         Text(prof)
-                            .font(.system(size: 12))
+                            .font(.gwaTopSystem(size: 12))
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -164,7 +164,7 @@ struct GwaTopMaterialUploadSheet: View {
                 Spacer()
 
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 18, weight: .bold))
+                    .font(.gwaTopSystem(size: 18, weight: .bold))
                     .foregroundStyle(isSelected ? GwaTopHomeTheme.primary : .gray.opacity(0.4))
             }
             .padding(.horizontal, 14)
@@ -184,20 +184,16 @@ struct GwaTopMaterialUploadSheet: View {
             } label: {
                 HStack(spacing: 10) {
                     Image(systemName: "doc.badge.plus")
-                        .font(.system(size: 18, weight: .bold))
+                        .font(.gwaTopSystem(size: 18, weight: .bold))
                     Text("파일 선택")
-                        .font(.system(size: 16, weight: .bold))
                 }
-                .frame(maxWidth: .infinity)
-                .frame(height: 54)
-                .foregroundStyle(.white)
-                .background(selectedCourseId == nil || isUploading ? Color.gray.opacity(0.5) : GwaTopHomeTheme.primary)
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
+            .gwaTopPrimaryButton(size: .large)
+            .opacity(selectedCourseId == nil || isUploading ? 0.55 : 1.0)
             .disabled(selectedCourseId == nil || isUploading)
 
             Text("강의계획서(syllabus)는 캘린더 탭에서 따로 업로드해 주세요.")
-                .font(.system(size: 12, weight: .medium))
+                .font(.gwaTopSystem(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -210,9 +206,9 @@ struct GwaTopMaterialUploadSheet: View {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(.green)
-                    .font(.system(size: 18, weight: .bold))
+                    .font(.gwaTopSystem(size: 18, weight: .bold))
                 Text(message)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.gwaTopSystem(size: 13, weight: .semibold))
                     .foregroundStyle(.primary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -223,10 +219,10 @@ struct GwaTopMaterialUploadSheet: View {
                 HStack {
                     Image(systemName: "folder.fill")
                     Text("내 강의 자료 보기")
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.gwaTopSystem(size: 14, weight: .bold))
                     Spacer()
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.gwaTopSystem(size: 12, weight: .bold))
                 }
                 .foregroundStyle(GwaTopHomeTheme.primary)
                 .padding(.horizontal, 12)
@@ -245,9 +241,9 @@ struct GwaTopMaterialUploadSheet: View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.red)
-                .font(.system(size: 18, weight: .bold))
+                .font(.gwaTopSystem(size: 18, weight: .bold))
             Text(message)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.gwaTopSystem(size: 13, weight: .semibold))
                 .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
         }

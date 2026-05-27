@@ -131,10 +131,10 @@ struct GwaTopNetworkBanner: View {
     private func row(icon: String, text: String, bg: Color, fg: Color) -> some View {
         HStack(spacing: 10) {
             Image(systemName: icon)
-                .font(.system(size: 13, weight: .bold))
+                .font(.gwaTopSystem(size: 13, weight: .bold))
                 .foregroundStyle(fg)
             Text(text)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.gwaTopSystem(size: 12, weight: .semibold))
                 .foregroundStyle(fg)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)

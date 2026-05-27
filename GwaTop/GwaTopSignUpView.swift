@@ -67,9 +67,9 @@ struct GwaTopSignUpView: View {
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "chevron.left")
-                                .font(.system(size: 14, weight: .bold))
+                                .font(.gwaTopSystem(size: 14, weight: .bold))
                             Text("로그인")
-                                .font(.system(size: 15, weight: .bold))
+                                .font(.gwaTopSystem(size: 15, weight: .bold))
                         }
                         .foregroundStyle(.white)
                     }
@@ -93,7 +93,7 @@ struct GwaTopSignUpView: View {
                     .shadow(color: .black.opacity(0.08), radius: 18, x: 0, y: 10)
 
                 Image(systemName: "person.badge.plus.fill")
-                    .font(.system(size: 30, weight: .bold))
+                    .font(.gwaTopSystem(size: 30, weight: .bold))
                     .foregroundStyle(GwaTopTheme.primary)
             }
 
@@ -103,7 +103,7 @@ struct GwaTopSignUpView: View {
                     .foregroundStyle(.white)
 
                 Text("GwaTop에서 학기와 과목을 정리하고\nAI 학습 플래너를 시작해보세요.")
-                    .font(.system(size: 16, weight: .medium))
+                    .font(.gwaTopSystem(size: 16, weight: .medium))
                     .foregroundStyle(.white.opacity(0.88))
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
@@ -117,11 +117,11 @@ struct GwaTopSignUpView: View {
         VStack(spacing: 18) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("회원가입 정보")
-                    .font(.system(size: 24, weight: .bold))
+                    .font(.gwaTopSystem(size: 24, weight: .bold))
                     .foregroundStyle(GwaTopTheme.textPrimary)
 
                 Text("처음에는 최소 정보만 받고, 학기와 과목은 다음 온보딩 단계에서 설정합니다.")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.gwaTopSystem(size: 14, weight: .medium))
                     .foregroundStyle(GwaTopTheme.textSecondary)
                     .lineSpacing(3)
             }
@@ -170,11 +170,11 @@ struct GwaTopSignUpView: View {
             if let errorMessage {
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "exclamationmark.circle.fill")
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.gwaTopSystem(size: 14, weight: .bold))
                         .foregroundStyle(.red)
 
                     Text(errorMessage)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.gwaTopSystem(size: 13, weight: .semibold))
                         .foregroundStyle(.red)
                         .lineSpacing(3)
                 }
@@ -182,18 +182,10 @@ struct GwaTopSignUpView: View {
                 .padding(.horizontal, 2)
             }
 
-            Button {
+            Button("회원가입하기") {
                 handleSignUp()
-            } label: {
-                Text("회원가입하기")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 56)
-                    .background(GwaTopTheme.primary)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .shadow(color: GwaTopTheme.primary.opacity(0.28), radius: 12, x: 0, y: 8)
             }
+            .gwaTopPrimaryButton(size: .large)
             .disabled(isButtonDisabled || isLoading)
             .opacity(isButtonDisabled ? 0.55 : 1.0)
             .padding(.top, 4)
@@ -203,11 +195,11 @@ struct GwaTopSignUpView: View {
             } label: {
                 HStack(spacing: 4) {
                     Text("이미 계정이 있나요?")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.gwaTopSystem(size: 14, weight: .medium))
                         .foregroundStyle(GwaTopTheme.textSecondary)
 
                     Text("로그인하기")
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.gwaTopSystem(size: 14, weight: .bold))
                         .foregroundStyle(GwaTopTheme.primary)
                 }
             }
@@ -218,7 +210,7 @@ struct GwaTopSignUpView: View {
 
     private var policyText: some View {
         Text("회원가입을 진행하면 GwaTop의 이용약관과 개인정보처리방침에 동의한 것으로 간주됩니다.")
-            .font(.system(size: 12, weight: .medium))
+            .font(.gwaTopSystem(size: 12, weight: .medium))
             .foregroundStyle(.white.opacity(0.72))
             .multilineTextAlignment(.center)
             .lineSpacing(3)
