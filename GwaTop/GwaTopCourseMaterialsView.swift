@@ -152,7 +152,7 @@ struct GwaTopCourseMaterialsView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(isSelected ? Color.blue : Color.gray.opacity(0.1))
+            .background(isSelected ? GwaTopHomeTheme.primary : Color.gray.opacity(0.1))
             .clipShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -183,9 +183,9 @@ struct GwaTopCourseMaterialsView: View {
             HStack(spacing: 12) {
                 Image(systemName: iconName(for: f.fileType))
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(GwaTopHomeTheme.primary)
                     .frame(width: 38, height: 38)
-                    .background(Color.blue.opacity(0.1))
+                    .background(GwaTopHomeTheme.primary.opacity(0.1))
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 4) {

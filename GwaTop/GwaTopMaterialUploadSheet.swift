@@ -169,13 +169,13 @@ struct GwaTopMaterialUploadSheet: View {
 
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(isSelected ? .blue : .gray.opacity(0.4))
+                    .foregroundStyle(isSelected ? GwaTopHomeTheme.primary : .gray.opacity(0.4))
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(isSelected ? Color.blue.opacity(0.08) : Color.gray.opacity(0.06))
+                    .fill(isSelected ? GwaTopHomeTheme.primary.opacity(0.08) : Color.gray.opacity(0.06))
             )
         }
         .buttonStyle(.plain)
@@ -195,7 +195,7 @@ struct GwaTopMaterialUploadSheet: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 54)
                 .foregroundStyle(.white)
-                .background(selectedCourseId == nil || isUploading ? Color.gray.opacity(0.5) : Color.blue)
+                .background(selectedCourseId == nil || isUploading ? Color.gray.opacity(0.5) : GwaTopHomeTheme.primary)
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
             .disabled(selectedCourseId == nil || isUploading)
@@ -234,10 +234,10 @@ struct GwaTopMaterialUploadSheet: View {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 12, weight: .bold))
                 }
-                .foregroundStyle(.blue)
+                .foregroundStyle(GwaTopHomeTheme.primary)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
-                .background(Color.blue.opacity(0.08))
+                .background(GwaTopHomeTheme.primary.opacity(0.08))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
         }

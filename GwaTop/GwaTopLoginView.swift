@@ -412,19 +412,23 @@ struct FeaturePill: View {
 
 // MARK: - 테마
 
+/// 로그인/회원가입 화면 전용 테마. GwaTopHomeTheme(Claude warm light) 와 통일.
+/// Web 의 코랄 #cc785c 와 warm off-white 배경에 맞춰 그라데이션도 따뜻한 코랄→다크코랄 톤.
 struct GwaTopTheme {
-    static let primary       = Color(red: 0.24, green: 0.36, blue: 0.96)
-    static let primaryDark   = Color(red: 0.12, green: 0.20, blue: 0.72)
-    static let textPrimary   = Color(red: 0.10, green: 0.12, blue: 0.18)
-    static let textSecondary = Color(red: 0.43, green: 0.46, blue: 0.56)
-    static let line          = Color(red: 0.88, green: 0.90, blue: 0.95)
+    static let primary       = Color(red: 0.80, green: 0.47, blue: 0.36)  // #cc785c
+    static let primaryDark   = Color(red: 0.55, green: 0.30, blue: 0.22)  // 더 짙은 coral
+    static let textPrimary   = Color(red: 0.122, green: 0.118, blue: 0.114) // #1f1e1d
+    static let textSecondary = Color(red: 0.420, green: 0.408, blue: 0.384) // #6b6862
+    static let line          = Color.black.opacity(0.08)                   // #00000014
 
     static var backgroundGradient: LinearGradient {
+        // 따뜻한 베이지 → 옅은 코랄 → 짙은 코랄로 흐르는 부드러운 배경.
+        // Claude 톤 #faf9f5 / #cc785c 를 기준으로 시각적 부드러움 유지.
         LinearGradient(
             colors: [
-                Color(red: 0.34, green: 0.45, blue: 1.0),
-                Color(red: 0.16, green: 0.25, blue: 0.78),
-                Color(red: 0.10, green: 0.13, blue: 0.36),
+                Color(red: 0.980, green: 0.957, blue: 0.925),  // warm off-white #faf4ec
+                Color(red: 0.91, green: 0.66, blue: 0.52),     // light coral
+                Color(red: 0.55, green: 0.30, blue: 0.22),     // deep coral
             ],
             startPoint: .topLeading,
             endPoint: .bottomTrailing

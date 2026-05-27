@@ -665,27 +665,37 @@ struct GwaTopSubject: Identifiable {
 }
 
 struct GwaTopHomeTheme {
-    // Apple 미니멀리즘 — 차분한 블루, 절제된 채도, 시스템 회색 톤.
-    static let primary = Color(red: 0.00, green: 0.48, blue: 1.00)        // iOS system blue
-    static let secondary = Color(red: 0.35, green: 0.62, blue: 1.00)      // 보조 (그라데이션용)
-    static let success = Color(red: 0.20, green: 0.78, blue: 0.35)        // iOS system green
-    static let warning = Color(red: 1.00, green: 0.58, blue: 0.00)        // iOS system orange
+    // GwaTop Web 과 통일된 디자인 토큰 — Claude.ai light 톤.
+    // 따뜻한 오프화이트 배경 + 코랄 강조. CSS 변수와 1:1 매핑:
+    //   --background #faf9f5, --foreground #1f1e1d, --card #fff,
+    //   --primary   #cc785c (claude coral), --muted-foreground #6b6862,
+    //   --border    rgba(0,0,0,0.08), --accent #f0eee6
+    // semantic(success/warning)은 의미 보존을 위해 iOS system 톤 유지하되 약간 따뜻하게.
 
-    // 배경: 순백에 아주 살짝 회색 — Apple Notes / Settings 톤.
-    static let background = Color(red: 0.97, green: 0.97, blue: 0.98)
-    static let surface = Color.white                                      // 카드 표면
-    static let surfaceElevated = Color(red: 0.99, green: 0.99, blue: 1.00) // 살짝 위에 떠 있는 표면
+    // Claude coral — light 모드 강조 컬러.
+    static let primary = Color(red: 0.80, green: 0.47, blue: 0.36)        // #cc785c
+    // 그라데이션 용 보조 — primary 보다 약간 밝고 따뜻한 코랄.
+    static let secondary = Color(red: 0.88, green: 0.60, blue: 0.46)      // #e09975 근방
 
-    // 텍스트 — 거의 검정에 가까운 짙은 회색 / SF 스타일 보조 회색.
-    static let textPrimary = Color(red: 0.07, green: 0.07, blue: 0.09)    // near-black
-    static let textSecondary = Color(red: 0.45, green: 0.45, blue: 0.50)  // iOS secondaryLabel
-    static let textTertiary = Color(red: 0.62, green: 0.62, blue: 0.67)   // iOS tertiaryLabel
+    // semantic — 의미 명확성 위해 시스템 톤 유지, warm 배경과 조화되도록 약간 톤 다운.
+    static let success = Color(red: 0.32, green: 0.69, blue: 0.42)        // warm green
+    static let warning = Color(red: 0.93, green: 0.62, blue: 0.20)        // warm orange
 
-    // 헤어라인 분리선 — 그림자보다 미니멀.
-    static let line = Color(red: 0.90, green: 0.90, blue: 0.92)
+    // 배경 — Claude warm off-white.
+    static let background = Color(red: 0.980, green: 0.976, blue: 0.961)  // #faf9f5
+    static let surface = Color.white                                      // #ffffff card
+    static let surfaceElevated = Color(red: 0.992, green: 0.988, blue: 0.976) // #fdfcf9 살짝 따뜻
+
+    // 텍스트 — Claude warm dark + muted.
+    static let textPrimary = Color(red: 0.122, green: 0.118, blue: 0.114) // #1f1e1d
+    static let textSecondary = Color(red: 0.420, green: 0.408, blue: 0.384) // #6b6862
+    static let textTertiary = Color(red: 0.659, green: 0.647, blue: 0.620)  // #a8a59e
+
+    // 헤어라인 분리선 — 웹 --border rgba(0,0,0,0.08).
+    static let line = Color.black.opacity(0.08)
     static let separator = Color.black.opacity(0.06)
 
-    // 그림자: 거의 없음. 깊이감은 헤어라인으로.
+    // 그림자: 거의 없음 — 웹과 동일한 평면적 깊이감.
     static let cardShadow = Color.black.opacity(0.04)
 
     static let primaryGradient = LinearGradient(

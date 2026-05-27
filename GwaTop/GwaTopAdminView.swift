@@ -194,7 +194,7 @@ struct GwaTopAdminView: View {
     private func userRow(_ u: GwaTopAdminUserBrief) -> some View {
         HStack(spacing: 12) {
             Circle()
-                .fill(u.provider == "google" ? Color.red.opacity(0.18) : Color.blue.opacity(0.18))
+                .fill(u.provider == "google" ? Color.red.opacity(0.18) : GwaTopHomeTheme.primary.opacity(0.18))
                 .frame(width: 32, height: 32)
                 .overlay(
                     Text(String(u.name.prefix(1)).uppercased())
@@ -299,8 +299,8 @@ struct GwaTopAdminView: View {
             Text(s.type)
                 .font(.system(size: 9, weight: .heavy))
                 .padding(.horizontal, 6).padding(.vertical, 2)
-                .background(Color.blue.opacity(0.12))
-                .foregroundStyle(Color.blue)
+                .background(GwaTopHomeTheme.primary.opacity(0.12))
+                .foregroundStyle(GwaTopHomeTheme.primary)
                 .clipShape(Capsule())
             VStack(alignment: .leading, spacing: 2) {
                 Text(s.title)
