@@ -165,6 +165,40 @@ async def study_generate_ai_content(
     }
 
 
+# ---------- Speculative prefetch ----------
+
+PREFETCH_TYPES = ("quiz", "flashcard", "mindmap", "memorize", "topics")
+
+
+@router.post(
+    "/files/{file_id}/ai-contents/prefetch",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def study_prefetch_ai_contents(
+    file_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """파일 학습 화면 진입 시 iOS 가 호출. 5종 학습 콘텐츠를 '전체 페이지' scope 으로
+    백그라운드 큐잉. 이미 ai_contents row 가 있으면 워커가 즉시 skip (force=False).
+
+    사용자가 인트로 화면을 보며 페이지 범위를 고르는 동안 GPT 가 미리 작업해
+    '시작' 버튼 클릭 시점엔 캐시 hit 확률이 매우 높아진다.
+    """
+    file_row, _ = await owned_file(file_id, current_user, db)
+    if not file_row.extracted_text or not file_row.extracted_text.strip():
+        # 텍스트 추출이 아직이거나 실패. prefetch 의미 없음 — 조용히 통과.
+        return {"file_id": str(file_id), "queued": [], "reason": "no_text"}
+
+    from app.tasks.file_tasks import generate_ai_content_task
+    for ct in PREFETCH_TYPES:
+        generate_ai_content_task.delay(
+            str(file_id), ct, "all", False, str(current_user.id),
+        )
+
+    return {"file_id": str(file_id), "queued": list(PREFETCH_TYPES)}
+
+
 # ---------- 사용자 노트 (CRUD) ----------
 
 class NoteCreate(BaseModel):

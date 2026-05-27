@@ -362,6 +362,20 @@ actor GwaTopFileService {
         )
     }
 
+    /// Speculative prefetch — 파일 학습 화면 진입 시 호출. 백엔드가 5종 학습 콘텐츠를
+    /// 'all' scope 으로 백그라운드 큐잉. 이미 결과가 있는 type 은 워커에서 즉시 skip.
+    /// 사용자가 인트로 보는 동안 백엔드가 미리 만들어 두어, '시작' 버튼 클릭 시 캐시 hit.
+    func prefetchAIContents(fileId: String) async {
+        struct Response: Decodable {}
+        do {
+            let _: Response = try await GwaTopAPIClient.shared.postEmpty(
+                "/v1/files/\(fileId)/ai-contents/prefetch"
+            )
+        } catch {
+            // 단순 hint 라 실패해도 무시. 사용자가 시작 버튼 누르면 그때 generate 가 트리거됨.
+        }
+    }
+
     /// 큐잉된 작업의 완료를 폴링한다. ready 응답 받을 때까지 `pollInterval` 마다 재조회.
     /// `maxAttempts` 회 초과 시 마지막 응답 반환 (status="pending" 그대로).
     /// View 의 Task 가 취소되면 즉시 중단되므로 .task modifier 안에서 호출하면 안전.

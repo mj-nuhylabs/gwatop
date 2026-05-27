@@ -85,6 +85,12 @@ struct GwaTopFileStudyView: View {
                     Button("닫기") { dismiss() }
                 }
             }
+            .task {
+                // Speculative prefetch — 사용자가 인트로 + 페이지 범위 고르는 시간 동안
+                // 백엔드가 5종 학습 콘텐츠를 'all' scope 으로 미리 만들어 둠.
+                // 시작 버튼 클릭 시점엔 캐시 hit 확률이 매우 높아 ~1초 안에 결과 표시.
+                await GwaTopFileService.shared.prefetchAIContents(fileId: file.id)
+            }
         }
     }
 
