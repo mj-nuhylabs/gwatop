@@ -23,20 +23,116 @@ struct GwaTopLoginView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                GwaTopTheme.backgroundGradient
-                    .ignoresSafeArea()
+                GwaTopHomeTheme.background.ignoresSafeArea()
 
                 ScrollView(showsIndicators: false) {
-                    VStack(spacing: 28) {
-                        headerSection
-                            .padding(.top, 28)
+                    VStack(alignment: .leading, spacing: 0) {
+                        // 좌측 정렬 hero 로고 — X.com 의 마크 위치와 동일 인상
+                        Image("GwaTopLogo")
+                            .renderingMode(.template)
+                            .resizable()
+                            .scaledToFit()
+                            .foregroundStyle(GwaTopTheme.primary)
+                            .frame(width: 56, height: 56)
+                            .padding(.bottom, 44)
 
-                        loginCardSection
+                        // 거대한 display 헤드라인 — bold rounded
+                        Text("지금 시작되는\n새 학기.")
+                            .font(.system(size: 44, weight: .black, design: .rounded))
+                            .foregroundStyle(GwaTopTheme.textPrimary)
+                            .lineSpacing(-4)
+                            .padding(.bottom, 18)
 
-                        policyText
-                            .padding(.bottom, 28)
+                        Text("강의·과제·일정 한 번에.")
+                            .font(.gwaTopSystem(size: 16, weight: .medium))
+                            .foregroundStyle(GwaTopTheme.textSecondary)
+                            .padding(.bottom, 40)
+
+                        // 이메일 + 비밀번호 — 카드/타이틀 없이 pill 모양 단독
+                        loginPillField(
+                            placeholder: "이메일",
+                            text: $email,
+                            isSecure: false,
+                            keyboardType: .emailAddress
+                        )
+                        .padding(.bottom, 12)
+
+                        loginPillField(
+                            placeholder: "비밀번호",
+                            text: $password,
+                            isSecure: !isPasswordVisible,
+                            trailing: AnyView(
+                                Button {
+                                    isPasswordVisible.toggle()
+                                } label: {
+                                    Image(systemName: isPasswordVisible ? "eye.slash.fill" : "eye.fill")
+                                        .font(.gwaTopSystem(size: 15, weight: .semibold))
+                                        .foregroundStyle(GwaTopTheme.textSecondary)
+                                }
+                                .buttonStyle(.plain)
+                            )
+                        )
+                        .padding(.bottom, 22)
+
+                        // 메인 CTA — pill primary, full width
+                        Button("로그인") {
+                            handleEmailLogin()
+                        }
+                        .buttonStyle(GwaTopPillButtonStyle(variant: .primary))
+                        .disabled(email.isEmpty || password.isEmpty || isLoading)
+                        .opacity(email.isEmpty || password.isEmpty ? 0.55 : 1.0)
+                        .padding(.bottom, 18)
+
+                        // 또는 divider
+                        HStack(spacing: 12) {
+                            Rectangle().fill(GwaTopTheme.line).frame(height: 1)
+                            Text("또는")
+                                .font(.gwaTopSystem(size: 12, weight: .semibold))
+                                .foregroundStyle(GwaTopTheme.textSecondary)
+                            Rectangle().fill(GwaTopTheme.line).frame(height: 1)
+                        }
+                        .padding(.bottom, 18)
+
+                        // Google CTA — pill outline
+                        Button {
+                            handleGoogleLogin()
+                        } label: {
+                            HStack(spacing: 10) {
+                                Text("G")
+                                    .font(.system(size: 16, weight: .heavy, design: .rounded))
+                                    .foregroundStyle(GwaTopTheme.primary)
+                                Text("Google로 계속하기")
+                            }
+                        }
+                        .buttonStyle(GwaTopPillButtonStyle(variant: .outline))
+                        .disabled(isLoading)
+                        .padding(.bottom, 36)
+
+                        // 가입 링크 — center, 작은 텍스트
+                        HStack(spacing: 4) {
+                            Text("계정이 없나요?")
+                                .foregroundStyle(GwaTopTheme.textSecondary)
+                            NavigationLink {
+                                GwaTopSignUpView(onSignUpSuccess: onLoginSuccess)
+                            } label: {
+                                Text("가입하기")
+                                    .foregroundStyle(GwaTopTheme.primary)
+                            }
+                        }
+                        .font(.gwaTopSystem(size: 14, weight: .semibold))
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.bottom, 14)
+
+                        // 약관 footer — fine print
+                        Text("계속 진행하면 과탑의 이용약관과 개인정보처리방침에 동의합니다.")
+                            .font(.gwaTopSystem(size: 11, weight: .medium))
+                            .foregroundStyle(GwaTopHomeTheme.textTertiary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
                     }
-                    .padding(.horizontal, 22)
+                    .padding(.horizontal, 28)
+                    .padding(.top, 36)
+                    .padding(.bottom, 36)
                 }
 
                 if isLoading {
@@ -60,124 +156,36 @@ struct GwaTopLoginView: View {
         }
     }
 
-    // MARK: - 상단 브랜딩 영역
+    // MARK: - Pill 입력 필드 (인라인 전용 — 다른 곳에선 GwaTopTextField 사용)
 
-    private var headerSection: some View {
-        VStack(spacing: 18) {
-            // 커스텀 GwaTop 로고 — Asset Catalog 의 template rendering 으로
-            // 자동으로 .foregroundStyle 코랄 색에 맞춰 tint.
-            Image("GwaTopLogo")
-                .renderingMode(.template)
-                .resizable()
-                .scaledToFit()
-                .foregroundStyle(GwaTopTheme.primary)
-                .frame(width: 96, height: 96)
-
-            Text("과탑")
-                .font(.system(size: 38, weight: .heavy, design: .rounded))
-                .foregroundStyle(GwaTopTheme.textPrimary)
-        }
-    }
-
-    // MARK: - 로그인 카드 영역
-
-    private var loginCardSection: some View {
-        VStack(spacing: 18) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("로그인")
-                    .font(.gwaTopSystem(size: 24, weight: .bold))
-                    .foregroundStyle(GwaTopTheme.textPrimary)
-
-                Text("계정에 로그인하고 나만의 학기와 과목을 설정해보세요.")
-                    .font(.gwaTopSystem(size: 14, weight: .medium))
-                    .foregroundStyle(GwaTopTheme.textSecondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            VStack(spacing: 12) {
-                GwaTopTextField(
-                    title: "이메일",
-                    placeholder: "example@gwatop.com",
-                    text: $email,
-                    iconName: "envelope.fill",
-                    keyboardType: .emailAddress
-                )
-
-                GwaTopPasswordField(
-                    title: "비밀번호",
-                    placeholder: "비밀번호를 입력하세요",
-                    text: $password,
-                    isVisible: $isPasswordVisible
-                )
-            }
-
-            Button("이메일로 로그인") {
-                handleEmailLogin()
-            }
-            .gwaTopPrimaryButton(size: .large)
-            .disabled(email.isEmpty || password.isEmpty || isLoading)
-            .opacity(email.isEmpty || password.isEmpty ? 0.55 : 1.0)
-
-            HStack(spacing: 12) {
-                Rectangle().fill(GwaTopTheme.line).frame(height: 1)
-                Text("또는")
-                    .font(.gwaTopSystem(size: 13, weight: .semibold))
-                    .foregroundStyle(GwaTopTheme.textSecondary)
-                Rectangle().fill(GwaTopTheme.line).frame(height: 1)
-            }
-
-            Button {
-                handleGoogleLogin()
-            } label: {
-                HStack(spacing: 10) {
-                    Text("G")
-                        .font(.system(size: 18, weight: .heavy, design: .rounded))
-                        .foregroundStyle(GwaTopHomeTheme.primary)
-                        .frame(width: 26, height: 26)
-                        .background(.white)
-                        .clipShape(Circle())
-
-                    Text("Google로 계속하기")
-                        .font(.gwaTopSystem(size: 16, weight: .bold))
-                        .foregroundStyle(GwaTopTheme.textPrimary)
-                }
-                .frame(maxWidth: .infinity)
-                .frame(height: 54)
-                .background(.white)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(GwaTopTheme.line, lineWidth: 1)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            }
-            .disabled(isLoading)
-
-            HStack(spacing: 4) {
-                Text("아직 계정이 없나요?")
-                    .font(.gwaTopSystem(size: 14, weight: .medium))
-                    .foregroundStyle(GwaTopTheme.textSecondary)
-
-                NavigationLink(destination: GwaTopSignUpView(onSignUpSuccess: onLoginSuccess)) {
-                    Text("회원가입")
-                        .font(.gwaTopSystem(size: 14, weight: .bold))
-                        .foregroundStyle(GwaTopTheme.primary)
+    @ViewBuilder
+    private func loginPillField(
+        placeholder: String,
+        text: Binding<String>,
+        isSecure: Bool,
+        keyboardType: UIKeyboardType = .default,
+        trailing: AnyView? = nil
+    ) -> some View {
+        HStack(spacing: 12) {
+            Group {
+                if isSecure {
+                    SecureField(placeholder, text: text)
+                } else {
+                    TextField(placeholder, text: text)
+                        .keyboardType(keyboardType)
                 }
             }
-            .padding(.top, 2)
-        }
-        .padding(22)
-        // 매트 코랄 카드 — 테두리 없이 흰 배경 위에서 부드럽게 부상.
-        .background(GwaTopTheme.primary.opacity(0.15))
-        .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-    }
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled(true)
+            .font(.gwaTopSystem(size: 16, weight: .semibold))
+            .foregroundStyle(GwaTopTheme.textPrimary)
 
-    private var policyText: some View {
-        Text("로그인 또는 회원가입을 진행하면 과탑의 이용약관과 개인정보처리방침에 동의한 것으로 간주됩니다.")
-            .font(.gwaTopSystem(size: 12, weight: .medium))
-            .foregroundStyle(GwaTopTheme.textSecondary)
-            .multilineTextAlignment(.center)
-            .lineSpacing(3)
-            .padding(.horizontal, 8)
+            if let trailing { trailing }
+        }
+        .padding(.horizontal, 20)
+        .frame(height: 56)
+        .background(GwaTopHomeTheme.surfaceMute)
+        .clipShape(Capsule())
     }
 
     // MARK: - 액션
@@ -264,6 +272,52 @@ struct GwaTopLoginView: View {
             } catch {
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+}
+
+// MARK: - 로그인 전용 Pill 버튼 스타일
+
+/// X.com 스타일의 둥근 pill 버튼 — primary(코랄 fill) / outline(흰+라인).
+/// 전역 GwaTopButtonStyle 과 별개로 로그인/회원가입 입구 전용 hero CTA.
+struct GwaTopPillButtonStyle: ButtonStyle {
+    enum Variant { case primary, outline }
+    let variant: Variant
+
+    func makeBody(configuration: Configuration) -> some View {
+        let pressed = configuration.isPressed
+        return configuration.label
+            .font(.gwaTopSystem(size: 16, weight: .heavy))
+            .foregroundStyle(textColor)
+            .frame(maxWidth: .infinity)
+            .frame(height: 56)
+            .background(background)
+            .overlay(borderOverlay)
+            .clipShape(Capsule())
+            .offset(y: pressed ? 1 : 0)
+            .opacity(pressed ? 0.92 : 1.0)
+            .animation(.easeOut(duration: 0.08), value: pressed)
+    }
+
+    private var textColor: Color {
+        switch variant {
+        case .primary: return .white
+        case .outline: return GwaTopHomeTheme.textPrimary
+        }
+    }
+
+    @ViewBuilder private var background: some View {
+        switch variant {
+        case .primary: GwaTopHomeTheme.primary
+        case .outline: GwaTopHomeTheme.surface
+        }
+    }
+
+    @ViewBuilder private var borderOverlay: some View {
+        switch variant {
+        case .primary: EmptyView()
+        case .outline:
+            Capsule().strokeBorder(GwaTopHomeTheme.line, lineWidth: 1)
         }
     }
 }
