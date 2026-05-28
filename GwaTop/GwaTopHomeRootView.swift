@@ -80,7 +80,6 @@ struct GwaTopHomeView: View {
                             .padding(.top, 18)
 
                         todaySummarySection
-                        aiRecommendationCard
                         todayTaskSection
                         subjectProgressSection
                     }
@@ -188,61 +187,6 @@ struct GwaTopHomeView: View {
             RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .strokeBorder(GwaTopHomeTheme.primary.opacity(0.18), lineWidth: 1)
         )
-    }
-
-    private var aiRecommendationCard: some View {
-        let event = dashboard?.nextEvent
-        let labelText: String
-        let bodyText: String
-        if let event {
-            let typeName: String
-            switch event.type {
-            case "exam":       typeName = "시험"
-            case "assignment": typeName = "과제"
-            case "lecture":    typeName = "강의"
-            default:           typeName = "일정"
-            }
-            let dDay = event.dDay
-            let dDayLabel = dDay == 0 ? "D-Day" : (dDay > 0 ? "D-\(dDay)" : "D+\(abs(dDay))")
-            labelText = "다음 \(typeName) · \(dDayLabel)"
-            bodyText = "\(event.courseName) — \(event.title)"
-        } else {
-            labelText = "다음 일정"
-            bodyText = "예정된 일정이 없어요. 새 강의계획서를 업로드하면 자동으로 채워집니다."
-        }
-
-        return VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 10) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(GwaTopHomeTheme.primary.opacity(0.12))
-                        .frame(width: 44, height: 44)
-
-                    Image(systemName: "sparkles")
-                        .font(.gwaTopSystem(size: 19, weight: .bold))
-                        .foregroundStyle(GwaTopHomeTheme.primary)
-                }
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(labelText)
-                        .font(.gwaTopSystem(size: 18, weight: .bold))
-                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
-
-                    Text("\(user.firstDisplayName)님이 확인할 임박 일정")
-                        .font(.gwaTopSystem(size: 13, weight: .medium))
-                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                }
-
-                Spacer()
-            }
-
-            Text(bodyText)
-                .font(.gwaTopSystem(size: 15, weight: .medium))
-                .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                .lineSpacing(4)
-        }
-        .padding(18)
-        .gwaTopCard(radius: 24)
     }
 
     private var todayTaskSection: some View {
