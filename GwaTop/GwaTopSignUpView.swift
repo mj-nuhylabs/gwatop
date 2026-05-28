@@ -71,7 +71,7 @@ struct GwaTopSignUpView: View {
                             Text("로그인")
                                 .font(.gwaTopSystem(size: 15, weight: .bold))
                         }
-                        .foregroundStyle(.white)
+                        .foregroundStyle(GwaTopTheme.primary)
                     }
                 }
             }
@@ -84,13 +84,15 @@ struct GwaTopSignUpView: View {
         VStack(spacing: 16) {
             ZStack {
                 Circle()
-                    .fill(.white.opacity(0.18))
+                    .fill(GwaTopTheme.primary.opacity(0.10))
                     .frame(width: 88, height: 88)
 
                 Circle()
-                    .fill(.white)
+                    .fill(GwaTopHomeTheme.surface)
                     .frame(width: 70, height: 70)
-                    .shadow(color: .black.opacity(0.08), radius: 18, x: 0, y: 10)
+                    .overlay(
+                        Circle().strokeBorder(GwaTopTheme.primary.opacity(0.20), lineWidth: 1)
+                    )
 
                 Image(systemName: "person.badge.plus.fill")
                     .font(.gwaTopSystem(size: 30, weight: .bold))
@@ -100,11 +102,11 @@ struct GwaTopSignUpView: View {
             VStack(spacing: 8) {
                 Text("계정 만들기")
                     .font(.system(size: 34, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(GwaTopTheme.textPrimary)
 
                 Text("GwaTop에서 학기와 과목을 정리하고\nAI 학습 플래너를 시작해보세요.")
                     .font(.gwaTopSystem(size: 16, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.88))
+                    .foregroundStyle(GwaTopTheme.textSecondary)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
             }
@@ -205,13 +207,19 @@ struct GwaTopSignUpView: View {
             }
         }
         .padding(22)
-        .gwaTopCard(radius: 30)
+        // 매트 코랄 카드 — Login 과 동일 톤.
+        .background(GwaTopTheme.primary.opacity(0.15))
+        .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .strokeBorder(GwaTopTheme.primary.opacity(0.20), lineWidth: 1)
+        )
     }
 
     private var policyText: some View {
         Text("회원가입을 진행하면 GwaTop의 이용약관과 개인정보처리방침에 동의한 것으로 간주됩니다.")
             .font(.gwaTopSystem(size: 12, weight: .medium))
-            .foregroundStyle(.white.opacity(0.72))
+            .foregroundStyle(GwaTopTheme.textSecondary)
             .multilineTextAlignment(.center)
             .lineSpacing(3)
             .padding(.horizontal, 8)

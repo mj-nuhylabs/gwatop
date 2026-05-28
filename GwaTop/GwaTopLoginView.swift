@@ -67,15 +67,17 @@ struct GwaTopLoginView: View {
     private var headerSection: some View {
         VStack(spacing: 18) {
             ZStack {
+                // 흰 바탕 위 부드러운 코랄 wash orb — matte 인상.
                 Circle()
-                    .fill(.white.opacity(0.18))
+                    .fill(GwaTopTheme.primary.opacity(0.10))
                     .frame(width: 96, height: 96)
-                    .blur(radius: 1)
 
                 Circle()
-                    .fill(.white)
+                    .fill(GwaTopHomeTheme.surface)
                     .frame(width: 78, height: 78)
-                    .shadow(color: .black.opacity(0.08), radius: 20, x: 0, y: 10)
+                    .overlay(
+                        Circle().strokeBorder(GwaTopTheme.primary.opacity(0.20), lineWidth: 1)
+                    )
 
                 Image(systemName: "graduationcap.fill")
                     .font(.gwaTopSystem(size: 34, weight: .bold))
@@ -85,11 +87,11 @@ struct GwaTopLoginView: View {
             VStack(spacing: 8) {
                 Text("GwaTop")
                     .font(.system(size: 38, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(GwaTopTheme.textPrimary)
 
                 Text("강의계획서부터 학습 자료까지\nAI가 정리해주는 대학생 학습 플래너")
                     .font(.gwaTopSystem(size: 16, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.88))
+                    .foregroundStyle(GwaTopTheme.textSecondary)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
             }
@@ -193,13 +195,20 @@ struct GwaTopLoginView: View {
             .padding(.top, 2)
         }
         .padding(22)
-        .gwaTopCard(radius: 30)
+        // 매트 코랄 카드 — 흰 배경 위에서 brand 포인트로 부상.
+        // .opacity(0.15) 정도면 채도 낮고 텍스트 가독성 유지되는 매트 톤.
+        .background(GwaTopTheme.primary.opacity(0.15))
+        .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .strokeBorder(GwaTopTheme.primary.opacity(0.20), lineWidth: 1)
+        )
     }
 
     private var policyText: some View {
         Text("로그인 또는 회원가입을 진행하면 GwaTop의 이용약관과 개인정보처리방침에 동의한 것으로 간주됩니다.")
             .font(.gwaTopSystem(size: 12, weight: .medium))
-            .foregroundStyle(.white.opacity(0.72))
+            .foregroundStyle(GwaTopTheme.textSecondary)
             .multilineTextAlignment(.center)
             .lineSpacing(3)
             .padding(.horizontal, 8)
@@ -381,21 +390,22 @@ struct FeaturePill: View {
         VStack(spacing: 8) {
             Image(systemName: iconName)
                 .font(.gwaTopSystem(size: 18, weight: .bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(GwaTopTheme.primary)
 
             Text(title)
                 .font(.gwaTopSystem(size: 12, weight: .bold))
-                .foregroundStyle(.white.opacity(0.92))
+                .foregroundStyle(GwaTopTheme.textPrimary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
         }
         .frame(maxWidth: .infinity)
         .frame(height: 78)
-        .background(.white.opacity(0.16))
+        // 흰 배경 위 평면 카드 — gwaTopCard 와 같은 ring 인상.
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(.white.opacity(0.18), lineWidth: 1)
+                .strokeBorder(GwaTopHomeTheme.line, lineWidth: 1)
         )
     }
 }
@@ -411,18 +421,10 @@ struct GwaTopTheme {
     static let textSecondary = Color(red: 0.420, green: 0.408, blue: 0.384) // #6b6862
     static let line          = Color.black.opacity(0.08)                   // #00000014
 
-    /// 로그인/회원가입 화면 dramatic 배경 — Claude warm beige → coral 그라데이션.
-    /// 메인 앱은 평면 코랄 톤이지만 entry point 는 브랜드 인상을 위해 그라데이션 유지.
-    static var backgroundGradient: LinearGradient {
-        LinearGradient(
-            colors: [
-                Color(red: 0.980, green: 0.957, blue: 0.925),  // warm off-white #faf4ec
-                Color(red: 0.91, green: 0.66, blue: 0.52),     // light coral
-                Color(red: 0.55, green: 0.30, blue: 0.22),     // deep coral
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
+    /// 로그인/회원가입 화면 배경 — 평면 warm off-white (메인 앱과 동일).
+    /// 코랄은 로그인 카드/포인트 요소에만 사용해서 brand 톤을 강조.
+    static var backgroundGradient: Color {
+        GwaTopHomeTheme.background
     }
 }
 
