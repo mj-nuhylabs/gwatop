@@ -1950,7 +1950,7 @@ struct GwaTopFileNotesTab: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 38)
-        .background(Color.black.opacity(0.04))
+        .background(GwaTopHomeTheme.surfaceMute)
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
@@ -2047,7 +2047,7 @@ struct GwaTopFileNotesTab: View {
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(width: 44, height: 44)
-                    .background(Color.black.opacity(0.025))
+                    .background(GwaTopHomeTheme.surfaceMute)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             } else {
                 fallbackIcon(systemName: "scribble.variable")
@@ -2239,7 +2239,7 @@ struct GwaTopNoteEditorSheet: View {
             }
         }
         .padding(3)
-        .background(Color.black.opacity(0.05))
+        .background(GwaTopHomeTheme.surfaceMute)
         .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
     }
 
@@ -2336,7 +2336,7 @@ struct GwaTopNoteEditorSheet: View {
                     .font(.gwaTopSystem(size: 14, weight: .semibold))
                     .foregroundStyle(GwaTopHomeTheme.textSecondary)
                     .frame(width: 32, height: 32)
-                    .background(Color.black.opacity(0.04))
+                    .background(GwaTopHomeTheme.surfaceMute)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
             .buttonStyle(.plain)
@@ -2361,7 +2361,7 @@ struct GwaTopNoteEditorSheet: View {
                 .font(.gwaTopSystem(size: 14, weight: .semibold))
                 .foregroundStyle(inkStyle == style ? .white : GwaTopHomeTheme.textPrimary)
                 .frame(width: 32, height: 32)
-                .background(inkStyle == style ? GwaTopHomeTheme.primary : Color.black.opacity(0.04))
+                .background(inkStyle == style ? GwaTopHomeTheme.primary : GwaTopHomeTheme.surfaceMute)
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)

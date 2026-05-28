@@ -359,17 +359,16 @@ struct GwaTopPasswordField: View {
 
 // MARK: - 테마
 
-/// 로그인/회원가입 화면 전용 테마. GwaTopHomeTheme(Claude warm light) 와 통일.
-/// Web 의 코랄 #cc785c 와 warm off-white 배경에 맞춰 그라데이션도 따뜻한 코랄→다크코랄 톤.
+/// 로그인/회원가입 화면 전용 테마. GwaTopHomeTheme(Claude warm) 와 통일.
+/// 이제는 사실상 GwaTopHomeTheme alias — light/dark 자동 전환을 그대로 상속.
 struct GwaTopTheme {
-    static let primary       = Color(red: 0.80, green: 0.47, blue: 0.36)  // #cc785c
-    static let primaryDark   = Color(red: 0.55, green: 0.30, blue: 0.22)  // 더 짙은 coral
-    static let textPrimary   = Color(red: 0.122, green: 0.118, blue: 0.114) // #1f1e1d
-    static let textSecondary = Color(red: 0.420, green: 0.408, blue: 0.384) // #6b6862
-    static let line          = Color.black.opacity(0.08)                   // #00000014
+    static let primary       = GwaTopHomeTheme.primary
+    static let primaryDark   = Color(red: 0.55, green: 0.30, blue: 0.22)  // 더 짙은 coral (정적)
+    static let textPrimary   = GwaTopHomeTheme.textPrimary
+    static let textSecondary = GwaTopHomeTheme.textSecondary
+    static let line          = GwaTopHomeTheme.line
 
-    /// 로그인/회원가입 화면 배경 — 평면 warm off-white (메인 앱과 동일).
-    /// 코랄은 로그인 카드/포인트 요소에만 사용해서 brand 톤을 강조.
+    /// 로그인/회원가입 화면 배경 — 평면 warm off-white (light) / warm dark (dark).
     static var backgroundGradient: Color {
         GwaTopHomeTheme.background
     }

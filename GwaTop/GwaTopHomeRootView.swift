@@ -614,39 +614,76 @@ struct GwaTopSubject: Identifiable {
     ]
 }
 
+/// SwiftUI Color 의 light/dark 자동 전환 헬퍼.
+/// UIColor 의 dynamic provider 를 감싸서 system colorScheme 변경 시 즉시 반영.
+/// gwatop-web 의 `.dark` 클래스 토큰과 1:1 매핑.
+private func gwaTopAdaptive(light: Color, dark: Color) -> Color {
+    Color(uiColor: UIColor { trait in
+        trait.userInterfaceStyle == .dark ? UIColor(dark) : UIColor(light)
+    })
+}
+
 struct GwaTopHomeTheme {
-    // GwaTop Web 과 통일된 디자인 토큰 — Claude.ai light 톤.
-    // 따뜻한 오프화이트 배경 + 코랄 강조. CSS 변수와 1:1 매핑:
-    //   --background #faf9f5, --foreground #1f1e1d, --card #fff,
-    //   --primary   #cc785c (claude coral), --muted-foreground #6b6862,
-    //   --border    rgba(0,0,0,0.08), --accent #f0eee6
-    // semantic(success/warning)은 의미 보존을 위해 iOS system 톤 유지하되 약간 따뜻하게.
+    // GwaTop Web 과 통일된 디자인 토큰 — Claude.ai light/dark 톤 자동 전환.
+    // CSS 변수와 1:1 매핑:
+    //   light: --background #faf9f5, --foreground #1f1e1d, --card #fff
+    //   dark:  --background #262624, --foreground #faf9f5, --card #2f2e2c
+    //   primary 코랄 #cc785c 는 light/dark 공통.
 
-    // Claude coral — light 모드 강조 컬러.
+    // Claude coral — light/dark 모두 동일.
     static let primary = Color(red: 0.80, green: 0.47, blue: 0.36)        // #cc785c
-    // 그라데이션 용 보조 — primary 보다 약간 밝고 따뜻한 코랄.
-    static let secondary = Color(red: 0.88, green: 0.60, blue: 0.46)      // #e09975 근방
+    static let secondary = Color(red: 0.88, green: 0.60, blue: 0.46)      // #e09975 (gradient)
 
-    // semantic — 의미 명확성 위해 시스템 톤 유지, warm 배경과 조화되도록 약간 톤 다운.
+    // semantic — light/dark 모두 동일한 muted warm 톤 (대비 충분).
     static let success = Color(red: 0.32, green: 0.55, blue: 0.36)        // muted warm green
     static let warning = Color(red: 0.83, green: 0.55, blue: 0.22)        // muted warm amber
-    static let danger  = Color(red: 0.72, green: 0.30, blue: 0.26)        // muted warm red — Claude warm 톤과 어울리는 에러/destructive
+    static let danger  = Color(red: 0.72, green: 0.30, blue: 0.26)        // muted warm red
 
-    // 배경 — Claude warm off-white.
-    static let background = Color(red: 0.980, green: 0.976, blue: 0.961)  // #faf9f5
-    static let surface = Color.white                                      // #ffffff card
-    static let surfaceElevated = Color(red: 0.992, green: 0.988, blue: 0.976) // #fdfcf9 살짝 따뜻
+    // 배경 — light: warm off-white / dark: warm dark.
+    static let background = gwaTopAdaptive(
+        light: Color(red: 0.980, green: 0.976, blue: 0.961),              // #faf9f5
+        dark:  Color(red: 0.149, green: 0.149, blue: 0.141)               // #262624
+    )
+    static let surface = gwaTopAdaptive(
+        light: Color.white,                                                // #ffffff
+        dark:  Color(red: 0.184, green: 0.180, blue: 0.173)               // #2f2e2c
+    )
+    static let surfaceElevated = gwaTopAdaptive(
+        light: Color(red: 0.992, green: 0.988, blue: 0.976),              // #fdfcf9
+        dark:  Color(red: 0.208, green: 0.204, blue: 0.196)               // #353432
+    )
+    /// surface 위 살짝 어두운 wash — toolbar/thumbnail/segmented 배경 같은 인레이 용도.
+    /// light: black 4% / dark: white 4% — 모드별 contrast 자동 보정.
+    static let surfaceMute = gwaTopAdaptive(
+        light: Color.black.opacity(0.04),
+        dark:  Color.white.opacity(0.04)
+    )
 
-    // 텍스트 — Claude warm dark + muted.
-    static let textPrimary = Color(red: 0.122, green: 0.118, blue: 0.114) // #1f1e1d
-    static let textSecondary = Color(red: 0.420, green: 0.408, blue: 0.384) // #6b6862
-    static let textTertiary = Color(red: 0.659, green: 0.647, blue: 0.620)  // #a8a59e
+    // 텍스트 — light: warm dark / dark: warm light.
+    static let textPrimary = gwaTopAdaptive(
+        light: Color(red: 0.122, green: 0.118, blue: 0.114),              // #1f1e1d
+        dark:  Color(red: 0.980, green: 0.976, blue: 0.961)               // #faf9f5
+    )
+    static let textSecondary = gwaTopAdaptive(
+        light: Color(red: 0.420, green: 0.408, blue: 0.384),              // #6b6862
+        dark:  Color(red: 0.659, green: 0.647, blue: 0.620)               // #a8a59e
+    )
+    static let textTertiary = gwaTopAdaptive(
+        light: Color(red: 0.659, green: 0.647, blue: 0.620),
+        dark:  Color(red: 0.500, green: 0.486, blue: 0.463)
+    )
 
-    // 헤어라인 분리선 — 웹 --border rgba(0,0,0,0.08).
-    static let line = Color.black.opacity(0.08)
-    static let separator = Color.black.opacity(0.06)
+    // 헤어라인 분리선 — 웹 --border. light: black 8%, dark: white 8%.
+    static let line = gwaTopAdaptive(
+        light: Color.black.opacity(0.08),
+        dark:  Color.white.opacity(0.08)
+    )
+    static let separator = gwaTopAdaptive(
+        light: Color.black.opacity(0.06),
+        dark:  Color.white.opacity(0.06)
+    )
 
-    // 그림자: 거의 없음 — 웹과 동일한 평면적 깊이감.
+    // 그림자: 거의 없음 — 웹과 동일한 평면적 깊이감. 다크에서도 검정 미세 그림자.
     static let cardShadow = Color.black.opacity(0.04)
 
     static let primaryGradient = LinearGradient(
