@@ -200,7 +200,6 @@ struct GwaTopCalendarView: View {
     private var calendarTabContent: some View {
         VStack(spacing: 18) {
             // 업로드 직후 시트가 닫혀도 백그라운드 업로드 진행 상황 표시.
-            GwaTopNetworkBanner()
             GwaTopUploadProgressBanner()
 
             if !syllabusWatcher.inFlightFileIds.isEmpty {

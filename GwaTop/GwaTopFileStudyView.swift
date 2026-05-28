@@ -60,9 +60,6 @@ struct GwaTopFileStudyView: View {
 
                 VStack(spacing: 0) {
                     fileHeader
-                    // 네트워크가 느리거나 끊기면 사용자에게 알림 (AI 응답 지연 사전 안내).
-                    GwaTopNetworkBanner()
-                        .padding(.bottom, 6)
                     tabBar
                     Divider().opacity(0.3)
 
