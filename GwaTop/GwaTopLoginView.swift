@@ -48,30 +48,28 @@ struct GwaTopLoginView: View {
                             .foregroundStyle(GwaTopTheme.textSecondary)
                             .padding(.bottom, 40)
 
-                        // 이메일 + 비밀번호 — 카드/타이틀 없이 pill 모양 단독
-                        loginPillField(
+                        // 이메일 + 비밀번호 — 공용 pill 필드 사용
+                        GwaTopPillField(
                             placeholder: "이메일",
                             text: $email,
-                            isSecure: false,
-                            keyboardType: .emailAddress
+                            keyboard: .emailAddress
                         )
                         .padding(.bottom, 12)
 
-                        loginPillField(
+                        GwaTopPillField(
                             placeholder: "비밀번호",
                             text: $password,
-                            isSecure: !isPasswordVisible,
-                            trailing: AnyView(
-                                Button {
-                                    isPasswordVisible.toggle()
-                                } label: {
-                                    Image(systemName: isPasswordVisible ? "eye.slash.fill" : "eye.fill")
-                                        .font(.gwaTopSystem(size: 15, weight: .semibold))
-                                        .foregroundStyle(GwaTopTheme.textSecondary)
-                                }
-                                .buttonStyle(.plain)
-                            )
-                        )
+                            isSecure: !isPasswordVisible
+                        ) {
+                            Button {
+                                isPasswordVisible.toggle()
+                            } label: {
+                                Image(systemName: isPasswordVisible ? "eye.slash.fill" : "eye.fill")
+                                    .font(.gwaTopSystem(size: 15, weight: .semibold))
+                                    .foregroundStyle(GwaTopTheme.textSecondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
                         .padding(.bottom, 22)
 
                         // 메인 CTA — pill primary, full width
@@ -154,38 +152,6 @@ struct GwaTopLoginView: View {
                 Text(errorMessage ?? "")
             }
         }
-    }
-
-    // MARK: - Pill 입력 필드 (인라인 전용 — 다른 곳에선 GwaTopTextField 사용)
-
-    @ViewBuilder
-    private func loginPillField(
-        placeholder: String,
-        text: Binding<String>,
-        isSecure: Bool,
-        keyboardType: UIKeyboardType = .default,
-        trailing: AnyView? = nil
-    ) -> some View {
-        HStack(spacing: 12) {
-            Group {
-                if isSecure {
-                    SecureField(placeholder, text: text)
-                } else {
-                    TextField(placeholder, text: text)
-                        .keyboardType(keyboardType)
-                }
-            }
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled(true)
-            .font(.gwaTopSystem(size: 16, weight: .semibold))
-            .foregroundStyle(GwaTopTheme.textPrimary)
-
-            if let trailing { trailing }
-        }
-        .padding(.horizontal, 20)
-        .frame(height: 56)
-        .background(GwaTopHomeTheme.surfaceMute)
-        .clipShape(Capsule())
     }
 
     // MARK: - 액션
