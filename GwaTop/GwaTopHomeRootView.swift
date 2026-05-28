@@ -632,9 +632,9 @@ struct GwaTopTodayTask: Identifiable {
     init(todo: GwaTopTodoDTO) {
         let (priorityText, icon, color): (String, String, Color) = {
             switch todo.priority {
-            case "high":   return ("긴급", "exclamationmark", GwaTopHomeTheme.danger)
-            case "medium": return ("중요", "flag.fill", GwaTopHomeTheme.warning)
-            default:       return ("일반", "circle", .gray)
+            case "high":   return ("높음", "exclamationmark", GwaTopHomeTheme.danger)
+            case "medium": return ("보통", "flag.fill", GwaTopHomeTheme.warning)
+            default:       return ("낮음", "circle", .gray)
             }
         }()
         self.id = todo.id
@@ -648,8 +648,8 @@ struct GwaTopTodayTask: Identifiable {
     }
 
     static let mockData: [GwaTopTodayTask] = [
-        GwaTopTodayTask(title: "데이터베이스 과제 ERD 초안", subject: "데이터베이스", dueText: "오늘 23:59", priorityText: "긴급", iconName: "exclamationmark", color: GwaTopHomeTheme.danger, isDone: false),
-        GwaTopTodayTask(title: "자료구조 3주차 복습", subject: "자료구조", dueText: "오늘 18:00", priorityText: "중요", iconName: "book.fill", color: GwaTopHomeTheme.warning, isDone: false),
+        GwaTopTodayTask(title: "데이터베이스 과제 ERD 초안", subject: "데이터베이스", dueText: "오늘 23:59", priorityText: "높음", iconName: "exclamationmark", color: GwaTopHomeTheme.danger, isDone: false),
+        GwaTopTodayTask(title: "자료구조 3주차 복습", subject: "자료구조", dueText: "오늘 18:00", priorityText: "보통", iconName: "book.fill", color: GwaTopHomeTheme.warning, isDone: false),
         GwaTopTodayTask(title: "캡스톤 회의록 정리", subject: "캡스톤", dueText: "완료", priorityText: "완료", iconName: "checkmark", color: GwaTopHomeTheme.success, isDone: true)
     ]
 }

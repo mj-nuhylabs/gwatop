@@ -321,7 +321,7 @@ struct GwaTopAssignmentsView: View {
             HStack(spacing: 10) {
                 GwaTopAssignmentHeaderMetric(title: "전체", value: "\(assignments.count)", unit: "개")
                 GwaTopAssignmentHeaderMetric(title: "완료", value: "\(completedCount)", unit: "개")
-                GwaTopAssignmentHeaderMetric(title: "긴급", value: "\(urgentCount)", unit: "개")
+                GwaTopAssignmentHeaderMetric(title: "높음", value: "\(urgentCount)", unit: "개")
             }
         }
         .padding(20)
