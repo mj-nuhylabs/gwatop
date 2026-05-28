@@ -44,13 +44,13 @@ struct GwaTopCardStyle: ViewModifier {
 }
 
 extension View {
-    /// 표준 카드 스타일 — 흰 배경 + 1px ring border + 라운드(기본 14). 그림자 없음.
-    /// gwatop-web 의 `Card` (`rounded-xl bg-card ring-1 ring-foreground/10`) 와 통일.
+    /// 표준 카드 스타일 — 흰(surface) 배경 + 라운드(기본 14). 그림자/테두리 없음.
+    /// 테두리가 필요한 경우만 lineWidth > 0 으로 호출.
     func gwaTopCard(
         radius: CGFloat = 14,
         surface: Color = GwaTopHomeTheme.surface,
         lineColor: Color = GwaTopHomeTheme.line,
-        lineWidth: CGFloat = 1
+        lineWidth: CGFloat = 0
     ) -> some View {
         modifier(GwaTopCardStyle(
             radius: radius,

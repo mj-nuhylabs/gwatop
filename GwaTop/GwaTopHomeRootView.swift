@@ -180,13 +180,9 @@ struct GwaTopHomeView: View {
             }
         }
         .padding(20)
-        // 코랄 단색 → 아주 옅은 코랄 wash. 헤더 카드도 다른 카드와 같은 평면 인상으로.
+        // 코랄 단색 → 아주 옅은 코랄 wash. 테두리 없이 부드럽게.
         .background(GwaTopHomeTheme.primary.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .strokeBorder(GwaTopHomeTheme.primary.opacity(0.18), lineWidth: 1)
-        )
     }
 
     private var todayTaskSection: some View {
