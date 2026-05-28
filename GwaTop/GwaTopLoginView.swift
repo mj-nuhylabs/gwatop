@@ -64,23 +64,14 @@ struct GwaTopLoginView: View {
 
     private var headerSection: some View {
         VStack(spacing: 18) {
-            ZStack {
-                // 흰 바탕 위 부드러운 코랄 wash orb — matte 인상.
-                Circle()
-                    .fill(GwaTopTheme.primary.opacity(0.10))
-                    .frame(width: 96, height: 96)
-
-                Circle()
-                    .fill(GwaTopHomeTheme.surface)
-                    .frame(width: 78, height: 78)
-                    .overlay(
-                        Circle().strokeBorder(GwaTopTheme.primary.opacity(0.20), lineWidth: 1)
-                    )
-
-                Image(systemName: "graduationcap.fill")
-                    .font(.gwaTopSystem(size: 34, weight: .bold))
-                    .foregroundStyle(GwaTopTheme.primary)
-            }
+            // 커스텀 GwaTop 로고 — Asset Catalog 의 template rendering 으로
+            // 자동으로 .foregroundStyle 코랄 색에 맞춰 tint.
+            Image("GwaTopLogo")
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(GwaTopTheme.primary)
+                .frame(width: 96, height: 96)
 
             Text("GwaTop")
                 .font(.system(size: 38, weight: .heavy, design: .rounded))

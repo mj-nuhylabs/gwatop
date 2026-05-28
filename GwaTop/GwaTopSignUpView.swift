@@ -82,22 +82,12 @@ struct GwaTopSignUpView: View {
 
     private var headerSection: some View {
         VStack(spacing: 16) {
-            ZStack {
-                Circle()
-                    .fill(GwaTopTheme.primary.opacity(0.10))
-                    .frame(width: 88, height: 88)
-
-                Circle()
-                    .fill(GwaTopHomeTheme.surface)
-                    .frame(width: 70, height: 70)
-                    .overlay(
-                        Circle().strokeBorder(GwaTopTheme.primary.opacity(0.20), lineWidth: 1)
-                    )
-
-                Image(systemName: "person.badge.plus.fill")
-                    .font(.gwaTopSystem(size: 30, weight: .bold))
-                    .foregroundStyle(GwaTopTheme.primary)
-            }
+            Image("GwaTopLogo")
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(GwaTopTheme.primary)
+                .frame(width: 88, height: 88)
 
             VStack(spacing: 8) {
                 Text("계정 만들기")
