@@ -191,7 +191,7 @@ struct GwaTopHomeView: View {
 
     private var todayTaskSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionHeader(title: "급한 할 일", subtitle: "우선순위 높은 순서로")
+            sectionHeader(title: "ToDo")
 
             // 모든 행을 하나의 카드에 모으고 hairline divider로 구분.
             // 카드의 시각적 노이즈를 줄이고 정보 위계를 분명히 한다 (애플 리스트 스타일).
@@ -237,16 +237,18 @@ struct GwaTopHomeView: View {
         }
     }
 
-    private func sectionHeader(title: String, subtitle: String) -> some View {
+    private func sectionHeader(title: String, subtitle: String? = nil) -> some View {
         HStack(alignment: .bottom) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.gwaTopSystem(size: 21, weight: .bold))
                     .foregroundStyle(GwaTopHomeTheme.textPrimary)
 
-                Text(subtitle)
-                    .font(.gwaTopSystem(size: 13, weight: .medium))
-                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.gwaTopSystem(size: 13, weight: .medium))
+                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                }
             }
 
             Spacer()
