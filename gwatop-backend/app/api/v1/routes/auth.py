@@ -108,7 +108,9 @@ async def social_login(body: SocialLoginRequest, db: AsyncSession = Depends(get_
     except ValueError:
         raise HTTPException(502, detail={"error": "google_response", "message": "Google 응답을 해석하지 못했어요."})
 
-    if settings.GOOGLE_CLIENT_ID and token_data.get("aud") != settings.GOOGLE_CLIENT_ID:
+    # iOS / 웹 / 안드로이드 클라이언트별로 client_id 가 다르므로 set 안에 포함되는지 확인.
+    allowed_auds = settings.google_client_ids_set
+    if allowed_auds and token_data.get("aud") not in allowed_auds:
         raise HTTPException(401, detail={"error": "invalid_token", "message": "토큰의 대상 앱이 올바르지 않습니다."})
 
     google_sub = token_data.get("sub")

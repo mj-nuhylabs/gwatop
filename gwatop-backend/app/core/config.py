@@ -48,7 +48,20 @@ class Settings(BaseSettings):
     @property
     def admin_emails_set(self) -> set[str]:
         return {e.strip().lower() for e in self.ADMIN_EMAILS.split(",") if e.strip()}
-    GOOGLE_CLIENT_ID: str = "166115611136-d42e728kfojf7resv9um0fcpgeffo8lp.apps.googleusercontent.com"
+
+    # Google OAuth Client ID. iOS / 웹 / 안드로이드 각각 별도라 콤마 구분 multi 값 지원.
+    # 예: "ios_id.apps.googleusercontent.com,web_id.apps.googleusercontent.com"
+    GOOGLE_CLIENT_ID: str = (
+        "166115611136-d42e728kfojf7resv9um0fcpgeffo8lp.apps.googleusercontent.com,"
+        "166115611136-8tcfd6o12s9a2bn0u2hfeko5d0k2a4k5.apps.googleusercontent.com"
+    )
+
+    @property
+    def google_client_ids_set(self) -> set[str]:
+        raw = (self.GOOGLE_CLIENT_ID or "").strip()
+        if not raw:
+            return set()
+        return {c.strip() for c in raw.split(",") if c.strip()}
     OPENAI_API_KEY: str = ""
     # 강의계획서 파싱 모델. 속도 우선이면 gpt-4.1-nano (빠르지만 약간 떨어질 수 있음),
     # 정확도/안정성 우선이면 gpt-4o-mini (현재 기본). 둘 다 JSON mode 지원.
