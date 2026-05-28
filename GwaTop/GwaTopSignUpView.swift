@@ -207,13 +207,9 @@ struct GwaTopSignUpView: View {
             }
         }
         .padding(22)
-        // 매트 코랄 카드 — Login 과 동일 톤.
+        // 매트 코랄 카드 — Login 과 동일 톤. 테두리 없음.
         .background(GwaTopTheme.primary.opacity(0.15))
         .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 30, style: .continuous)
-                .strokeBorder(GwaTopTheme.primary.opacity(0.20), lineWidth: 1)
-        )
     }
 
     private var policyText: some View {

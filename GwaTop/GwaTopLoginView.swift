@@ -175,14 +175,9 @@ struct GwaTopLoginView: View {
             .padding(.top, 2)
         }
         .padding(22)
-        // 매트 코랄 카드 — 흰 배경 위에서 brand 포인트로 부상.
-        // .opacity(0.15) 정도면 채도 낮고 텍스트 가독성 유지되는 매트 톤.
+        // 매트 코랄 카드 — 테두리 없이 흰 배경 위에서 부드럽게 부상.
         .background(GwaTopTheme.primary.opacity(0.15))
         .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 30, style: .continuous)
-                .strokeBorder(GwaTopTheme.primary.opacity(0.20), lineWidth: 1)
-        )
     }
 
     private var policyText: some View {
