@@ -360,6 +360,9 @@ async def file_debug(
         "file": {
             "id": str(file_row.id),
             "filename": file_row.filename,
+            "file_type": file_row.file_type,
+            "s3_key": file_row.s3_key,
+            "size_bytes": file_row.size_bytes,
             "status": file_row.status,
             "is_syllabus": file_row.is_syllabus,
             "course_id": str(file_row.course_id) if file_row.course_id else None,
