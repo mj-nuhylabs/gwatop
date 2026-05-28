@@ -159,26 +159,16 @@ struct GwaTopHomeView: View {
     }
 
     private var topGreetingSection: some View {
-        HStack(alignment: .center, spacing: 14) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(currentDateText)
-                    .font(.gwaTopSystem(size: 14, weight: .semibold))
-                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+        VStack(alignment: .leading, spacing: 6) {
+            Text(currentDateText)
+                .font(.gwaTopSystem(size: 14, weight: .semibold))
+                .foregroundStyle(GwaTopHomeTheme.textSecondary)
 
-                Text("안녕하세요, \(user.firstDisplayName)님")
-                    .font(.system(size: 28, weight: .heavy, design: .rounded))
-                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
-
-                Text(user.email.isEmpty ? "오늘도 학점을 향해 한 걸음 더 가볼까요?" : user.email)
-                    .font(.gwaTopSystem(size: 15, weight: .medium))
-                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            GwaTopUserAvatar(user: user)
+            Text("안녕하세요, \(user.firstDisplayName)님")
+                .font(.system(size: 28, weight: .heavy, design: .rounded))
+                .foregroundStyle(GwaTopHomeTheme.textPrimary)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var todaySummarySection: some View {
