@@ -53,7 +53,14 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     if result.scalar_one_or_none():
         raise HTTPException(409, detail={"error": "email_exists", "message": "이미 존재하는 이메일입니다."})
 
-    user = User(email=body.email, hashed_password=hash_password(body.password), name=body.name)
+    user = User(
+        email=body.email,
+        hashed_password=hash_password(body.password),
+        name=body.name,
+        school=(body.school or "").strip() or None,
+        student_id=(body.student_id or "").strip() or None,
+        referral_code=(body.referral_code or "").strip() or None,
+    )
     db.add(user)
     await db.commit()
     await db.refresh(user)

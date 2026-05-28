@@ -6,6 +6,9 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
     name: str
+    school: str | None = None
+    student_id: str | None = None
+    referral_code: str | None = None
 
 
 class LoginRequest(BaseModel):
