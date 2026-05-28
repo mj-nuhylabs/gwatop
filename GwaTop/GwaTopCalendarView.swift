@@ -64,42 +64,36 @@ struct GwaTopCalendarView: View {
                 GwaTopHomeTheme.background
                     .ignoresSafeArea()
 
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 16) {
-                        topTabSwitcher
-                            .padding(.top, 12)
-
-                        if selectedTopTab == .calendar {
-                            calendarTabContent
-                        } else {
-                            timetableTabContent
+                VStack(spacing: 0) {
+                    GwaTopScreenHeader(title: selectedTopTab.label) {
+                        Button {
+                            showingCreateSheet = true
+                        } label: {
+                            Image(systemName: "plus")
+                                .font(.gwaTopSystem(size: 16, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 38, height: 38)
+                                .background(GwaTopHomeTheme.primary)
+                                .clipShape(Circle())
                         }
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 32)
-                }
-            }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Text(selectedTopTab.label)
-                        .font(.gwaTopSystem(size: 22, weight: .heavy))
-                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showingCreateSheet = true
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.gwaTopSystem(size: 16, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 38, height: 38)
-                            .background(GwaTopHomeTheme.primary)
-                            .clipShape(Circle())
+
+                    ScrollView(showsIndicators: false) {
+                        VStack(spacing: 16) {
+                            topTabSwitcher
+
+                            if selectedTopTab == .calendar {
+                                calendarTabContent
+                            } else {
+                                timetableTabContent
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 32)
                     }
                 }
             }
+            .toolbar(.hidden, for: .navigationBar)
             .sheet(item: $selectedEvent) { event in
                 GwaTopCalendarEventDetailSheet(
                     event: event,

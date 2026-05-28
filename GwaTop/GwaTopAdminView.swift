@@ -39,41 +39,40 @@ struct GwaTopAdminView: View {
             ZStack {
                 GwaTopHomeTheme.background.ignoresSafeArea()
 
-                ScrollView {
-                    VStack(spacing: 14) {
-                        sectionPicker
-                            .padding(.top, 12)
-
-                        if let errorMessage {
-                            errorBanner(errorMessage)
-                        }
-
-                        if isLoading {
-                            loadingState
-                        } else {
-                            content
+                VStack(spacing: 0) {
+                    GwaTopScreenHeader(title: "관리자") {
+                        Button {
+                            Task { await reload() }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.gwaTopSystem(size: 15, weight: .bold))
+                                .foregroundStyle(GwaTopHomeTheme.primary)
+                                .frame(width: 38, height: 38)
+                                .background(GwaTopHomeTheme.surface)
+                                .clipShape(Circle())
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 32)
-                }
-            }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Text("관리자")
-                        .font(.gwaTopSystem(size: 22, weight: .heavy))
-                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        Task { await reload() }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
+
+                    ScrollView {
+                        VStack(spacing: 14) {
+                            sectionPicker
+
+                            if let errorMessage {
+                                errorBanner(errorMessage)
+                            }
+
+                            if isLoading {
+                                loadingState
+                            } else {
+                                content
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 32)
                     }
                 }
             }
+            .toolbar(.hidden, for: .navigationBar)
             .task { await reload() }
             .sheet(item: $selectedUser) { user in
                 GwaTopAdminUserDetailSheet(user: user)

@@ -277,71 +277,67 @@ struct GwaTopSettingsView: View {
                 GwaTopHomeTheme.background
                     .ignoresSafeArea()
 
-                VStack(spacing: 20) {
-                    GwaTopUserAvatar(user: user, size: 76)
-                        .padding(.top, 28)
+                VStack(spacing: 0) {
+                    GwaTopScreenHeader(title: "설정")
 
-                    VStack(spacing: 8) {
-                        Text(user.displayName)
-                            .font(.system(size: 25, weight: .heavy, design: .rounded))
-                            .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                    VStack(spacing: 20) {
+                        GwaTopUserAvatar(user: user, size: 76)
+                            .padding(.top, 18)
 
-                        Text(user.email)
-                            .font(.gwaTopSystem(size: 15, weight: .medium))
-                            .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                        VStack(spacing: 8) {
+                            Text(user.displayName)
+                                .font(.system(size: 25, weight: .heavy, design: .rounded))
+                                .foregroundStyle(GwaTopHomeTheme.textPrimary)
 
-                        Text("로그인 방식: \(user.loginProvider)")
-                            .font(.gwaTopSystem(size: 13, weight: .bold))
-                            .foregroundStyle(GwaTopHomeTheme.primary)
-                            .padding(.top, 2)
-                    }
+                            Text(user.email)
+                                .font(.gwaTopSystem(size: 15, weight: .medium))
+                                .foregroundStyle(GwaTopHomeTheme.textSecondary)
 
-                    VStack(spacing: 12) {
-                        NavigationLink {
-                            GwaTopAcademicManagementView()
-                        } label: {
-                            GwaTopSettingsRow(
-                                iconName: "book.closed.fill",
-                                title: "학기 / 과목 관리",
-                                value: "추가, 수정, 삭제"
-                            )
+                            Text("로그인 방식: \(user.loginProvider)")
+                                .font(.gwaTopSystem(size: 13, weight: .bold))
+                                .foregroundStyle(GwaTopHomeTheme.primary)
+                                .padding(.top, 2)
                         }
-                        .buttonStyle(.plain)
 
-                        appearanceSelector
+                        VStack(spacing: 12) {
+                            NavigationLink {
+                                GwaTopAcademicManagementView()
+                            } label: {
+                                GwaTopSettingsRow(
+                                    iconName: "book.closed.fill",
+                                    title: "학기 / 과목 관리",
+                                    value: "추가, 수정, 삭제"
+                                )
+                            }
+                            .buttonStyle(.plain)
 
-                        GwaTopSettingsRow(iconName: "person.fill", title: "프로필 정보", value: user.displayName)
-                        GwaTopSettingsRow(iconName: "envelope.fill", title: "이메일", value: user.email)
-                        GwaTopSettingsRow(iconName: "key.fill", title: "인증 제공자", value: user.loginProvider)
+                            appearanceSelector
+
+                            GwaTopSettingsRow(iconName: "person.fill", title: "프로필 정보", value: user.displayName)
+                            GwaTopSettingsRow(iconName: "envelope.fill", title: "이메일", value: user.email)
+                            GwaTopSettingsRow(iconName: "key.fill", title: "인증 제공자", value: user.loginProvider)
+                        }
+                        .padding(.top, 12)
+
+                        Button {
+                            onLogout?()
+                        } label: {
+                            Text("로그아웃")
+                                .font(.gwaTopSystem(size: 16, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 54)
+                                .background(GwaTopHomeTheme.danger)
+                                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        }
+                        .padding(.top, 10)
+
+                        Spacer()
                     }
-                    .padding(.top, 12)
-
-                    Button {
-                        onLogout?()
-                    } label: {
-                        Text("로그아웃")
-                            .font(.gwaTopSystem(size: 16, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 54)
-                            .background(GwaTopHomeTheme.danger)
-                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    }
-                    .padding(.top, 10)
-
-                    Spacer()
-                }
-                .padding(.horizontal, 22)
-            }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Text("설정")
-                        .font(.gwaTopSystem(size: 22, weight: .heavy))
-                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                    .padding(.horizontal, 22)
                 }
             }
+            .toolbar(.hidden, for: .navigationBar)
         }
     }
 

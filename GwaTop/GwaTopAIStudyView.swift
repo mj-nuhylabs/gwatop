@@ -35,65 +35,59 @@ struct GwaTopAIStudyView: View {
             ZStack {
                 GwaTopHomeTheme.background.ignoresSafeArea()
 
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 16) {
-                        intro
-                            .padding(.top, 8)
+                VStack(spacing: 0) {
+                    GwaTopScreenHeader(title: "학습") {
+                        Button {
+                            showUploadSheet = true
+                        } label: {
+                            Image(systemName: "doc.badge.arrow.up")
+                                .font(.gwaTopSystem(size: 15, weight: .bold))
+                                .foregroundStyle(GwaTopHomeTheme.primary)
+                                .frame(width: 38, height: 38)
+                                .background(GwaTopHomeTheme.surface)
+                                .clipShape(Circle())
+                        }
+                    }
 
-                        // 백그라운드 업로드 진행 카드 — 시트가 닫혀도 여기에 표시.
-                        GwaTopNetworkBanner()
-                        GwaTopUploadProgressBanner()
+                    ScrollView(showsIndicators: false) {
+                        VStack(spacing: 16) {
+                            intro
 
-                        coursePicker
+                            // 백그라운드 업로드 진행 카드 — 시트가 닫혀도 여기에 표시.
+                            GwaTopNetworkBanner()
+                            GwaTopUploadProgressBanner()
 
-                        if let err = loadError {
-                            errorBanner(err) {
-                                // 사용자가 직접 누른 재시도. 과목/파일 모두 재시도.
-                                Task {
-                                    await loadCoursesIfNeeded()
-                                    await reloadFiles()
+                            coursePicker
+
+                            if let err = loadError {
+                                errorBanner(err) {
+                                    // 사용자가 직접 누른 재시도. 과목/파일 모두 재시도.
+                                    Task {
+                                        await loadCoursesIfNeeded()
+                                        await reloadFiles()
+                                    }
+                                }
+                            }
+
+                            if isLoadingFiles {
+                                ProgressView("자료 불러오는 중…")
+                                    .padding(.vertical, 28)
+                            } else if selectedCourseId == nil {
+                                placeholder("위에서 학습할 과목을 골라주세요.")
+                            } else if files.isEmpty {
+                                placeholder("이 과목에 업로드된 자료가 아직 없어요.\n오른쪽 위 ⬆️ 버튼으로 자료를 추가해보세요.")
+                            } else {
+                                ForEach(weekSections, id: \.key) { section in
+                                    weekSection(title: section.key, files: section.value)
                                 }
                             }
                         }
-
-                        if isLoadingFiles {
-                            ProgressView("자료 불러오는 중…")
-                                .padding(.vertical, 28)
-                        } else if selectedCourseId == nil {
-                            placeholder("위에서 학습할 과목을 골라주세요.")
-                        } else if files.isEmpty {
-                            placeholder("이 과목에 업로드된 자료가 아직 없어요.\n오른쪽 위 ⬆️ 버튼으로 자료를 추가해보세요.")
-                        } else {
-                            ForEach(weekSections, id: \.key) { section in
-                                weekSection(title: section.key, files: section.value)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 18)
-                    .padding(.bottom, 32)
-                }
-            }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Text("학습")
-                        .font(.gwaTopSystem(size: 22, weight: .heavy))
-                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showUploadSheet = true
-                    } label: {
-                        Image(systemName: "doc.badge.arrow.up")
-                            .font(.gwaTopSystem(size: 15, weight: .bold))
-                            .foregroundStyle(GwaTopHomeTheme.primary)
-                            .frame(width: 38, height: 38)
-                            .background(.white)
-                            .clipShape(Circle())
+                        .padding(.horizontal, 18)
+                        .padding(.bottom, 32)
                     }
                 }
             }
+            .toolbar(.hidden, for: .navigationBar)
             .task { await loadCoursesIfNeeded() }
             .onChange(of: selectedCourseId) { _, _ in
                 Task { await reloadFiles() }

@@ -79,43 +79,39 @@ struct GwaTopAssignmentsView: View {
                 GwaTopHomeTheme.background
                     .ignoresSafeArea()
 
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 18) {
-                        headerCard
-                            .padding(.top, 14)
+                VStack(spacing: 0) {
+                    GwaTopScreenHeader(title: "과제")
 
-                        filterSegment
+                    ScrollView(showsIndicators: false) {
+                        VStack(spacing: 18) {
+                            headerCard
+                                .padding(.top, 6)
 
-                        if let err = loadError {
-                            errorState(err)
-                        } else if isLoading && assignments.isEmpty {
-                            loadingState
-                        } else if filteredAssignments.isEmpty {
-                            emptyState
-                        } else {
-                            VStack(spacing: 20) {
-                                ForEach(groupedAssignments) { group in
-                                    courseGroupSection(group)
+                            filterSegment
+
+                            if let err = loadError {
+                                errorState(err)
+                            } else if isLoading && assignments.isEmpty {
+                                loadingState
+                            } else if filteredAssignments.isEmpty {
+                                emptyState
+                            } else {
+                                VStack(spacing: 20) {
+                                    ForEach(groupedAssignments) { group in
+                                        courseGroupSection(group)
+                                    }
                                 }
                             }
                         }
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 30)
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 30)
-                }
-                .refreshable {
-                    await load()
+                    .refreshable {
+                        await load()
+                    }
                 }
             }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Text("과제")
-                        .font(.gwaTopSystem(size: 22, weight: .heavy))
-                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                }
-            }
+            .toolbar(.hidden, for: .navigationBar)
             .task {
                 if assignments.isEmpty { await load() }
             }
