@@ -2,6 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- 홈 스크린/스위처에 표시되는 한글 이름. CFBundleName(=GwaTop) 보다 우선. -->
+	<key>CFBundleDisplayName</key>
+	<string>과탑</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
