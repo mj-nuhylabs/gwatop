@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import random
+import re
 from typing import Iterable
 
 from sqlalchemy import select
@@ -35,6 +36,76 @@ _COLOR_PALETTE = [
 
 def _normalize(name: str) -> str:
     return "".join(name.split()).lower()
+
+
+# 과목명 fuzzy 매칭에서 흔히 나오는 "공통 단어" — 매칭 신호로 안 침. 예: "와", "및", "and".
+_FILLER_TOKENS = {
+    "와", "과", "및", "그리고",
+    "and", "the", "of", "for",
+    "강의", "수업", "이론", "실습",
+}
+
+
+_TOKEN_SPLIT_RE = re.compile(r"[\s,·\-_/()\[\]]+")
+
+
+def _meaningful_tokens(name: str) -> list[str]:
+    """공백·구분자로 분리한 뒤 의미 있는 토큰만 반환.
+
+    "자료구조와 알고리즘" → ["자료구조", "알고리즘"]
+    "Operating Systems"  → ["operating", "systems"]
+    """
+    raw = [t for t in _TOKEN_SPLIT_RE.split(name) if t]
+    out: list[str] = []
+    for t in raw:
+        tl = t.lower()
+        if tl in _FILLER_TOKENS:
+            continue
+        if len(tl) < 2:
+            continue
+        out.append(tl)
+    return out
+
+
+def _fuzzy_score(target: str, candidate: str) -> float:
+    """0.0 ~ 1.0 사이 유사도. 높을수록 같은 과목 가능성 ↑.
+
+    전략:
+    - 정규화 정확 일치: 1.0
+    - 추측 이름이 기존 과목 이름에 완전히 포함 (혹은 그 반대): 0.85+
+    - 의미 있는 토큰들이 얼마나 겹치는지: 0~0.7
+    """
+    t_norm = _normalize(target)
+    c_norm = _normalize(candidate)
+    if not t_norm or not c_norm:
+        return 0.0
+    if t_norm == c_norm:
+        return 1.0
+    # 한쪽이 다른 쪽에 통째로 포함 — 예: "자료구조" ⊂ "자료구조와알고리즘"
+    if t_norm in c_norm or c_norm in t_norm:
+        # 짧은 쪽 / 긴 쪽 비율로 보정 — 너무 짧은 substring 매칭 방지.
+        shorter = min(len(t_norm), len(c_norm))
+        longer = max(len(t_norm), len(c_norm))
+        # shorter 가 너무 짧으면 (2자 이하) 노이즈 가능성 ↑ — 점수 깎음.
+        base = 0.85 + 0.10 * (shorter / longer)
+        return base if shorter >= 3 else base - 0.20
+
+    # 의미 있는 토큰 겹침으로 평가.
+    t_tokens = set(_meaningful_tokens(target))
+    c_tokens = set(_meaningful_tokens(candidate))
+    if not t_tokens or not c_tokens:
+        return 0.0
+    overlap = t_tokens & c_tokens
+    if not overlap:
+        return 0.0
+    # Jaccard 유사도.
+    union = t_tokens | c_tokens
+    jaccard = len(overlap) / len(union)
+    return min(0.70, 0.40 + 0.45 * jaccard)
+
+
+# 같은 과목으로 인정할 최소 fuzzy 점수. 이 미만이면 신뢰 안 가서 새 생성 폴백.
+_FUZZY_THRESHOLD = 0.70
 
 
 async def _pick_target_semester(db: AsyncSession, user: User) -> Semester:
@@ -86,26 +157,45 @@ async def match_or_create_course(
     """
     semester = await _pick_target_semester(db, user)
 
-    # 같은 학기 안의 모든 course 중 이름이 정규화 일치하는 것 찾기
+    # 같은 학기 안의 모든 course 후보를 한 번에 가져옴.
     existing = (
         await db.execute(
             select(Course).where(Course.semester_id == semester.id)
         )
     ).scalars().all()
 
+    # 1) 정규화 정확 일치 — 가장 빠르고 확실.
     target_norm = _normalize(course_name)
     for c in existing:
         if _normalize(c.name) == target_norm:
-            # 담당교수가 비어 있고 파싱 결과엔 있으면 채워주기 (보조 정보)
             if professor and not c.professor:
                 c.professor = professor
             logger.info(
-                "[COURSE_MATCH] matched name=%r → course_id=%s (semester=%s)",
+                "[COURSE_MATCH] exact name=%r → course_id=%s (semester=%s)",
                 course_name, c.id, semester.id,
             )
             return c, semester, False
 
-    # 새 생성
+    # 2) Fuzzy 매칭 — substring/토큰 겹침으로 가장 유사한 기존 과목 찾기.
+    #    학생이 같은 과목을 "자료구조" / "자료구조와 알고리즘" / "DS" 처럼 다르게 적었을 때
+    #    매번 새 과목 안 만들고 묶이도록.
+    best: tuple[Course, float] | None = None
+    for c in existing:
+        score = _fuzzy_score(course_name, c.name)
+        if best is None or score > best[1]:
+            best = (c, score)
+
+    if best is not None and best[1] >= _FUZZY_THRESHOLD:
+        c = best[0]
+        if professor and not c.professor:
+            c.professor = professor
+        logger.info(
+            "[COURSE_MATCH] fuzzy guess=%r ~ existing=%r score=%.2f → course_id=%s",
+            course_name, c.name, best[1], c.id,
+        )
+        return c, semester, False
+
+    # 3) 새 생성 — 매칭 후보가 정말 없을 때만.
     color = _pick_color((c.color for c in existing))
     course = Course(
         semester_id=semester.id,
@@ -115,8 +205,9 @@ async def match_or_create_course(
     )
     db.add(course)
     await db.flush()
+    best_log = f"best={best[0].name!r}@{best[1]:.2f}" if best else "no_candidates"
     logger.info(
-        "[COURSE_MATCH] created name=%r → course_id=%s (semester=%s, color=%s)",
-        course_name, course.id, semester.id, color,
+        "[COURSE_MATCH] created name=%r → course_id=%s (semester=%s, color=%s, %s)",
+        course_name, course.id, semester.id, color, best_log,
     )
     return course, semester, True
