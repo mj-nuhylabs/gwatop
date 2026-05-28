@@ -31,8 +31,6 @@ struct GwaTopLoginView: View {
                         headerSection
                             .padding(.top, 28)
 
-                        valueCardSection
-
                         loginCardSection
 
                         policyText
@@ -84,27 +82,9 @@ struct GwaTopLoginView: View {
                     .foregroundStyle(GwaTopTheme.primary)
             }
 
-            VStack(spacing: 8) {
-                Text("GwaTop")
-                    .font(.system(size: 38, weight: .heavy, design: .rounded))
-                    .foregroundStyle(GwaTopTheme.textPrimary)
-
-                Text("강의계획서부터 학습 자료까지\nAI가 정리해주는 대학생 학습 플래너")
-                    .font(.gwaTopSystem(size: 16, weight: .medium))
-                    .foregroundStyle(GwaTopTheme.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(4)
-            }
-        }
-    }
-
-    // MARK: - 핵심 가치 카드 영역
-
-    private var valueCardSection: some View {
-        HStack(spacing: 10) {
-            FeaturePill(iconName: "calendar.badge.clock", title: "일정 자동화")
-            FeaturePill(iconName: "doc.text.magnifyingglass", title: "자료 정리")
-            FeaturePill(iconName: "sparkles", title: "AI 요약")
+            Text("GwaTop")
+                .font(.system(size: 38, weight: .heavy, design: .rounded))
+                .foregroundStyle(GwaTopTheme.textPrimary)
         }
     }
 
@@ -379,34 +359,6 @@ struct GwaTopPasswordField: View {
             .background(GwaTopHomeTheme.background)
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
-    }
-}
-
-struct FeaturePill: View {
-    let iconName: String
-    let title: String
-
-    var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: iconName)
-                .font(.gwaTopSystem(size: 18, weight: .bold))
-                .foregroundStyle(GwaTopTheme.primary)
-
-            Text(title)
-                .font(.gwaTopSystem(size: 12, weight: .bold))
-                .foregroundStyle(GwaTopTheme.textPrimary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: 78)
-        // 흰 배경 위 평면 카드 — gwaTopCard 와 같은 ring 인상.
-        .background(GwaTopHomeTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(GwaTopHomeTheme.line, lineWidth: 1)
-        )
     }
 }
 
