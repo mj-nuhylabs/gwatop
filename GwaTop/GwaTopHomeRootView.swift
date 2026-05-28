@@ -61,12 +61,47 @@ struct GwaTopHomeRootView: View {
 struct GwaTopHomeView: View {
     let user: GwaTopSignedInUser
 
-    // 과목 진행률은 백엔드에 별도 컬럼이 아직 없어서 mock 유지 (Day 5 이후 교체 예정).
-    private let subjects: [GwaTopSubject] = GwaTopSubject.mockData
-
     @State private var dashboard: GwaTopHomeDashboardDTO? = nil
+    @State private var courses: [GwaTopCourseDTO] = []
+    /// 이번 주 모든 todo — 과목별 완료율(progress) 계산용.
+    @State private var weekTodos: [GwaTopTodoDTO] = []
     @State private var isLoading = false
     @State private var loadError: String? = nil
+
+    /// 실 데이터 기반 과목 카드. 백엔드에 progress 컬럼이 없어서 이번 주 todo
+    /// 완료율로 derive. 다음 일정은 upcomingTodos / nextEvent 에서 가장 빠른 것.
+    private var subjects: [GwaTopSubject] {
+        courses.map { course in
+            let courseTodos = weekTodos.filter { $0.courseId == course.id }
+            let total = courseTodos.count
+            let done = courseTodos.filter(\.isDone).count
+            let progress: CGFloat = total > 0 ? CGFloat(done) / CGFloat(total) : 0
+
+            let upcoming = (dashboard?.upcomingTodos ?? [])
+                .filter { $0.courseId == course.id && !$0.isDone }
+                .sorted { $0.dueDate < $1.dueDate }
+                .first
+            let nextSchedule: String
+            if let u = upcoming {
+                let dDay = Calendar.current.dateComponents(
+                    [.day], from: Calendar.current.startOfDay(for: Date()),
+                    to: Calendar.current.startOfDay(for: u.dueDate)
+                ).day ?? 0
+                let dLabel = dDay == 0 ? "오늘" : (dDay > 0 ? "D-\(dDay)" : "D+\(abs(dDay))")
+                nextSchedule = "\(u.title) · \(dLabel)"
+            } else {
+                nextSchedule = "예정된 일정 없음"
+            }
+
+            return GwaTopSubject(
+                name: course.name.isEmpty ? "이름 없는 과목" : course.name,
+                progress: progress,
+                nextSchedule: nextSchedule,
+                iconName: "book.closed.fill",
+                color: course.color.map(Color.gwaTopHex) ?? GwaTopHomeTheme.primary
+            )
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -101,11 +136,25 @@ struct GwaTopHomeView: View {
         isLoading = true
         loadError = nil
         defer { isLoading = false }
-        do {
-            dashboard = try await GwaTopHomeService.shared.fetchDashboard(upcomingLimit: 5)
-        } catch {
-            if isCancellation(error) { return }
-            loadError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        // dashboard + courses + 이번 주 todos 를 병렬 fetch 후 한 번에 표시.
+        async let dashTask = try? GwaTopHomeService.shared.fetchDashboard(upcomingLimit: 5)
+        async let coursesTask = try? GwaTopCourseService.shared.fetchAll()
+        async let todosTask: [GwaTopTodoDTO]? = {
+            let cal = Calendar.current
+            let now = Date()
+            // 이번 주 (월 ~ 일) 범위. firstWeekday 로컬에 맞춰 자동 처리.
+            let weekStart = cal.dateInterval(of: .weekOfYear, for: now)?.start ?? now
+            let weekEnd = cal.date(byAdding: .day, value: 7, to: weekStart) ?? now
+            return try? await GwaTopTodoService.shared.fetchAll(start: weekStart, end: weekEnd)
+        }()
+
+        let (dash, list, todos) = await (dashTask, coursesTask, todosTask)
+        if let dash { dashboard = dash }
+        if let list { courses = list }
+        if let todos { weekTodos = todos }
+
+        if dash == nil && list == nil && todos == nil {
+            loadError = "데이터를 불러오지 못했어요. 잠시 후 다시 시도해주세요."
         }
     }
 
@@ -225,9 +274,19 @@ struct GwaTopHomeView: View {
         VStack(alignment: .leading, spacing: 14) {
             sectionHeader(title: "내 과목", subtitle: "이번 학기 과목별 진행률")
 
-            VStack(spacing: 12) {
-                ForEach(subjects) { subject in
-                    GwaTopSubjectProgressCard(subject: subject)
+            if subjects.isEmpty {
+                Text("등록된 과목이 없어요.\n설정 → 학기/과목 관리에서 추가해 주세요.")
+                    .font(.gwaTopSystem(size: 13, weight: .medium))
+                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 28)
+                    .gwaTopCard(radius: 18)
+            } else {
+                VStack(spacing: 12) {
+                    ForEach(subjects) { subject in
+                        GwaTopSubjectProgressCard(subject: subject)
+                    }
                 }
             }
         }
@@ -658,16 +717,8 @@ struct GwaTopSubject: Identifiable {
     let iconName: String
     let color: Color
 
-    // 과목 색상 — Claude warm 톤에 맞춘 muted multi-tone (mindmap canvas 와 동일 팔레트).
-    // 원색 blue/purple/orange 대신 톤다운된 슬레이트/올리브/플럼으로 구분.
-    static let mockData: [GwaTopSubject] = [
-        GwaTopSubject(name: "데이터베이스", progress: 0.72, nextSchedule: "과제 마감 D-1", iconName: "server.rack",
-                      color: Color(red: 0.40, green: 0.52, blue: 0.66)),   // muted slate
-        GwaTopSubject(name: "자료구조", progress: 0.58, nextSchedule: "퀴즈 D-3", iconName: "point.3.connected.trianglepath.dotted",
-                      color: Color(red: 0.58, green: 0.54, blue: 0.42)),   // muted olive
-        GwaTopSubject(name: "캡스톤디자인", progress: 0.41, nextSchedule: "회의 내일", iconName: "lightbulb.fill",
-                      color: Color(red: 0.55, green: 0.45, blue: 0.55))    // muted plum
-    ]
+    // 실 데이터(GwaTopCourseDTO + GwaTopTodoDTO)에서 GwaTopHomeView 가 derive 한다.
+    // 별도 mock 데이터는 없음 — 과목이 없으면 빈 상태 UI 가 표시됨.
 }
 
 /// SwiftUI Color 의 light/dark 자동 전환 헬퍼.
