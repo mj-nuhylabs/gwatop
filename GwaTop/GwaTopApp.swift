@@ -14,6 +14,12 @@ struct GwaTopApp: App {
     @StateObject private var syllabusWatcher = GwaTopSyllabusWatcher.shared
     @Environment(\.scenePhase) private var scenePhase
 
+    /// 외관 설정 (system / light / dark) — 설정 화면에서 사용자 변경, 전체 앱에 적용.
+    @AppStorage("gw_appearance") private var appearanceRaw: String = GwaTopAppearance.system.rawValue
+    private var appearance: GwaTopAppearance {
+        GwaTopAppearance(rawValue: appearanceRaw) ?? .system
+    }
+
     init() {
         configureGoogleSignIn()
         configureURLCache()
@@ -35,6 +41,7 @@ struct GwaTopApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .preferredColorScheme(appearance.colorScheme)
                 .onOpenURL { url in
                     GIDSignIn.sharedInstance.handle(url)
                 }

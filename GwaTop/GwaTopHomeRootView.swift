@@ -266,6 +266,11 @@ struct GwaTopSettingsView: View {
     let user: GwaTopSignedInUser
     var onLogout: (() -> Void)?
 
+    @AppStorage("gw_appearance") private var appearanceRaw: String = GwaTopAppearance.system.rawValue
+    private var appearance: GwaTopAppearance {
+        get { GwaTopAppearance(rawValue: appearanceRaw) ?? .system }
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -303,6 +308,8 @@ struct GwaTopSettingsView: View {
                         }
                         .buttonStyle(.plain)
 
+                        appearanceSelector
+
                         GwaTopSettingsRow(iconName: "person.fill", title: "프로필 정보", value: user.displayName)
                         GwaTopSettingsRow(iconName: "envelope.fill", title: "이메일", value: user.email)
                         GwaTopSettingsRow(iconName: "key.fill", title: "인증 제공자", value: user.loginProvider)
@@ -328,6 +335,55 @@ struct GwaTopSettingsView: View {
             }
             .navigationTitle("설정")
         }
+    }
+
+    /// 외관 (시스템 / 라이트 / 다크) 세그먼트 — 즉시 반영.
+    private var appearanceSelector: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "circle.lefthalf.filled")
+                .font(.gwaTopSystem(size: 16, weight: .bold))
+                .foregroundStyle(GwaTopHomeTheme.primary)
+                .frame(width: 36, height: 36)
+                .background(GwaTopHomeTheme.primary.opacity(0.10))
+                .clipShape(Circle())
+
+            Text("외관")
+                .font(.gwaTopSystem(size: 15, weight: .bold))
+                .foregroundStyle(GwaTopHomeTheme.textPrimary)
+
+            Spacer()
+
+            HStack(spacing: 4) {
+                ForEach(GwaTopAppearance.allCases) { option in
+                    Button {
+                        appearanceRaw = option.rawValue
+                    } label: {
+                        Image(systemName: option.iconName)
+                            .font(.gwaTopSystem(size: 13, weight: .bold))
+                            .foregroundStyle(
+                                appearance == option
+                                    ? Color.white
+                                    : GwaTopHomeTheme.textSecondary
+                            )
+                            .frame(width: 32, height: 28)
+                            .background(
+                                appearance == option
+                                    ? GwaTopHomeTheme.primary
+                                    : Color.clear
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(option.label)
+                }
+            }
+            .padding(3)
+            .background(GwaTopHomeTheme.surfaceMute)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .padding(14)
+        .background(GwaTopHomeTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
 
