@@ -73,7 +73,7 @@ struct GwaTopLoginView: View {
                 .foregroundStyle(GwaTopTheme.primary)
                 .frame(width: 96, height: 96)
 
-            Text("GwaTop")
+            Text("과탑")
                 .font(.system(size: 38, weight: .heavy, design: .rounded))
                 .foregroundStyle(GwaTopTheme.textPrimary)
         }
@@ -172,7 +172,7 @@ struct GwaTopLoginView: View {
     }
 
     private var policyText: some View {
-        Text("로그인 또는 회원가입을 진행하면 GwaTop의 이용약관과 개인정보처리방침에 동의한 것으로 간주됩니다.")
+        Text("로그인 또는 회원가입을 진행하면 과탑의 이용약관과 개인정보처리방침에 동의한 것으로 간주됩니다.")
             .font(.gwaTopSystem(size: 12, weight: .medium))
             .foregroundStyle(GwaTopTheme.textSecondary)
             .multilineTextAlignment(.center)

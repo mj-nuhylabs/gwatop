@@ -94,7 +94,7 @@ struct GwaTopSignUpView: View {
                     .font(.system(size: 34, weight: .heavy, design: .rounded))
                     .foregroundStyle(GwaTopTheme.textPrimary)
 
-                Text("GwaTop에서 학기와 과목을 정리하고\nAI 학습 플래너를 시작해보세요.")
+                Text("과탑에서 학기와 과목을 정리하고\nAI 학습 플래너를 시작해보세요.")
                     .font(.gwaTopSystem(size: 16, weight: .medium))
                     .foregroundStyle(GwaTopTheme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -203,7 +203,7 @@ struct GwaTopSignUpView: View {
     }
 
     private var policyText: some View {
-        Text("회원가입을 진행하면 GwaTop의 이용약관과 개인정보처리방침에 동의한 것으로 간주됩니다.")
+        Text("회원가입을 진행하면 과탑의 이용약관과 개인정보처리방침에 동의한 것으로 간주됩니다.")
             .font(.gwaTopSystem(size: 12, weight: .medium))
             .foregroundStyle(GwaTopTheme.textSecondary)
             .multilineTextAlignment(.center)
