@@ -114,7 +114,7 @@ struct GwaTopSignUpView: View {
 
                             // 비밀번호 + eye toggle
                             GwaTopPillField(
-                                placeholder: "비밀번호 (6 자 이상)",
+                                placeholder: "비밀번호 (8 자 이상)",
                                 text: $password,
                                 isSecure: !isPasswordVisible
                             ) {
@@ -126,17 +126,27 @@ struct GwaTopSignUpView: View {
                                 .buttonStyle(.plain)
                             }
 
-                            GwaTopPillField(
-                                placeholder: "비밀번호 확인",
-                                text: $confirmPassword,
-                                isSecure: !isConfirmPasswordVisible
-                            ) {
-                                Button { isConfirmPasswordVisible.toggle() } label: {
-                                    Image(systemName: isConfirmPasswordVisible ? "eye.slash.fill" : "eye.fill")
-                                        .font(.gwaTopSystem(size: 15, weight: .semibold))
-                                        .foregroundStyle(GwaTopTheme.textSecondary)
+                            // 비밀번호 확인 + 인라인 불일치 경고
+                            VStack(alignment: .leading, spacing: 6) {
+                                GwaTopPillField(
+                                    placeholder: "비밀번호 확인",
+                                    text: $confirmPassword,
+                                    isSecure: !isConfirmPasswordVisible
+                                ) {
+                                    Button { isConfirmPasswordVisible.toggle() } label: {
+                                        Image(systemName: isConfirmPasswordVisible ? "eye.slash.fill" : "eye.fill")
+                                            .font(.gwaTopSystem(size: 15, weight: .semibold))
+                                            .foregroundStyle(GwaTopTheme.textSecondary)
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(.plain)
+                                if showPasswordMismatch {
+                                    Text("비밀번호가 일치하지 않아요")
+                                        .font(.gwaTopSystem(size: 12, weight: .semibold))
+                                        .foregroundStyle(GwaTopHomeTheme.danger)
+                                        .padding(.leading, 6)
+                                        .transition(.opacity)
+                                }
                             }
 
                             // 학교 — readonly + sheet picker
@@ -151,12 +161,8 @@ struct GwaTopSignUpView: View {
                                     .foregroundStyle(GwaTopTheme.textSecondary)
                             }
 
-                            // 학번 — 숫자 2자리
-                            GwaTopPillField(
-                                placeholder: "학번 (예: 24)",
-                                text: $studentId,
-                                keyboard: .numberPad
-                            )
+                            // 학번 — Menu dropdown (현재 연도 부터 10 년 전까지)
+                            studentIdMenu
 
                             // 추천인 (선택)
                             GwaTopPillField(
@@ -243,6 +249,55 @@ struct GwaTopSignUpView: View {
         }
     }
 
+    // MARK: - 학번 선택 메뉴
+
+    /// 현재 연도 → 10 년 전까지 yy 2 자리 리스트 (2026 → 26, 25, 24, …, 16).
+    private var studentIdOptions: [String] {
+        let yy = Calendar.current.component(.year, from: Date()) % 100
+        return (0...10).map { String(format: "%02d", yy - $0) }
+    }
+
+    private var studentIdMenu: some View {
+        Menu {
+            ForEach(studentIdOptions, id: \.self) { y in
+                Button {
+                    studentId = y
+                } label: {
+                    HStack {
+                        Text("\(y)학번")
+                        if studentId == y {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 12) {
+                Text(studentId.isEmpty ? "학번 선택" : "\(studentId)학번")
+                    .font(.gwaTopSystem(size: 16, weight: .semibold))
+                    .foregroundStyle(
+                        studentId.isEmpty
+                            ? GwaTopHomeTheme.textTertiary
+                            : GwaTopHomeTheme.textPrimary
+                    )
+                Spacer()
+                Image(systemName: "chevron.down")
+                    .font(.gwaTopSystem(size: 13, weight: .bold))
+                    .foregroundStyle(GwaTopTheme.textSecondary)
+            }
+            .padding(.horizontal, 20)
+            .frame(height: 56)
+            .background(GwaTopHomeTheme.surfaceMute)
+            .clipShape(Capsule())
+        }
+    }
+
+    // MARK: - 비밀번호 불일치 경고
+
+    private var showPasswordMismatch: Bool {
+        !confirmPassword.isEmpty && password != confirmPassword
+    }
+
     // MARK: - 이메일 인증 (현재는 클라이언트 mock)
 
     private var canSendCode: Bool {
@@ -302,8 +357,8 @@ struct GwaTopSignUpView: View {
             errorMessage = "이메일 인증을 완료해 주세요."
             return
         }
-        guard password.count >= 6 else {
-            errorMessage = "비밀번호는 최소 6자 이상이어야 합니다."
+        guard password.count >= 8 else {
+            errorMessage = "비밀번호는 최소 8자 이상이어야 합니다."
             return
         }
         guard password == confirmPassword else {
