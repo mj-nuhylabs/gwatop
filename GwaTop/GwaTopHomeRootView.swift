@@ -333,7 +333,15 @@ struct GwaTopSettingsView: View {
                 }
                 .padding(.horizontal, 22)
             }
-            .navigationTitle("설정")
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Text("설정")
+                        .font(.gwaTopSystem(size: 22, weight: .heavy))
+                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                }
+            }
         }
     }
 

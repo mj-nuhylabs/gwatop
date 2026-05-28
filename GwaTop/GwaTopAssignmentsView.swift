@@ -107,7 +107,15 @@ struct GwaTopAssignmentsView: View {
                     await load()
                 }
             }
-            .navigationTitle("과제")
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Text("과제")
+                        .font(.gwaTopSystem(size: 22, weight: .heavy))
+                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                }
+            }
             .task {
                 if assignments.isEmpty { await load() }
             }

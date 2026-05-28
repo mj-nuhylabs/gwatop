@@ -73,8 +73,14 @@ struct GwaTopAIStudyView: View {
                     .padding(.bottom, 32)
                 }
             }
-            .navigationTitle("학습")
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Text("학습")
+                        .font(.gwaTopSystem(size: 22, weight: .heavy))
+                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         showUploadSheet = true

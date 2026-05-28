@@ -58,9 +58,14 @@ struct GwaTopAdminView: View {
                     .padding(.bottom, 32)
                 }
             }
-            .navigationTitle("관리자")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Text("관리자")
+                        .font(.gwaTopSystem(size: 22, weight: .heavy))
+                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         Task { await reload() }

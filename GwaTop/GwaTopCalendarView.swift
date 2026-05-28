@@ -79,8 +79,14 @@ struct GwaTopCalendarView: View {
                     .padding(.bottom, 32)
                 }
             }
-            .navigationTitle(selectedTopTab.label)
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Text(selectedTopTab.label)
+                        .font(.gwaTopSystem(size: 22, weight: .heavy))
+                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         showingCreateSheet = true
