@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from pydantic import BaseModel, Field, EmailStr
 import httpx
 
 from app.core.database import get_db
@@ -10,9 +11,40 @@ from app.core.security import (
 )
 from app.models.user import User
 from app.schemas.auth import RegisterRequest, LoginRequest, SocialLoginRequest, RefreshRequest, AuthResponse
+from app.api.v1.dependencies import get_current_user
 from app.core.config import settings
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
+
+
+# ---------- 프로필 응답 / 요청 스키마 ----------
+
+class MeResponse(BaseModel):
+    id: str
+    email: str
+    name: str
+    provider: str
+    created_at: str | None = None
+
+    @classmethod
+    def from_user(cls, u: User) -> "MeResponse":
+        return cls(
+            id=str(u.id),
+            email=u.email,
+            name=u.name,
+            provider=u.provider,
+            created_at=u.created_at.isoformat() if u.created_at else None,
+        )
+
+
+class ProfileUpdateRequest(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=60)
+    email: EmailStr | None = None
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=8, max_length=200)
 
 
 @router.post("/register", response_model=AuthResponse, status_code=201)
@@ -118,6 +150,74 @@ async def social_login(body: SocialLoginRequest, db: AsyncSession = Depends(get_
         expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         user=user,
     )
+
+
+@router.get("/me", response_model=MeResponse)
+async def get_me(current_user: User = Depends(get_current_user)):
+    """현재 로그인된 사용자 프로필. 토큰 검증을 통해 인증 상태도 확인 가능."""
+    return MeResponse.from_user(current_user)
+
+
+@router.patch("/me", response_model=MeResponse)
+async def update_me(
+    body: ProfileUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """이름 / 이메일 수정. 이메일은 unique 검증.
+    Social 로그인 사용자도 이름은 자유롭게 수정 가능 (이메일은 잠금).
+    """
+    if body.name is not None:
+        name = body.name.strip()
+        if not name:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="이름이 비어 있어요.")
+        current_user.name = name
+
+    if body.email is not None:
+        new_email = body.email.strip().lower()
+        if current_user.provider != "email":
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail="소셜 로그인 계정은 이메일을 변경할 수 없어요.",
+            )
+        if new_email != current_user.email:
+            existing = (
+                await db.execute(select(User).where(User.email == new_email))
+            ).scalar_one_or_none()
+            if existing is not None:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    detail="이미 사용 중인 이메일이에요.",
+                )
+            current_user.email = new_email
+
+    await db.commit()
+    await db.refresh(current_user)
+    return MeResponse.from_user(current_user)
+
+
+@router.post("/me/password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_password(
+    body: PasswordChangeRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """비밀번호 변경. 현재 비밀번호 검증 필수.
+    소셜 로그인 사용자는 hashed_password 가 없으므로 거부.
+    """
+    if current_user.provider != "email" or not current_user.hashed_password:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="소셜 로그인 계정은 비밀번호를 변경할 수 없어요.",
+        )
+    if not verify_password(body.current_password, current_user.hashed_password):
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            detail="현재 비밀번호가 일치하지 않아요.",
+        )
+    current_user.hashed_password = hash_password(body.new_password)
+    await db.commit()
+    return None
 
 
 @router.post("/refresh")
