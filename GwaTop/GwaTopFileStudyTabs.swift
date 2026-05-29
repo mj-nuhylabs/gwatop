@@ -2491,6 +2491,9 @@ struct GwaTopFileTutorTab: View {
     @State private var isLoading = false
     @State private var isSending = false
     @State private var error: String? = nil
+    /// 최초 진입 시 이전 대화 fetch 가 끝났는지. 끝나기 전엔 로딩만 보여 메시지가
+    /// "팍" 튀어나오는 깜빡임을 방지한다.
+    @State private var hasLoaded = false
 
     /// 진행 중인 AI 응답의 누적 텍스트 (스트리밍 도중 렌더).
     @State private var streamingBody: String = ""
@@ -2513,34 +2516,41 @@ struct GwaTopFileTutorTab: View {
                 GwaTopErrorBanner(message: err).padding(.horizontal, 16).padding(.top, 8)
             }
 
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(spacing: 10) {
-                        if messages.isEmpty && !isLoading && !isSending {
-                            emptyState.padding(.top, 30)
+            if !hasLoaded {
+                // 이전 대화를 불러오는 동안 — 로딩만 표시 (메시지 깜빡임 방지).
+                loadingState
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: 10) {
+                            if messages.isEmpty && !isSending {
+                                emptyState.padding(.top, 30)
+                            }
+                            ForEach(messages) { msg in
+                                messageRow(msg).id(msg.id)
+                            }
+                            if isSending {
+                                streamingRow.id("__streaming")
+                            }
+                            Color.clear.frame(height: 1).id("__bottom")
                         }
-                        ForEach(messages) { msg in
-                            messageRow(msg).id(msg.id)
-                        }
-                        if isSending {
-                            streamingRow.id("__streaming")
-                        }
-                        Color.clear.frame(height: 1).id("__bottom")
+                        .padding(.vertical, 12)
                     }
-                    .padding(.vertical, 12)
-                }
-                .onChange(of: messages.count) { _, _ in
-                    withAnimation { proxy.scrollTo("__bottom", anchor: .bottom) }
-                }
-                .onChange(of: streamingBody) { _, _ in
-                    withAnimation(.easeOut(duration: 0.15)) {
-                        proxy.scrollTo("__bottom", anchor: .bottom)
+                    .onChange(of: messages.count) { _, _ in
+                        withAnimation { proxy.scrollTo("__bottom", anchor: .bottom) }
+                    }
+                    .onChange(of: streamingBody) { _, _ in
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            proxy.scrollTo("__bottom", anchor: .bottom)
+                        }
                     }
                 }
+                .transition(.opacity)
             }
 
             inputArea
         }
+        .animation(.easeInOut(duration: 0.25), value: hasLoaded)
         .task { await load() }
         .task(id: elapsedTick) {
             guard isSending else { return }
@@ -2550,6 +2560,18 @@ struct GwaTopFileTutorTab: View {
         .sheet(item: $enlargedMessage) { msg in
             GwaTopTutorEnlargedSheet(message: msg)
         }
+    }
+
+    // MARK: 로딩 상태 — 이전 대화 fetch 중
+
+    private var loadingState: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+            Text("이전 대화를 불러오는 중…")
+                .font(.gwaTopSystem(size: 14, weight: .medium))
+                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: 빈 상태 — 추천 질문 칩
@@ -2646,6 +2668,27 @@ struct GwaTopFileTutorTab: View {
                 .background(GwaTopHomeTheme.primary)
                 .clipShape(Circle())
             VStack(alignment: .leading, spacing: 6) {
+                // 우측 상단 "크게 보기" 칩 — 본문이 길 때 사용자가 답변 카드 안에서 스크롤
+                // 하지 않고도 바로 전체보기 시트를 열 수 있게.
+                // 같은 액션이 하단 액션바에도 있어 답변 위/아래 어디서든 접근 가능.
+                HStack {
+                    Spacer()
+                    Button {
+                        enlargedMessage = msg
+                    } label: {
+                        Label("크게 보기", systemImage: "arrow.up.left.and.arrow.down.right")
+                            .labelStyle(.iconAndTitle)
+                            .font(.gwaTopSystem(size: 11, weight: .bold))
+                            .foregroundStyle(GwaTopHomeTheme.primary)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 5)
+                            .background(GwaTopHomeTheme.primary.opacity(0.10))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("답변 크게 보기")
+                }
+
                 GwaTopRichText(
                     msg.body,
                     fontSize: 15,
@@ -2903,8 +2946,10 @@ struct GwaTopFileTutorTab: View {
 
     @MainActor
     private func load() async {
+        // 이미 한 번 불러왔으면(예: elapsedTick task 재실행) 다시 로딩 화면을 띄우지 않는다.
+        if hasLoaded { return }
         isLoading = true; error = nil
-        defer { isLoading = false }
+        defer { isLoading = false; hasLoaded = true }
         do {
             messages = try await GwaTopFileService.shared.listTutorMessages(fileId: file.id)
         } catch { if !isCancellation(error) { self.error = error.localizedDescription } }
