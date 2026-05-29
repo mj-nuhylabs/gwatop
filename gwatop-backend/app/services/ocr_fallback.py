@@ -40,14 +40,27 @@ class OCRError(Exception):
 
 
 _client: AsyncOpenAI | None = None
+_client_loop: asyncio.AbstractEventLoop | None = None
 
 
 def _get_client() -> AsyncOpenAI:
-    global _client
-    if _client is None:
-        if not settings.OPENAI_API_KEY:
-            raise OCRError("OPENAI_API_KEY is not configured")
+    """현재 이벤트 루프에 바인딩된 AsyncOpenAI 클라이언트를 반환한다.
+
+    Celery 는 태스크마다 새 asyncio.run() 루프를 만든다. AsyncOpenAI 내부 httpx/anyio
+    상태는 생성 시점 루프에 묶이므로, 다른 루프에서 재사용하면 'Future attached to a
+    different loop' 류 에러가 난다. 루프가 바뀌면 클라이언트를 새로 만든다(같은 태스크
+    안에서는 캐시 재사용).
+    """
+    global _client, _client_loop
+    if not settings.OPENAI_API_KEY:
+        raise OCRError("OPENAI_API_KEY is not configured")
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if _client is None or _client_loop is not loop:
         _client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        _client_loop = loop
     return _client
 
 
