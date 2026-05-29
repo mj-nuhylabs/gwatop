@@ -113,6 +113,10 @@ struct GwaTopAIStudyView: View {
             .fullScreenCover(item: $selectedFile) { f in
                 GwaTopFileStudyView(file: f)
             }
+            // 강의계획서 파싱 완료 → 백엔드가 신규 과목을 추가했을 수 있음 → 강제 재조회.
+            .onReceive(NotificationCenter.default.publisher(for: .syllabusParseCompleted)) { _ in
+                Task { await loadAll() }
+            }
         }
     }
 

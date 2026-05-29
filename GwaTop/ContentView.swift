@@ -15,10 +15,16 @@ struct ContentView: View {
     @State private var signedInUser: GwaTopSignedInUser? = nil
     /// 로그인 또는 세션 복구 직후 스플래시를 노출 중인가? — 메인 탭으로 넘어가기 전 한 번만 켜짐.
     @State private var isWarmingUp: Bool = false
+    /// 콜드 스타트 직후 0.6 초 동안 보여줄 부팅 스플래시 — 로그인 여부와 무관하게 한 번 표시.
+    /// LoginView 가 곧장 렌더링되며 화면이 깜빡거리는 걸 방지.
+    @State private var isBooting: Bool = true
 
     var body: some View {
         Group {
-            if let signedInUser {
+            if isBooting {
+                GwaTopBootSplashView()
+                    .transition(.opacity)
+            } else if let signedInUser {
                 if isWarmingUp {
                     GwaTopSplashView {
                         // prefetch 완료 — 메인 탭으로 페이드 전환.
@@ -45,6 +51,13 @@ struct ContentView: View {
         }
         .onAppear {
             restoreLoginSessionIfNeeded()
+            // 콜드 스타트 후 최소 0.6 초 splash 표시 → 페이드아웃.
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                withAnimation(.easeOut(duration: 0.3)) {
+                    isBooting = false
+                }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .gwaTopUnauthorized)) { _ in
             logout()

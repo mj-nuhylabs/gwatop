@@ -45,9 +45,18 @@ final class GwaTopUploadProgress: ObservableObject {
     private init() {}
 
     @Published private(set) var jobs: [GwaTopUploadJob] = []
+    /// job id → 실행 중인 Task — cancel(id:) 호출 시 task.cancel() 호출용.
+    private var tasks: [String: Task<Void, Never>] = [:]
 
     var isAnyInProgress: Bool {
         jobs.contains { $0.phase == .uploading || $0.phase == .confirming || $0.phase == .processing }
+    }
+
+    /// 진행 중 업로드 취소 — task 종료 + job 제거. 이미 .done/.failed 면 단순 dismiss.
+    func cancel(id: String) {
+        tasks[id]?.cancel()
+        tasks.removeValue(forKey: id)
+        jobs.removeAll { $0.id == id }
     }
 
     @discardableResult
@@ -72,6 +81,7 @@ final class GwaTopUploadProgress: ObservableObject {
         if phase == .done || phase == .failed {
             // 5초 후 자동 제거 — 사용자가 결과 확인할 시간.
             let toRemoveId = jobs[idx].id
+            tasks.removeValue(forKey: toRemoveId)
             Task {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
                 await MainActor.run {
@@ -107,7 +117,7 @@ final class GwaTopUploadProgress: ObservableObject {
         // phase=uploading 으로 시작 (begin 이 그렇게 설정)
         updateProgress(id: jobId, progress: 0.15)  // 시각적 진행 단서
 
-        Task { [weak self] in
+        let task = Task { [weak self] in
             guard let self else { return }
             do {
                 let fileId: String
@@ -121,21 +131,26 @@ final class GwaTopUploadProgress: ObservableObject {
                         filename: filename, data: data,
                     )
                 }
+                if Task.isCancelled { return }
                 self.updateProgress(id: jobId, progress: 0.85)
                 self.setPhase(id: jobId, phase: .confirming)
                 try? await Task.sleep(nanoseconds: 500_000_000)
+                if Task.isCancelled { return }
                 self.updateProgress(id: jobId, progress: 1.0)
                 self.setPhase(id: jobId, phase: .processing)
                 // 캘린더에 알림 — watcher 가 파싱 완료 시 자동 reload.
                 GwaTopSyllabusWatcher.shared.notifyUploaded(fileId: fileId)
                 // 백엔드 파싱·분석은 평균 15~30초. 이 시간 동안 카드 표시.
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
+                if Task.isCancelled { return }
                 self.setPhase(id: jobId, phase: .done)
             } catch {
+                if Task.isCancelled { return }
                 let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                 self.fail(id: jobId, message: msg)
             }
         }
+        tasks[jobId] = task
     }
 
     /// 일반 강의 자료 업로드 (학습 자료 탭 — syllabus 아님).
@@ -143,22 +158,26 @@ final class GwaTopUploadProgress: ObservableObject {
         let jobId = begin(filename: filename)
         updateProgress(id: jobId, progress: 0.15)
 
-        Task { [weak self] in
+        let task = Task { [weak self] in
             guard let self else { return }
             do {
                 _ = try await GwaTopFileUploadService.shared.upload(
                     courseId: courseId, filename: filename,
                     fileType: fileType, data: data, isSyllabus: false,
                 )
+                if Task.isCancelled { return }
                 self.updateProgress(id: jobId, progress: 1.0)
                 self.setPhase(id: jobId, phase: .processing)
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
+                if Task.isCancelled { return }
                 self.setPhase(id: jobId, phase: .done)
             } catch {
+                if Task.isCancelled { return }
                 let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                 self.fail(id: jobId, message: msg)
             }
         }
+        tasks[jobId] = task
     }
 }
 
@@ -209,15 +228,19 @@ struct GwaTopUploadProgressBanner: View {
 
             Spacer()
 
-            if job.phase == .done || job.phase == .failed {
-                Button {
-                    GwaTopUploadProgress.shared.dismiss(id: job.id)
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.gwaTopSystem(size: 11, weight: .bold))
-                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                }
+            // 진행 중 / 완료·실패 모두 X 버튼 표시 — 진행 중이면 cancel, 완료/실패면 dismiss.
+            Button {
+                GwaTopUploadProgress.shared.cancel(id: job.id)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.gwaTopSystem(size: 11, weight: .bold))
+                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                    .frame(width: 24, height: 24)
+                    .background(GwaTopHomeTheme.surfaceMute)
+                    .clipShape(Circle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel(job.phase == .done || job.phase == .failed ? "닫기" : "취소")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
