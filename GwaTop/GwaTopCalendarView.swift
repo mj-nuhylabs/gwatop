@@ -101,9 +101,9 @@ struct GwaTopCalendarView: View {
                         .font(.gwaTopSystem(size: 22, weight: .heavy))
                         .foregroundStyle(.white)
                         .frame(width: 56, height: 56)
-                        .background(GwaTopHomeTheme.textPrimary)
+                        .background(GwaTopHomeTheme.primary)
                         .clipShape(Circle())
-                        .shadow(color: .black.opacity(0.22), radius: 14, x: 0, y: 6)
+                        .shadow(color: GwaTopHomeTheme.primary.opacity(0.30), radius: 14, x: 0, y: 6)
                 }
                 .padding(.trailing, 22)
                 .padding(.bottom, 22)
@@ -309,9 +309,6 @@ struct GwaTopCalendarView: View {
                 courses: courses,
                 onSelectCourse: { course in
                     timetableEditingCourse = course
-                },
-                onAddTapped: {
-                    showingTimetableAddSheet = true
                 }
             )
         }
