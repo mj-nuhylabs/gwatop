@@ -1,9 +1,13 @@
 """푸시 알림 Celery 태스크.
 
-- `tasks.notify_due_dday` (Beat schedule): 매일 09:00 KST. 다음 24시간 안 마감되는
-  todos/schedules가 있는 유저들에게 push.
-- `tasks.notify_classified` (기존 file_tasks의 placeholder를 대체): 파일 분류 완료 시
-  소유 유저에게 push. file_tasks.py에서 호출.
+- `tasks.notify_due_dday` (Beat schedule): 매일 09:00 KST. 두 종류 알림을 동시 발송.
+    1) 시험/과제 schedule per-item D-3 ~ D-0: 각 시험/과제마다 마감 3일 전부터 매일
+       1건씩 푸시. body 에 D-N 라벨 + 과목 + 제목 명시.
+    2) 사용자가 직접 만든 todo (`is_auto=False`) 의 D-1 (24h 안) 통합 알림: 사용자
+       단위로 묶어 "오늘 안 끝낼 할 일 N개" 한 줄.
+   자동 todo (`is_auto=True`) 는 이미 schedule per-item 알림으로 대체되어 중복 푸시
+   되지 않도록 통합 알림 대상에서 제외.
+- `tasks.notify_classified`: 파일 분류 완료 시 소유 유저에게 push. file_tasks.py 호출.
 
 설계:
 - 모든 Celery 태스크는 `asyncio.run(...)` + NullPool 패턴 (file_tasks.py와 동일 — Celery
@@ -44,87 +48,122 @@ def _run_with_fresh_engine(coro_factory):
 
 # ---------- Daily D-Day notifier ----------
 
+# D-N 푸시 대상이 되는 schedule.type 화이트리스트. lecture/meeting/upload/custom 은 알림 안 함.
+_NOTIFIABLE_SCHEDULE_TYPES = ("exam", "assignment")
+# 시험/과제 마감 며칠 전부터 매일 알림을 보낼지. 0 = 당일 포함.
+# 사용자 요구: D-3 부터 매일 1번씩 → range(0, 4) = D-0, D-1, D-2, D-3 총 4일.
+_DDAY_LEAD_DAYS = 3
+
+
 @celery_app.task(name="tasks.notify_due_dday")
 def notify_due_dday_task() -> None:
-    """매일 09:00 KST. 다음 24시간 안 마감되는 todo/exam/assignment를 가진 유저 each에게 1건 푸시."""
+    """매일 09:00 KST. D-3 ~ D-0 시험/과제 per-item + 사용자 todo D-1 통합 푸시."""
     _run_with_fresh_engine(_run_notify_due_dday)
 
 
 async def _run_notify_due_dday(SessionLocal) -> None:
     async with SessionLocal() as session:
         now = kst_now_naive()
-        horizon = now + timedelta(hours=24)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        # D-N 까지 포함 = 오늘 자정 ~ (오늘 + N+1)일 자정 미만.
+        # 예: N=3 → 오늘부터 4일 후 자정 미만 = 오늘/내일/모레/글피 마감 모두 포함.
+        dday_horizon = today_start + timedelta(days=_DDAY_LEAD_DAYS + 1)
+        next_24h = now + timedelta(hours=24)
 
-        # 다음 24h 안 todos가 있는 유저들
-        users_with_todos = (
+        sent_total = 0
+
+        # ----- (1) 시험/과제 schedule per-item D-N 알림 -----
+        schedule_rows = (
+            await session.execute(
+                select(Schedule, Course.name, Semester.user_id)
+                .join(Course, Schedule.course_id == Course.id)
+                .join(Semester, Course.semester_id == Semester.id)
+                .where(
+                    Schedule.type.in_(_NOTIFIABLE_SCHEDULE_TYPES),
+                    Schedule.due_date >= today_start,
+                    Schedule.due_date < dday_horizon,
+                )
+                .order_by(Schedule.due_date.asc())
+            )
+        ).all()
+
+        for schedule, course_name, user_id in schedule_rows:
+            # 일 단위 D-N 계산. (due_date.date() - today.date()) 의 일수 차.
+            days_until = (schedule.due_date.date() - today_start.date()).days
+            if days_until < 0 or days_until > _DDAY_LEAD_DAYS:
+                # WHERE 절이 잡아내야 하는데 안전망.
+                continue
+
+            type_label = "시험" if schedule.type == "exam" else "과제"
+            if days_until == 0:
+                dday_label = "오늘"
+                title = f"{type_label} 마감일이에요"
+            elif days_until == 1:
+                dday_label = "내일 (D-1)"
+                title = f"{type_label} D-1 알림"
+            else:
+                dday_label = f"D-{days_until}"
+                title = f"{type_label} {dday_label} 알림"
+
+            body = f"[{course_name}] {schedule.title} · {dday_label} 마감"
+
+            count = await push_to_user(
+                session,
+                user_id=user_id,
+                title=title,
+                body=body,
+                data={
+                    "type": "schedule_dday",
+                    "schedule_id": str(schedule.id),
+                    "schedule_type": schedule.type,
+                    "days_until": days_until,
+                },
+            )
+            sent_total += count
+            logger.info(
+                "[NOTIFY_DDAY] schedule user=%s type=%s D-%d pushed=%d title=%r",
+                user_id, schedule.type, days_until, count, schedule.title,
+            )
+
+        # ----- (2) 사용자 직접 todo (is_auto=False) D-1 통합 알림 -----
+        # is_auto=True 인 자동 D-N todo 는 위 schedule 알림에서 이미 커버되므로 제외.
+        user_todo_rows = (
             await session.execute(
                 select(Semester.user_id, Todo.id, Todo.title)
                 .join(Course, Semester.id == Course.semester_id)
                 .join(Todo, Todo.course_id == Course.id)
                 .where(
                     Todo.is_done.is_(False),
+                    Todo.is_auto.is_(False),
                     Todo.due_date >= now,
-                    Todo.due_date < horizon,
+                    Todo.due_date < next_24h,
                 )
             )
         ).all()
 
-        # 다음 24h 안 schedules (시험/과제) 가 있는 유저들
-        users_with_schedules = (
-            await session.execute(
-                select(Semester.user_id, Schedule.id, Schedule.title, Schedule.type)
-                .join(Course, Semester.id == Course.semester_id)
-                .join(Schedule, Schedule.course_id == Course.id)
-                .where(
-                    Schedule.due_date >= now,
-                    Schedule.due_date < horizon,
-                    Schedule.type.in_(("exam", "assignment")),
-                )
-            )
-        ).all()
-
-        # 유저 별 카운트 집계
         per_user_todo: dict[UUID, int] = {}
-        for uid, _tid, _title in users_with_todos:
+        for uid, _tid, _title in user_todo_rows:
             per_user_todo[uid] = per_user_todo.get(uid, 0) + 1
 
-        per_user_sched: dict[UUID, list[tuple[str, str]]] = {}
-        for uid, _sid, title, type_ in users_with_schedules:
-            per_user_sched.setdefault(uid, []).append((type_, title))
-
-        all_user_ids = set(per_user_todo) | set(per_user_sched)
-        if not all_user_ids:
-            logger.info("[NOTIFY_DDAY] no upcoming todos/schedules in next 24h")
-            return
-
-        sent = 0
-        for uid in all_user_ids:
-            todo_count = per_user_todo.get(uid, 0)
-            sched_list = per_user_sched.get(uid, [])
-
-            parts: list[str] = []
-            if sched_list:
-                # 가장 먼저: 시험 우선
-                sched_list.sort(key=lambda x: 0 if x[0] == "exam" else 1)
-                primary_type, primary_title = sched_list[0]
-                label = "시험" if primary_type == "exam" else "과제"
-                parts.append(f"내일 {label}: {primary_title}")
-            if todo_count:
-                parts.append(f"오늘 안 끝낼 할 일 {todo_count}개")
-
-            body = " · ".join(parts) if parts else "오늘 일정 확인"
-
+        for uid, todo_count in per_user_todo.items():
+            body = f"오늘 안 끝낼 할 일 {todo_count}개가 있어요"
             count = await push_to_user(
                 session,
                 user_id=uid,
-                title="오늘의 학습 알림",
+                title="오늘의 할 일",
                 body=body,
-                data={"type": "dday_summary"},
+                data={"type": "todo_dday_summary"},
             )
-            sent += count
-            logger.info("[NOTIFY_DDAY] user=%s pushed=%d body=%r", uid, count, body)
+            sent_total += count
+            logger.info("[NOTIFY_DDAY] todo user=%s count=%d pushed=%d", uid, todo_count, count)
 
-        logger.info("[NOTIFY_DDAY] total_sent=%d for %d users", sent, len(all_user_ids))
+        if sent_total == 0:
+            logger.info("[NOTIFY_DDAY] no notifications sent (no schedules/todos in window)")
+        else:
+            logger.info(
+                "[NOTIFY_DDAY] total_sent=%d (schedule_items=%d, todo_users=%d)",
+                sent_total, len(schedule_rows), len(per_user_todo),
+            )
 
 
 # ---------- File classification notifier ----------
