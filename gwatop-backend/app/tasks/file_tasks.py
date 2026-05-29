@@ -448,6 +448,10 @@ async def _run_parse_syllabus(file_id: str, SessionLocal) -> None:
             todos_added, len(inserted_rows),
         )
 
+        # 강의계획서에 강의실 정보가 있으면 저장 (없으면 기존 값 유지).
+        if syllabus.course.location:
+            course.location = syllabus.course.location.strip() or None
+
         # 강의 정기 시간표(요일/시작/종료) — 시간표 뷰의 데이터 소스.
         # ParsedClassTime 은 time 타입이라 isoformat 으로 직렬화한다.
         course.schedule = [

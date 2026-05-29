@@ -24,6 +24,9 @@ struct GwaTopCalendarView: View {
     @State private var showingCreateSheet: Bool = false
     @State private var editingEvent: GwaTopCalendarEvent? = nil
     @State private var selectedTopTab: TopTab = .calendar
+    // 시간표 시트 상태 — 탭 시 선택된 과목, + 버튼 시 추가 시트 노출.
+    @State private var timetableEditingCourse: GwaTopCourseDTO? = nil
+    @State private var showingTimetableAddSheet: Bool = false
 
     /// 강의계획서 파싱 진행 상태 — 배너 표시 + 완료 시 자동 reload 용.
     @ObservedObject private var syllabusWatcher = GwaTopSyllabusWatcher.shared
@@ -67,7 +70,14 @@ struct GwaTopCalendarView: View {
                 VStack(spacing: 0) {
                     GwaTopScreenHeader(title: selectedTopTab.label) {
                         Button {
-                            showingCreateSheet = true
+                            // 현재 보고 있는 탭에 맞춰 적절한 추가 시트를 띄움.
+                            // - 캘린더: 새 일정 시트 (기존 동작)
+                            // - 시간표: 에브리타임 스타일 시간표 추가 시트
+                            if selectedTopTab == .timetable {
+                                showingTimetableAddSheet = true
+                            } else {
+                                showingCreateSheet = true
+                            }
                         } label: {
                             Image(systemName: "plus")
                                 .font(.gwaTopSystem(size: 16, weight: .bold))
@@ -129,6 +139,37 @@ struct GwaTopCalendarView: View {
                         await loadCoursesIfNeeded(force: true)
                     }
                 })
+                .presentationDetents([.large])
+            }
+            // 시간표 블록 탭 → 과목 정보/수정 시트
+            .sheet(item: $timetableEditingCourse) { course in
+                GwaTopTimetableCourseSheet(
+                    course: course,
+                    onSaved: { _ in
+                        GwaTopAppDataStore.shared.refreshCoursesInBackground()
+                        Task { await loadCoursesIfNeeded(force: true) }
+                    },
+                    onDeleted: { _ in
+                        GwaTopAppDataStore.shared.refreshCoursesInBackground()
+                        Task {
+                            await loadCoursesIfNeeded(force: true)
+                            await reload()
+                        }
+                    }
+                )
+                .presentationDetents([.large])
+            }
+            // 시간표 + 버튼 → 새 슬롯 추가 시트
+            .sheet(isPresented: $showingTimetableAddSheet) {
+                GwaTopTimetableAddSheet(
+                    existingCourses: courses,
+                    activeSemesterId: GwaTopAppDataStore.shared.semesters.first(where: { $0.isActive })?.id
+                        ?? GwaTopAppDataStore.shared.semesters.first?.id,
+                    onSaved: {
+                        GwaTopAppDataStore.shared.refreshCoursesInBackground()
+                        Task { await loadCoursesIfNeeded(force: true) }
+                    }
+                )
                 .presentationDetents([.large])
             }
             .task {
@@ -263,7 +304,15 @@ struct GwaTopCalendarView: View {
                 errorBanner(message: msg)
             }
 
-            GwaTopTimetableView(courses: courses)
+            GwaTopTimetableView(
+                courses: courses,
+                onSelectCourse: { course in
+                    timetableEditingCourse = course
+                },
+                onAddTapped: {
+                    showingTimetableAddSheet = true
+                }
+            )
         }
     }
 

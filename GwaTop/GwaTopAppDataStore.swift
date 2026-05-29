@@ -184,6 +184,25 @@ final class GwaTopAppDataStore: ObservableObject {
         hasFinishedAtLeastOnce = true
     }
 
+    /// 사용자가 명시적으로 데이터를 바꾼 직후 호출 — 캐시 무효화 + 다음 .task 진입 시
+    /// stale 판정 → 자동 refresh. 풀-리프레시는 warmup() 다시 부르지 않고 그냥 timestamp 초기화.
+    func invalidate() {
+        lastRefreshedAt = .distantPast
+    }
+
+    /// 시간표 / 과목 편집 직후 같은 store 안 캐시도 즉시 동기화하고 싶을 때 호출.
+    /// 백그라운드 fetch + lastRefreshedAt 갱신.
+    func refreshCoursesInBackground() {
+        Task { @MainActor in
+            do {
+                self.courses = try await GwaTopCourseService.shared.fetchAll()
+                self.lastRefreshedAt = Date()
+            } catch {
+                // 실패는 무시 — 다음 .task 진입 시 자체 재시도가 동작.
+            }
+        }
+    }
+
     /// 로그아웃 시 캐시 초기화 — 다른 사용자가 같은 디바이스에 로그인해도 잔재가 안 보이게.
     func reset() {
         progress = 0

@@ -10,6 +10,10 @@ import SwiftUI
 
 struct GwaTopTimetableView: View {
     let courses: [GwaTopCourseDTO]
+    /// 시간표 블록을 탭했을 때 호출 — 부모가 정보/수정 시트를 띄움.
+    var onSelectCourse: ((GwaTopCourseDTO) -> Void)? = nil
+    /// 우상단 + 버튼을 눌렀을 때 호출 — 부모가 추가 시트를 띄움.
+    var onAddTapped: (() -> Void)? = nil
 
     private let dayOrder: [String] = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
     private let dayLabel: [String: String] = [
@@ -28,6 +32,25 @@ struct GwaTopTimetableView: View {
         let (startHour, endHour) = displayRange(from: blocks)
 
         VStack(spacing: 12) {
+            // 우상단 + 버튼 — 에브리타임 스타일로 어느 상태에서든 보임.
+            if onAddTapped != nil {
+                HStack {
+                    Spacer()
+                    Button {
+                        onAddTapped?()
+                    } label: {
+                        Label("시간표 추가", systemImage: "plus.circle.fill")
+                            .font(.gwaTopSystem(size: 14, weight: .bold))
+                            .foregroundStyle(GwaTopHomeTheme.primary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(GwaTopHomeTheme.primary.opacity(0.10))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
             if blocks.isEmpty {
                 emptyState
             } else {
@@ -133,7 +156,7 @@ struct GwaTopTimetableView: View {
 
     private func courseBlock(_ block: TimetableBlock) -> some View {
         let color = block.course.color.map(Color.gwaTopHex) ?? GwaTopHomeTheme.primary
-        return VStack(alignment: .leading, spacing: 2) {
+        let content = VStack(alignment: .leading, spacing: 2) {
             Text(block.course.name)
                 .font(.gwaTopSystem(size: 11, weight: .bold))
                 .foregroundStyle(.white)
@@ -151,6 +174,18 @@ struct GwaTopTimetableView: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(color.opacity(0.92))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+        // 탭 콜백이 있으면 버튼으로 감싸 클릭 가능. 없으면 그냥 표시 (이전 동작 유지).
+        return Group {
+            if let cb = onSelectCourse {
+                Button {
+                    cb(block.course)
+                } label: { content }
+                .buttonStyle(.plain)
+            } else {
+                content
+            }
+        }
     }
 
     // MARK: - Legend

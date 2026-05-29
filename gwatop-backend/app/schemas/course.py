@@ -9,6 +9,7 @@ class CourseCreate(BaseModel):
     name: str
     professor: str | None = None
     color: str = "#4F8EF7"
+    location: str | None = None
     schedule: list[Any] | None = None
 
     @field_validator("color")
@@ -23,6 +24,7 @@ class CourseUpdate(BaseModel):
     name: str | None = None
     professor: str | None = None
     color: str | None = None
+    location: str | None = None
     schedule: list[Any] | None = None
 
     @field_validator("color")
@@ -39,6 +41,7 @@ class CourseResponse(BaseModel):
     name: str
     professor: str | None
     color: str | None
+    location: str | None
     schedule: list[Any] | None
     created_at: datetime
 

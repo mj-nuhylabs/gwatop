@@ -7,7 +7,10 @@ extension Notification.Name {
 
 struct ContentView: View {
     @AppStorage("accessToken") private var accessToken: String = ""
+    @AppStorage("refreshToken") private var refreshToken: String = ""
     @AppStorage("signedInUserJSON") private var signedInUserJSON: String = ""
+    /// 로그인 유지 체크 여부 — false 면 콜드 스타트 시 세션 폐기 후 다시 로그인 요구.
+    @AppStorage("keepSignedIn") private var keepSignedIn: Bool = true
 
     @State private var signedInUser: GwaTopSignedInUser? = nil
     /// 로그인 또는 세션 복구 직후 스플래시를 노출 중인가? — 메인 탭으로 넘어가기 전 한 번만 켜짐.
@@ -66,6 +69,15 @@ struct ContentView: View {
 
     private func restoreLoginSessionIfNeeded() {
         guard signedInUser == nil else { return }
+
+        // 로그인 유지를 끈 사용자는 콜드 스타트 시 세션을 폐기 → 다시 로그인 필요.
+        guard keepSignedIn else {
+            accessToken = ""
+            refreshToken = ""
+            signedInUserJSON = ""
+            return
+        }
+
         guard signedInUserJSON.isEmpty == false else { return }
         guard let data = signedInUserJSON.data(using: .utf8),
               let user = try? JSONDecoder().decode(GwaTopSignedInUser.self, from: data)

@@ -67,6 +67,8 @@ struct GwaTopHomeView: View {
     @State private var weekTodos: [GwaTopTodoDTO] = []
     @State private var isLoading = false
     @State private var loadError: String? = nil
+    /// 과목 카드 탭 시 표시할 상세 시트 대상.
+    @State private var selectedSubject: GwaTopSubject? = nil
 
     /// 실 데이터 기반 과목 카드. 백엔드에 progress 컬럼이 없어서 이번 주 todo
     /// 완료율로 derive. 다음 일정은 upcomingTodos / nextEvent 에서 가장 빠른 것.
@@ -94,7 +96,10 @@ struct GwaTopHomeView: View {
             }
 
             return GwaTopSubject(
+                courseId: course.id,
                 name: course.name.isEmpty ? "이름 없는 과목" : course.name,
+                professor: course.professor,
+                classTimes: course.schedule ?? [],
                 progress: progress,
                 nextSchedule: nextSchedule,
                 iconName: "book.closed.fill",
@@ -127,6 +132,15 @@ struct GwaTopHomeView: View {
             .task { if dashboard == nil { await load() } }
             .toolbar {
                 // 추후 알림 기능 구현 시 toolbar 버튼 복구. 동작 없는 종 아이콘 + 가짜 빨간 점은 오해 소지가 있어 제거.
+            }
+            .sheet(item: $selectedSubject) { subject in
+                GwaTopSubjectDetailSheet(
+                    subject: subject,
+                    upcoming: (dashboard?.upcomingTodos ?? [])
+                        .filter { $0.courseId == subject.courseId }
+                        .sorted { $0.dueDate < $1.dueDate }
+                )
+                .presentationDetents([.medium, .large])
             }
         }
     }
@@ -297,7 +311,12 @@ struct GwaTopHomeView: View {
             } else {
                 VStack(spacing: 12) {
                     ForEach(subjects) { subject in
-                        GwaTopSubjectProgressCard(subject: subject)
+                        Button {
+                            selectedSubject = subject
+                        } label: {
+                            GwaTopSubjectProgressCard(subject: subject)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -631,6 +650,202 @@ struct GwaTopSubjectProgressCard: View {
     }
 }
 
+// MARK: - 과목 상세 시트
+// 홈 "내 과목" 카드 탭 시 표시. 실라버스에서 파싱된 과목 정보(교수·수업 시간)와
+// 해당 과목의 다가오는 일정을 요약해 보여준다.
+struct GwaTopSubjectDetailSheet: View {
+    let subject: GwaTopSubject
+    let upcoming: [GwaTopTodoDTO]
+
+    @Environment(\.dismiss) private var dismiss
+
+    private static let dayOrder = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
+    private static let dayLabels: [String: String] = [
+        "MON": "월", "TUE": "화", "WED": "수", "THU": "목",
+        "FRI": "금", "SAT": "토", "SUN": "일",
+    ]
+
+    private var sortedTimes: [GwaTopClassTimeDTO] {
+        subject.classTimes.sorted {
+            let a = Self.dayOrder.firstIndex(of: $0.day) ?? 99
+            let b = Self.dayOrder.firstIndex(of: $1.day) ?? 99
+            return a != b ? a < b : $0.startTime < $1.startTime
+        }
+    }
+
+    private func timeText(_ t: GwaTopClassTimeDTO) -> String {
+        "\(Self.dayLabels[t.day] ?? t.day) \(t.startTime)–\(t.endTime)"
+    }
+
+    private func dDayText(_ date: Date) -> String {
+        let cal = Calendar.current
+        let d = cal.dateComponents(
+            [.day], from: cal.startOfDay(for: Date()), to: cal.startOfDay(for: date)
+        ).day ?? 0
+        if d == 0 { return "오늘" }
+        return d > 0 ? "D-\(d)" : "D+\(abs(d))"
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    headerSection
+                    infoRowsSection
+                    classTimeSection
+                    upcomingSection
+                }
+                .padding(20)
+            }
+            .navigationTitle("과목 정보")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("닫기") { dismiss() }
+                        .font(.gwaTopSystem(size: 15, weight: .bold))
+                }
+            }
+        }
+    }
+
+    private var headerSection: some View {
+        HStack(spacing: 14) {
+            Image(systemName: subject.iconName)
+                .font(.gwaTopSystem(size: 24, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 64, height: 64)
+                .background(subject.color)
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("내 과목")
+                    .font(.gwaTopSystem(size: 13, weight: .bold))
+                    .foregroundStyle(subject.color)
+                Text(subject.name)
+                    .font(.system(size: 23, weight: .heavy, design: .rounded))
+                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
+            }
+        }
+    }
+
+    private var infoRowsSection: some View {
+        VStack(spacing: 12) {
+            GwaTopSubjectDetailRow(
+                iconName: "person.fill",
+                title: "교수",
+                value: (subject.professor?.isEmpty == false) ? subject.professor! : "정보 없음",
+                tint: subject.color
+            )
+            GwaTopSubjectDetailRow(
+                iconName: "chart.bar.fill",
+                title: "이번 학기 진행률",
+                value: "\(Int(subject.progress * 100))%",
+                tint: subject.color
+            )
+        }
+    }
+
+    private var classTimeSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("수업 시간")
+                .font(.gwaTopSystem(size: 18, weight: .heavy))
+                .foregroundStyle(GwaTopHomeTheme.textPrimary)
+
+            if sortedTimes.isEmpty {
+                Text("등록된 수업 시간이 없어요.")
+                    .font(.gwaTopSystem(size: 14, weight: .medium))
+                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+            } else {
+                ForEach(sortedTimes, id: \.self) { t in
+                    HStack(spacing: 12) {
+                        Image(systemName: "clock.fill")
+                            .font(.gwaTopSystem(size: 14, weight: .bold))
+                            .foregroundStyle(subject.color)
+                            .frame(width: 30, height: 30)
+                            .background(subject.color.opacity(0.12))
+                            .clipShape(Circle())
+                        Text(timeText(t))
+                            .font(.gwaTopSystem(size: 15, weight: .semibold))
+                            .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                        Spacer()
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .gwaTopCard(radius: 20)
+    }
+
+    private var upcomingSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("다가오는 일정")
+                .font(.gwaTopSystem(size: 18, weight: .heavy))
+                .foregroundStyle(GwaTopHomeTheme.textPrimary)
+
+            if upcoming.isEmpty {
+                Text("예정된 일정이 없어요.")
+                    .font(.gwaTopSystem(size: 14, weight: .medium))
+                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+            } else {
+                ForEach(upcoming) { todo in
+                    HStack(spacing: 12) {
+                        Circle()
+                            .fill(todo.isDone ? GwaTopHomeTheme.success : subject.color)
+                            .frame(width: 8, height: 8)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(todo.title)
+                                .font(.gwaTopSystem(size: 15, weight: .semibold))
+                                .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                            Text(GwaTopDateFormatters.koMonthDayTime.string(from: todo.dueDate))
+                                .font(.gwaTopSystem(size: 12, weight: .medium))
+                                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                        }
+                        Spacer()
+                        Text(dDayText(todo.dueDate))
+                            .font(.system(size: 13, weight: .heavy, design: .rounded))
+                            .foregroundStyle(subject.color)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .gwaTopCard(radius: 20)
+    }
+}
+
+private struct GwaTopSubjectDetailRow: View {
+    let iconName: String
+    let title: String
+    let value: String
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: iconName)
+                .font(.gwaTopSystem(size: 15, weight: .bold))
+                .foregroundStyle(tint)
+                .frame(width: 34, height: 34)
+                .background(tint.opacity(0.10))
+                .clipShape(Circle())
+
+            Text(title)
+                .font(.gwaTopSystem(size: 14, weight: .bold))
+                .foregroundStyle(GwaTopHomeTheme.textPrimary)
+
+            Spacer()
+
+            Text(value)
+                .font(.gwaTopSystem(size: 14, weight: .medium))
+                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                .multilineTextAlignment(.trailing)
+        }
+        .padding(14)
+        .gwaTopCard(radius: 18)
+    }
+}
+
 struct GwaTopPlaceholderTabView: View {
     let title: String
     let subtitle: String
@@ -723,7 +938,10 @@ struct GwaTopTodayTask: Identifiable {
 
 struct GwaTopSubject: Identifiable {
     let id = UUID()
+    let courseId: String
     let name: String
+    let professor: String?
+    let classTimes: [GwaTopClassTimeDTO]
     let progress: CGFloat
     let nextSchedule: String
     let iconName: String

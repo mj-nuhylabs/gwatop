@@ -571,6 +571,7 @@ components:
         name:        { type: string, example: "현대물리학" }
         professor:   { type: string, example: "홍길동" }
         color:       { type: string, example: "#4A90E2", description: "Hex color for UI" }
+        location:    { type: string, example: "과학관 301", description: "강의실 (강의계획서에서 추출)" }
         schedule:
           type: array
           description: 강의 시간표
@@ -590,6 +591,7 @@ components:
         name:      { type: string }
         professor: { type: string }
         color:     { type: string, example: "#4A90E2" }
+        location:  { type: string, example: "과학관 301" }
         schedule:
           type: array
           items:
