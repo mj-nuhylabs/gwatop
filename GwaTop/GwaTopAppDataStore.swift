@@ -60,6 +60,10 @@ final class GwaTopAppDataStore: ObservableObject {
         // 강의계획서 파싱이 끝나면(.syllabusParseCompleted) 중앙 캐시를 즉시 갱신한다.
         // → 홈/과제/캘린더/학습 어떤 화면도 앱을 나갔다 오지 않고 바로 최신 데이터를 본다.
         NotificationCenter.default.publisher(for: .syllabusParseCompleted)
+            // 여러 파일이 짧은 간격으로 연속 파싱 완료되면 전체 재조회(대시보드+할일+
+            // 일정+전 과목 파일)가 매번 반복된다. 디바운스로 연속 알림을 1회로 합친다.
+            // (파싱 자체가 수초 걸리므로 0.4s 지연은 사용자 체감 없음)
+            .debounce(for: .milliseconds(400), scheduler: RunLoop.main)
             .sink { [weak self] _ in
                 Task { @MainActor in await self?.refreshAfterSyllabusParse() }
             }

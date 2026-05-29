@@ -502,7 +502,9 @@ struct GwaTopCalendarView: View {
     }
 
     private var monthGrid: some View {
-        VStack(spacing: 0) {
+        // 셀마다 mergedEvents 를 선형 스캔(O 일수×이벤트)하지 않도록, 날짜(자정)별로 한 번만 그룹핑.
+        let eventsByDay = Dictionary(grouping: mergedEvents) { calendar.startOfDay(for: $0.startDate) }
+        return VStack(spacing: 0) {
             // 월 표시("2026년 6월")와 이동 화살표는 상단 헤더로 이동했다.
             // 요일 헤더
             HStack(spacing: 0) {
@@ -524,7 +526,7 @@ struct GwaTopCalendarView: View {
                         GwaTopCalendarDayCell(
                             day: day,
                             isToday: calendar.isDateInToday(day.date),
-                            events: eventsForDate(day.date),
+                            events: eventsByDay[calendar.startOfDay(for: day.date)] ?? [],
                             onEventTap: { event in
                                 selectedEvent = event
                             },
@@ -693,10 +695,6 @@ struct GwaTopCalendarView: View {
 
     private var selectedDateTitle: String {
         GwaTopDateFormatters.koMonthDayWeekday.string(from: selectedDate)
-    }
-
-    private func eventsForDate(_ date: Date) -> [GwaTopCalendarEvent] {
-        mergedEvents.filter { calendar.isDate($0.startDate, inSameDayAs: date) }
     }
 
     private func moveMonth(by value: Int) {
