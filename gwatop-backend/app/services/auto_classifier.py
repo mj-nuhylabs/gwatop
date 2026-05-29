@@ -151,7 +151,12 @@ async def detect_kind(text: str, filename: str = "") -> KindDecision:
 
 # filename 에서 자주 보이는 구분자.
 _NAME_SPLITTERS = re.compile(r"[\[\]_\-\(\)\s,·]+")
-_WEEK_PATTERN = re.compile(r"(주차|week|wk|ch(?:apter)?|chap|lecture|lec|강의|강|과제|hw)\s*\d*", re.IGNORECASE)
+# 노이즈 키워드 토큰(접두). 단독 '강' 은 제거했다 — '강화학습'/'강좌' 같은 과목명
+# 토큰 전체를 노이즈로 오판해 통째로 버리기 때문. '강의' 만 노이즈로 본다.
+_WEEK_PATTERN = re.compile(r"(주차|week|wk|ch(?:apter)?|chap|lecture|lec|강의|과제|hw)\s*\d*", re.IGNORECASE)
+# 숫자가 앞에 붙은 주차/강/장 토큰("3주차", "03주차", "5강", "2장")도 노이즈.
+# _WEEK_PATTERN(접두 매칭)이 못 잡는 케이스라 별도 패턴으로 처리.
+_WEEK_NUM_TOKEN = re.compile(r"^\d+\s*(?:주차?|강|장|회|차|교시)$")
 _DIGITS_ONLY = re.compile(r"^\d+$")
 
 
@@ -170,6 +175,8 @@ def guess_course_name_from_filename(filename: str) -> str | None:
     cleaned: list[str] = []
     for p in parts:
         if _WEEK_PATTERN.match(p):
+            continue
+        if _WEEK_NUM_TOKEN.match(p):
             continue
         if _DIGITS_ONLY.match(p):
             continue

@@ -626,8 +626,10 @@ _ASSIGN_KEYWORDS = ["과제", "보고서", "Report", "report", "Assignment", "as
 
 def _split_segments(notes: str) -> list[str]:
     """비고 셀 텍스트를 여러 일정 후보로 분리한다."""
-    # 줄바꿈/세미콜론/'및'/'/' 로 1차 split. 너무 짧은 조각은 합쳐서 본다.
-    parts = re.split(r"[\n;／/]|\s및\s", notes)
+    # 줄바꿈/세미콜론/'및'/'/' 로 1차 split.
+    # 단, 숫자 사이의 '/'(예: '6/22')는 날짜 구분자이므로 split 하지 않는다 —
+    # 이 슬래시까지 쪼개면 _extract_first_date 가 M/D 날짜를 못 읽어 누락 회수가 무력화된다.
+    parts = re.split(r"[\n;]|\s및\s|(?<!\d)[／/](?!\d)", notes)
     return [p.strip() for p in parts if p and p.strip()]
 
 
