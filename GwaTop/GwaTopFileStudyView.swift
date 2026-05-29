@@ -81,7 +81,8 @@ struct GwaTopFileStudyView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .navigationTitle(file.filename)
+            // nav title 의 파일명은 아래 fileHeader 와 중복 → 제거.
+            // toolbar 만 유지해서 우상단 "닫기" 는 살림.
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
