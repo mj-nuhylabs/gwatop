@@ -262,7 +262,7 @@ struct GwaTopHomeView: View {
 
     private var subjectProgressSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            sectionHeader(title: "내 과목", subtitle: "이번 학기 과목별 진행률")
+            sectionHeader(title: "내 과목")
 
             if subjects.isEmpty {
                 Text("등록된 과목이 없어요.\n설정 → 학기/과목 관리에서 추가해 주세요.")
@@ -273,11 +273,17 @@ struct GwaTopHomeView: View {
                     .padding(.vertical, 28)
                     .gwaTopCard(radius: 18)
             } else {
-                VStack(spacing: 12) {
-                    ForEach(subjects) { subject in
+                // 모든 과목을 하나의 카드 안에 모으고 hairline divider 로 구분.
+                VStack(spacing: 0) {
+                    ForEach(Array(subjects.enumerated()), id: \.element.id) { index, subject in
                         GwaTopSubjectProgressCard(subject: subject)
+                        if index < subjects.count - 1 {
+                            Divider()
+                                .padding(.leading, 76)   // 아이콘 영역 들여쓰기
+                        }
                     }
                 }
+                .gwaTopCard(radius: 22)
             }
         }
     }
@@ -562,6 +568,8 @@ struct GwaTopTodayTaskRow: View {
 struct GwaTopSubjectProgressCard: View {
     let subject: GwaTopSubject
 
+    /// row 단독 카드가 아니라 상위 카드 안의 한 row 로 동작 — padding 만 적용하고
+    /// 배경/clipShape 는 상위(subjectProgressSection)가 책임진다.
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
@@ -605,7 +613,6 @@ struct GwaTopSubjectProgressCard: View {
             .frame(height: 8)
         }
         .padding(16)
-        .gwaTopCard(radius: 22)
     }
 }
 
