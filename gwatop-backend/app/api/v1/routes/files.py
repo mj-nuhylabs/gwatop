@@ -110,10 +110,12 @@ async def confirm_upload(
     if not file_record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
 
-    # 멱등성: status 는 uploading → processing → extracted → ... 로만 전진한다.
-    # 이미 confirm 되어 처리 단계로 넘어간 파일은 추출을 재트리거하지 않는다
-    # (중복 confirm 으로 동일 S3 객체를 다시 다운로드·추출하는 낭비 방지).
-    if file_record.status == "uploading":
+    # 멱등성: status 는 pending(생성) → processing → extracted → ... 로만 전진한다.
+    # 아직 추출 전(pending/uploading)일 때만 트리거하고, 이미 처리 단계로 넘어간 파일은
+    # 재트리거하지 않는다 (중복 confirm 으로 동일 S3 객체를 다시 다운로드·추출하는 낭비 방지).
+    # ⚠️ presigned-url 생성 시 초기 status 는 "pending" — "uploading" 만 보면 일반 자료가
+    #    영영 추출되지 않으니 둘 다 포함해야 한다.
+    if file_record.status in ("pending", "uploading"):
         extract_text_task.delay(str(file_id))
 
     return FileConfirmResponse(file=FileResponse.model_validate(file_record))
