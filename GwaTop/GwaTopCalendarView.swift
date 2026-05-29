@@ -31,6 +31,20 @@ struct GwaTopCalendarView: View {
     /// 강의계획서 파싱 진행 상태 — 배너 표시 + 완료 시 자동 reload 용.
     @ObservedObject private var syllabusWatcher = GwaTopSyllabusWatcher.shared
 
+    // MARK: - Apple 캘린더 통합
+    /// 사용자 설정 — 처음엔 false. 토글 켤 때 권한 요청.
+    @AppStorage(UserDefaults.gwaTopAppleCalendarEnabledKey) private var appleCalendarEnabled: Bool = false
+    /// Apple 캘린더에서 가져온 이벤트 — 서버 events 와는 별도 상태로 두고 표시 시점에 머지.
+    @State private var appleEvents: [GwaTopCalendarEvent] = []
+    /// 권한 거부됐을 때 사용자에게 "설정 앱으로 가서 켜세요" 안내 alert.
+    @State private var showAppleCalendarDeniedAlert: Bool = false
+    @ObservedObject private var appleCalSvc = GwaTopAppleCalendarService.shared
+
+    /// 서버 일정 + Apple 일정 합본. 모든 monthGrid/eventsForDate 등이 이걸 본다.
+    private var mergedEvents: [GwaTopCalendarEvent] {
+        appleCalendarEnabled ? events + appleEvents : events
+    }
+
     private let calendar = Calendar.current
     private let weekdaySymbols = ["일", "월", "화", "수", "목", "금", "토"]
 
@@ -43,17 +57,17 @@ struct GwaTopCalendarView: View {
     }
 
     private var selectedDateEvents: [GwaTopCalendarEvent] {
-        events
+        mergedEvents
             .filter { calendar.isDate($0.startDate, inSameDayAs: selectedDate) }
             .sorted { $0.startDate < $1.startDate }
     }
 
     private var nearestUpcomingEvent: GwaTopCalendarEvent? {
         let start = calendar.startOfDay(for: selectedDate)
-        return events
+        return mergedEvents
             .filter { $0.startDate >= start }
             .min(by: { $0.startDate < $1.startDate })
-            ?? events.min(by: { $0.startDate < $1.startDate })
+            ?? mergedEvents.min(by: { $0.startDate < $1.startDate })
     }
 
     private func jumpTo(event: GwaTopCalendarEvent) {
@@ -189,10 +203,21 @@ struct GwaTopCalendarView: View {
                 // startWatching 은 idempotent 라 중복 호출 무해.
                 print("[Calendar] .task — calling syllabusWatcher.startWatching()")
                 syllabusWatcher.startWatching()
+                // Apple 캘린더 통합이 켜져 있고 권한도 있으면 진입 시 한 번 fetch.
+                await loadAppleEvents()
             }
             .refreshable {
                 await reload()
                 await loadCoursesIfNeeded(force: true)
+                await loadAppleEvents()
+            }
+            // 표시 월이 바뀌면 Apple 일정 새 윈도우로 다시 fetch.
+            .onChange(of: displayedMonth) { _, _ in
+                Task { await loadAppleEvents() }
+            }
+            // 사용자가 Apple 캘린더 앱에서 일정 추가/수정/삭제하면 EventKit 이 알림 → 자동 재로드.
+            .onChange(of: appleCalSvc.changeCounter) { _, _ in
+                Task { await loadAppleEvents() }
             }
             // 강의계획서 파싱이 끝나면 watcher 가 알림. 사용자가 캘린더에 있던 없던
             // 다음 진입 시점에 최신 데이터가 보이도록 reload + courses 도 새로 로드.
@@ -254,10 +279,94 @@ struct GwaTopCalendarView: View {
                 errorBanner(message: msg)
             }
 
+            appleCalendarToggleRow
+
             monthGrid
             // selectedDaySection 제거 — 일정은 셀 안 pill 로 직접 노출. tap 시 detail sheet.
             syllabusUploadCard
         }
+    }
+
+    /// Apple 캘린더 연동 on/off 토글 + 권한 안내.
+    /// - 켜져 있고 권한 OK → 작은 회색 칩, "연동 중 N개"
+    /// - 꺼져 있음 → 회색 outlined 버튼, "Apple 캘린더 연동하기"
+    /// - 권한 거부됨 → "설정에서 권한 켜기" alert
+    private var appleCalendarToggleRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "applelogo")
+                .font(.gwaTopSystem(size: 13, weight: .bold))
+            if appleCalendarEnabled && appleCalSvc.hasAccess {
+                Text("Apple 캘린더 연동 중 · \(appleEvents.count)개")
+                    .font(.gwaTopSystem(size: 13, weight: .heavy))
+                Spacer()
+                Button("끄기") {
+                    appleCalendarEnabled = false
+                    appleEvents = []
+                }
+                .font(.gwaTopSystem(size: 13, weight: .heavy))
+                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+            } else {
+                Text("Apple 캘린더 연동하기")
+                    .font(.gwaTopSystem(size: 13, weight: .heavy))
+                Spacer()
+                Button("켜기") {
+                    Task { await toggleAppleCalendarOn() }
+                }
+                .font(.gwaTopSystem(size: 13, weight: .heavy))
+                .foregroundStyle(GwaTopHomeTheme.primary)
+            }
+        }
+        .foregroundStyle(GwaTopHomeTheme.textPrimary)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(GwaTopHomeTheme.line, lineWidth: 1)
+        )
+        .alert("캘린더 접근 권한이 필요해요", isPresented: $showAppleCalendarDeniedAlert) {
+            Button("설정으로 이동") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text("설정 > 과탑 > 캘린더 에서 권한을 허용해주세요.")
+        }
+    }
+
+    /// 토글 켜기 — 권한 상태에 따라 분기.
+    @MainActor
+    private func toggleAppleCalendarOn() async {
+        if appleCalSvc.isDenied {
+            showAppleCalendarDeniedAlert = true
+            return
+        }
+        if !appleCalSvc.hasAccess {
+            let granted = await appleCalSvc.requestAccess()
+            if !granted {
+                showAppleCalendarDeniedAlert = appleCalSvc.isDenied
+                return
+            }
+        }
+        appleCalendarEnabled = true
+        await loadAppleEvents()
+    }
+
+    /// 현재 표시 월 ±2개월 범위의 Apple 일정 fetch.
+    /// 사용자가 월 넘길 때마다 호출돼서 새 윈도우 채움.
+    @MainActor
+    private func loadAppleEvents() async {
+        guard appleCalendarEnabled, appleCalSvc.hasAccess else {
+            appleEvents = []
+            return
+        }
+        let cal = Calendar.current
+        let start = cal.date(byAdding: .month, value: -2, to: displayedMonth) ?? displayedMonth
+        let end = cal.date(byAdding: .month, value: 2, to: displayedMonth) ?? displayedMonth
+        appleEvents = appleCalSvc.fetchEvents(from: start, to: end)
     }
 
     /// 백그라운드에서 파싱 중인 강의계획서가 있을 때 보여주는 카드.
@@ -411,7 +520,7 @@ struct GwaTopCalendarView: View {
     }
 
     private var eventsInDisplayedMonth: [GwaTopCalendarEvent] {
-        events.filter { calendar.isDate($0.startDate, equalTo: displayedMonth, toGranularity: .month) }
+        mergedEvents.filter { calendar.isDate($0.startDate, equalTo: displayedMonth, toGranularity: .month) }
     }
 
     private var monthGrid: some View {
@@ -639,7 +748,7 @@ struct GwaTopCalendarView: View {
     }
 
     private func eventsForDate(_ date: Date) -> [GwaTopCalendarEvent] {
-        events.filter { calendar.isDate($0.startDate, inSameDayAs: date) }
+        mergedEvents.filter { calendar.isDate($0.startDate, inSameDayAs: date) }
     }
 
     private func moveMonth(by value: Int) {
@@ -823,12 +932,17 @@ private struct GwaTopCalendarEventDetailSheet: View {
     @State private var showDeleteConfirm: Bool = false
     @Environment(\.dismiss) private var dismiss
 
+    /// Apple 캘린더에서 가져온 이벤트는 우리 서버 소유가 아니므로 수정/삭제 불가.
+    private var isAppleEvent: Bool {
+        event.source == "apple_calendar"
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack(spacing: 14) {
-                        Image(systemName: event.eventType.iconName)
+                        Image(systemName: isAppleEvent ? "applelogo" : event.eventType.iconName)
                             .font(.gwaTopSystem(size: 24, weight: .bold))
                             .foregroundStyle(.white)
                             .frame(width: 64, height: 64)
@@ -836,7 +950,7 @@ private struct GwaTopCalendarEventDetailSheet: View {
                             .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
 
                         VStack(alignment: .leading, spacing: 6) {
-                            Text(event.eventType.displayTitle)
+                            Text(isAppleEvent ? "Apple 캘린더" : event.eventType.displayTitle)
                                 .font(.gwaTopSystem(size: 13, weight: .bold))
                                 .foregroundStyle(event.course.color)
                             Text(event.title)
@@ -848,7 +962,11 @@ private struct GwaTopCalendarEventDetailSheet: View {
                     VStack(spacing: 12) {
                         GwaTopEventDetailRow(iconName: "calendar", title: "날짜", value: event.dateText)
                         GwaTopEventDetailRow(iconName: "clock.fill", title: "시간", value: event.timeText)
-                        GwaTopEventDetailRow(iconName: "book.closed.fill", title: "과목", value: event.course.name)
+                        GwaTopEventDetailRow(
+                            iconName: isAppleEvent ? "calendar" : "book.closed.fill",
+                            title: isAppleEvent ? "캘린더" : "과목",
+                            value: event.course.name
+                        )
                         GwaTopEventDetailRow(iconName: "mappin.and.ellipse", title: "장소", value: event.location)
                         GwaTopEventDetailRow(iconName: "sparkles", title: "등록 출처", value: event.source)
                     }
@@ -866,33 +984,50 @@ private struct GwaTopCalendarEventDetailSheet: View {
                     .background(GwaTopHomeTheme.background)
                     .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
 
-                    HStack(spacing: 12) {
-                        Button(action: onEdit) {
-                            HStack {
-                                Image(systemName: "pencil")
-                                Text("수정")
-                            }
-                            .font(.gwaTopSystem(size: 15, weight: .heavy))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 13)
-                            .background(GwaTopHomeTheme.primary)
-                            .foregroundStyle(.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                    if isAppleEvent {
+                        // Apple 일정은 서버 소유가 아니므로 우리 앱에서 수정/삭제 못 함.
+                        // 사용자가 Apple 캘린더 앱에서 직접 관리해야 한다는 점만 안내.
+                        HStack(spacing: 10) {
+                            Image(systemName: "info.circle.fill")
+                                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                            Text("Apple 캘린더의 일정이에요. 수정·삭제는 Apple 캘린더 앱에서 가능합니다.")
+                                .font(.gwaTopSystem(size: 13, weight: .semibold))
+                                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
-
-                        Button {
-                            showDeleteConfirm = true
-                        } label: {
-                            HStack {
-                                Image(systemName: "trash")
-                                Text("삭제")
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(GwaTopHomeTheme.background)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    } else {
+                        HStack(spacing: 12) {
+                            Button(action: onEdit) {
+                                HStack {
+                                    Image(systemName: "pencil")
+                                    Text("수정")
+                                }
+                                .font(.gwaTopSystem(size: 15, weight: .heavy))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 13)
+                                .background(GwaTopHomeTheme.primary)
+                                .foregroundStyle(.white)
+                                .clipShape(RoundedRectangle(cornerRadius: 14))
                             }
-                            .font(.gwaTopSystem(size: 15, weight: .heavy))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 13)
-                            .background(GwaTopHomeTheme.danger.opacity(0.1))
-                            .foregroundStyle(GwaTopHomeTheme.danger)
-                            .clipShape(RoundedRectangle(cornerRadius: 14))
+
+                            Button {
+                                showDeleteConfirm = true
+                            } label: {
+                                HStack {
+                                    Image(systemName: "trash")
+                                    Text("삭제")
+                                }
+                                .font(.gwaTopSystem(size: 15, weight: .heavy))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 13)
+                                .background(GwaTopHomeTheme.danger.opacity(0.1))
+                                .foregroundStyle(GwaTopHomeTheme.danger)
+                                .clipShape(RoundedRectangle(cornerRadius: 14))
+                            }
                         }
                     }
                 }

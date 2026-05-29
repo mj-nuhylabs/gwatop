@@ -1255,17 +1255,6 @@ struct GwaTopFileMindmapTab: View {
                     // 캔버스는 ScrollView 밖에서 전체 화면을 채워야 드래그/핀치가 동작.
                     GwaTopMindmapCanvas(mindmap: m)
                         .ignoresSafeArea(edges: .bottom)
-                    // 하단 힌트 — 캔버스 위 오버레이.
-                    VStack {
-                        Spacer()
-                        Text("드래그로 이동 · 핀치 또는 우측 버튼으로 확대/축소 · 더블탭으로 초기화")
-                            .font(.gwaTopSystem(size: 12, weight: .semibold))
-                            .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                            .padding(.horizontal, 14).padding(.vertical, 8)
-                            .background(.ultraThinMaterial, in: Capsule())
-                            .padding(.bottom, 18)
-                    }
-                    .allowsHitTesting(false)
                 } else if isGenerating || isLoading {
                     pendingCard.padding(16)
                 } else {
@@ -2669,7 +2658,7 @@ struct GwaTopFileTutorTab: View {
                         enlargedMessage = msg
                     } label: {
                         Label("크게 보기", systemImage: "arrow.up.left.and.arrow.down.right")
-                            .labelStyle(.iconAndTitle)
+                            .labelStyle(.titleAndIcon)
                             .font(.gwaTopSystem(size: 11, weight: .bold))
                             .foregroundStyle(GwaTopHomeTheme.primary)
                             .padding(.horizontal, 9)
