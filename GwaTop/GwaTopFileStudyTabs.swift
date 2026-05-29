@@ -2521,6 +2521,13 @@ struct GwaTopFileTutorTab: View {
                         }
                         .padding(.vertical, 12)
                     }
+                    // 진입 시 최신 메시지(맨 아래)부터 보이도록 초기 앵커를 하단에 고정.
+                    .defaultScrollAnchor(.bottom)
+                    .onAppear {
+                        // ScrollView 가 hasLoaded 이후 생성돼 messages.count onChange 가
+                        // 발동하지 않으므로, 등장 시 즉시 맨 아래로 점프.
+                        proxy.scrollTo("__bottom", anchor: .bottom)
+                    }
                     .onChange(of: messages.count) { _, _ in
                         withAnimation { proxy.scrollTo("__bottom", anchor: .bottom) }
                     }
