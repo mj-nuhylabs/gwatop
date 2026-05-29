@@ -244,7 +244,7 @@ struct GwaTopTimetableCourseSheet: View {
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
             .frame(height: 50)
-            .background(canSave ? GwaTopHomeTheme.primary : Color.gray.opacity(0.4))
+            .background(canSave ? GwaTopHomeTheme.primary : GwaTopHomeTheme.controlDisabled)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .disabled(!canSave)
@@ -575,7 +575,7 @@ struct GwaTopTimetableAddSheet: View {
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
             .frame(height: 50)
-            .background(canSubmit ? GwaTopHomeTheme.primary : Color.gray.opacity(0.4))
+            .background(canSubmit ? GwaTopHomeTheme.primary : GwaTopHomeTheme.controlDisabled)
             .clipShape(RoundedRectangle(cornerRadius: 14))
         }
         .disabled(!canSubmit)

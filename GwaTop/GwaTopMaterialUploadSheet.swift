@@ -165,13 +165,13 @@ struct GwaTopMaterialUploadSheet: View {
 
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.gwaTopSystem(size: 18, weight: .bold))
-                    .foregroundStyle(isSelected ? GwaTopHomeTheme.primary : .gray.opacity(0.4))
+                    .foregroundStyle(isSelected ? GwaTopHomeTheme.primary : GwaTopHomeTheme.textTertiary)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(isSelected ? GwaTopHomeTheme.primary.opacity(0.08) : Color.gray.opacity(0.06))
+                    .fill(isSelected ? GwaTopHomeTheme.primary.opacity(0.08) : GwaTopHomeTheme.surfaceMute)
             )
         }
         .buttonStyle(.plain)

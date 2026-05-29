@@ -190,7 +190,7 @@ struct GwaTopAssignmentsView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -207,7 +207,7 @@ struct GwaTopAssignmentsView: View {
         }
         .padding(40)
         .frame(maxWidth: .infinity)
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
@@ -235,7 +235,7 @@ struct GwaTopAssignmentsView: View {
         }
         .padding(28)
         .frame(maxWidth: .infinity)
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
@@ -357,7 +357,7 @@ struct GwaTopAssignmentsView: View {
                         .foregroundStyle(selectedFilter == filter ? .white : GwaTopHomeTheme.textSecondary)
                         .frame(maxWidth: .infinity)
                         .frame(height: 42)
-                        .background(selectedFilter == filter ? GwaTopHomeTheme.primary : .white)
+                        .background(selectedFilter == filter ? GwaTopHomeTheme.primary : GwaTopHomeTheme.surface)
                         .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
                         .overlay(
                             RoundedRectangle(cornerRadius: 15, style: .continuous)
@@ -385,7 +385,7 @@ struct GwaTopAssignmentsView: View {
         }
         .padding(30)
         .frame(maxWidth: .infinity)
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 

@@ -60,7 +60,7 @@ struct GwaTopScheduleEditSheet: View {
                                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
                                 .padding(14)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(.white)
+                                .background(GwaTopHomeTheme.surface)
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
                         } else {
                             Picker("과목", selection: Binding(
@@ -80,7 +80,7 @@ struct GwaTopScheduleEditSheet: View {
                             .pickerStyle(.menu)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
-                            .background(.white)
+                            .background(GwaTopHomeTheme.surface)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                         }
                     }
@@ -138,7 +138,7 @@ struct GwaTopScheduleEditSheet: View {
                             .padding(.horizontal, 14)
                             .padding(.vertical, 10)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(.white)
+                            .background(GwaTopHomeTheme.surface)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                             .environment(\.locale, Locale(identifier: "ko_KR"))
                     }
@@ -198,7 +198,7 @@ struct GwaTopScheduleEditSheet: View {
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
-                        .background(canSubmit ? GwaTopHomeTheme.primary : Color.gray.opacity(0.4))
+                        .background(canSubmit ? GwaTopHomeTheme.primary : GwaTopHomeTheme.controlDisabled)
                         .foregroundStyle(.white)
                         .clipShape(RoundedRectangle(cornerRadius: 16))
                     }

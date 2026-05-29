@@ -202,7 +202,7 @@ struct GwaTopAIStudyView: View {
         Button(action: onToggle) {
             HStack(spacing: 10) {
                 Circle()
-                    .fill(course.color.map(Color.gwaTopHex) ?? Color.gray.opacity(0.4))
+                    .fill(course.color.map(Color.gwaTopHex) ?? GwaTopHomeTheme.controlDisabled)
                     .frame(width: 10, height: 10)
 
                 Text(course.name.isEmpty ? "이름 없는 과목" : course.name)

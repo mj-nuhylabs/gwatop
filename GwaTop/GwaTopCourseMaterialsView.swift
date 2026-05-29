@@ -148,7 +148,7 @@ struct GwaTopCourseMaterialsView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(isSelected ? GwaTopHomeTheme.primary : Color.gray.opacity(0.1))
+            .background(isSelected ? GwaTopHomeTheme.primary : GwaTopHomeTheme.chipFill)
             .clipShape(Capsule())
         }
         .buttonStyle(.plain)

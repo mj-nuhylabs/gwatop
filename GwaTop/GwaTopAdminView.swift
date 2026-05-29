@@ -150,7 +150,7 @@ struct GwaTopAdminView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
@@ -173,7 +173,7 @@ struct GwaTopAdminView: View {
                     if k != map.keys.sorted().last { Divider().padding(.leading, 14) }
                 }
             }
-            .background(.white)
+            .background(GwaTopHomeTheme.surface)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .padding(.top, 6)
@@ -191,7 +191,7 @@ struct GwaTopAdminView: View {
                 }
             }
         }
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
@@ -218,7 +218,7 @@ struct GwaTopAdminView: View {
             Spacer()
             Image(systemName: "chevron.right")
                 .font(.gwaTopSystem(size: 11, weight: .semibold))
-                .foregroundStyle(Color.gray.opacity(0.4))
+                .foregroundStyle(GwaTopHomeTheme.textTertiary)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
@@ -236,7 +236,7 @@ struct GwaTopAdminView: View {
                 }
             }
         }
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
@@ -294,7 +294,7 @@ struct GwaTopAdminView: View {
                 }
             }
         }
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
@@ -652,7 +652,7 @@ struct GwaTopAdminUserDetailSheet: View {
                     .foregroundStyle(GwaTopHomeTheme.danger.opacity(0.6))
             }
             .padding(12)
-            .background(.white)
+            .background(GwaTopHomeTheme.surface)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -740,7 +740,7 @@ struct GwaTopAdminUserDetailSheet: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 12)
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
@@ -752,7 +752,7 @@ struct GwaTopAdminUserDetailSheet: View {
             VStack(spacing: 0) {
                 content()
             }
-            .background(.white)
+            .background(GwaTopHomeTheme.surface)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
     }

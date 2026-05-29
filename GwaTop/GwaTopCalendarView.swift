@@ -260,7 +260,7 @@ struct GwaTopCalendarView: View {
             }
         }
         .padding(4)
-        .background(Color.white.opacity(0.45))
+        .background(GwaTopHomeTheme.surface.opacity(0.45))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
@@ -316,7 +316,7 @@ struct GwaTopCalendarView: View {
         .foregroundStyle(GwaTopHomeTheme.textPrimary)
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(Color.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -397,7 +397,7 @@ struct GwaTopCalendarView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -642,7 +642,7 @@ struct GwaTopCalendarView: View {
                 }
                 .padding(22)
                 .frame(maxWidth: .infinity)
-                .background(.white)
+                .background(GwaTopHomeTheme.surface)
                 .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
             } else {
                 VStack(spacing: 11) {
@@ -681,7 +681,7 @@ struct GwaTopCalendarView: View {
             Spacer()
         }
         .padding(14)
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
@@ -701,7 +701,7 @@ struct GwaTopCalendarView: View {
             Spacer()
         }
         .padding(14)
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
@@ -807,7 +807,7 @@ private struct GwaTopCalendarDayCell: View {
                     if isToday {
                         Text(day.dayNumber)
                             .font(.gwaTopSystem(size: 12, weight: .heavy))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(GwaTopHomeTheme.background)
                             .frame(width: 22, height: 22)
                             .background(GwaTopHomeTheme.textPrimary)
                             .clipShape(Circle())
@@ -1075,7 +1075,7 @@ private struct GwaTopEventDetailRow: View {
                 .multilineTextAlignment(.trailing)
         }
         .padding(14)
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }

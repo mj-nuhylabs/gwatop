@@ -203,7 +203,7 @@ struct GwaTopCourseFormView: View {
                                 .frame(width: 36, height: 36)
                                 .overlay(
                                     Circle()
-                                        .stroke(color == hex ? Color.black.opacity(0.6) : Color.clear, lineWidth: 3)
+                                        .stroke(color == hex ? GwaTopHomeTheme.textPrimary.opacity(0.6) : Color.clear, lineWidth: 3)
                                 )
                                 .onTapGesture { color = hex }
                         }

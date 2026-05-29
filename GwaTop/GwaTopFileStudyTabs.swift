@@ -61,7 +61,7 @@ struct GwaTopScopeSelector: View {
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
-                .background(.white)
+                .background(GwaTopHomeTheme.surface)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
         }
@@ -77,7 +77,7 @@ struct GwaTopScopeSelector: View {
                 .font(.gwaTopSystem(size: 14, weight: .bold))
                 .foregroundStyle(active ? .white : GwaTopHomeTheme.textPrimary)
                 .padding(.horizontal, 12).padding(.vertical, 7)
-                .background(active ? GwaTopHomeTheme.primary : Color.gray.opacity(0.1))
+                .background(active ? GwaTopHomeTheme.primary : GwaTopHomeTheme.chipFill)
                 .clipShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -252,7 +252,7 @@ struct GwaTopFileQuizTab: View {
                             .foregroundStyle(mode == m ? .white : GwaTopHomeTheme.textPrimary)
                             .padding(.horizontal, 12).padding(.vertical, 7)
                             .frame(maxWidth: .infinity)
-                            .background(mode == m ? GwaTopHomeTheme.primary : Color.gray.opacity(0.1))
+                            .background(mode == m ? GwaTopHomeTheme.primary : GwaTopHomeTheme.chipFill)
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
@@ -299,7 +299,7 @@ struct GwaTopFileQuizTab: View {
                                 }
                                 .padding(16)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(.white)
+                                .background(GwaTopHomeTheme.surface)
                                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                             }
                         }
@@ -356,7 +356,7 @@ struct GwaTopFileQuizTab: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
@@ -388,7 +388,7 @@ struct GwaTopFileQuizTab: View {
                 Text(question.type == "multiple_choice" ? "객관식" : "주관식")
                     .font(.gwaTopSystem(size: 12, weight: .heavy))
                     .padding(.horizontal, 7).padding(.vertical, 2)
-                    .background(Color.gray.opacity(0.1))
+                    .background(GwaTopHomeTheme.chipFill)
                     .foregroundStyle(GwaTopHomeTheme.textSecondary)
                     .clipShape(Capsule())
             }
@@ -410,7 +410,7 @@ struct GwaTopFileQuizTab: View {
                           axis: .vertical)
                     .font(.gwaTopSystem(size: 16))
                     .padding(12)
-                    .background(Color.gray.opacity(0.06))
+                    .background(GwaTopHomeTheme.surfaceMute)
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 if revealed, let ans = question.answer {
                     VStack(alignment: .leading, spacing: 4) {
@@ -432,7 +432,7 @@ struct GwaTopFileQuizTab: View {
             }
         }
         .padding(16)
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
@@ -453,8 +453,8 @@ struct GwaTopFileQuizTab: View {
                 }
                 .font(.gwaTopSystem(size: 15, weight: .bold))
                 .frame(maxWidth: .infinity).frame(height: 44)
-                .foregroundStyle(safeIndex == 0 ? Color.gray : GwaTopHomeTheme.primary)
-                .background(Color.gray.opacity(0.08))
+                .foregroundStyle(safeIndex == 0 ? GwaTopHomeTheme.textTertiary : GwaTopHomeTheme.primary)
+                .background(GwaTopHomeTheme.chipFill)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
             .disabled(safeIndex == 0)
@@ -487,8 +487,8 @@ struct GwaTopFileQuizTab: View {
             }
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
-        .background(.white)
-        .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Color.gray.opacity(0.2)), alignment: .top)
+        .background(GwaTopHomeTheme.surface)
+        .overlay(Rectangle().frame(height: 0.5).foregroundStyle(GwaTopHomeTheme.line), alignment: .top)
     }
 
     private func choiceRow(
@@ -500,7 +500,7 @@ struct GwaTopFileQuizTab: View {
         let isWrong = revealed && isSelected && question.answerIndex != idx
         let bg: Color = isCorrect ? GwaTopHomeTheme.success.opacity(0.15)
             : isWrong ? GwaTopHomeTheme.danger.opacity(0.12)
-            : (isSelected ? GwaTopHomeTheme.primary.opacity(0.10) : Color.gray.opacity(0.05))
+            : (isSelected ? GwaTopHomeTheme.primary.opacity(0.10) : GwaTopHomeTheme.surfaceMute)
         return Button {
             if !revealed { updateAttempt { $0.selectedChoice = idx } }
         } label: {
@@ -508,7 +508,7 @@ struct GwaTopFileQuizTab: View {
                 Text("\(["A","B","C","D","E","F"][min(idx, 5)])")
                     .font(.gwaTopSystem(size: 13, weight: .heavy))
                     .frame(width: 22, height: 22)
-                    .background(isCorrect ? GwaTopHomeTheme.success : (isSelected ? GwaTopHomeTheme.primary : Color.gray.opacity(0.2)))
+                    .background(isCorrect ? GwaTopHomeTheme.success : (isSelected ? GwaTopHomeTheme.primary : GwaTopHomeTheme.line))
                     .foregroundStyle(.white)
                     .clipShape(Circle())
                 GwaTopMathText(text, fontSize: 15, color: GwaTopHomeTheme.textPrimary)
@@ -602,12 +602,12 @@ struct GwaTopFileQuizTab: View {
                         let isAnswer = cIdx == correctIdx
                         let isPicked = cIdx == userChose
                         let bg: Color = isAnswer ? GwaTopHomeTheme.success.opacity(0.15)
-                            : (isPicked ? GwaTopHomeTheme.danger.opacity(0.12) : Color.gray.opacity(0.05))
+                            : (isPicked ? GwaTopHomeTheme.danger.opacity(0.12) : GwaTopHomeTheme.surfaceMute)
                         HStack {
                             Text("\(["A","B","C","D","E","F"][min(cIdx, 5)])")
                                 .font(.gwaTopSystem(size: 12, weight: .heavy))
                                 .frame(width: 20, height: 20)
-                                .background(isAnswer ? GwaTopHomeTheme.success : (isPicked ? GwaTopHomeTheme.danger : Color.gray.opacity(0.2)))
+                                .background(isAnswer ? GwaTopHomeTheme.success : (isPicked ? GwaTopHomeTheme.danger : GwaTopHomeTheme.line))
                                 .foregroundStyle(.white)
                                 .clipShape(Circle())
                             GwaTopMathText(choice, fontSize: 14, color: GwaTopHomeTheme.textPrimary)
@@ -633,7 +633,7 @@ struct GwaTopFileQuizTab: View {
                             .font(.gwaTopSystem(size: 14))
                             .padding(8)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.gray.opacity(0.06))
+                            .background(GwaTopHomeTheme.surfaceMute)
                             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     }
                     if let ans = question.answer {
@@ -656,7 +656,7 @@ struct GwaTopFileQuizTab: View {
             }
         }
         .padding(14)
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
@@ -820,7 +820,7 @@ struct GwaTopFileFlashcardTab: View {
                                         .foregroundStyle(GwaTopHomeTheme.textSecondary)
                                 }
                                 .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-                                .background(.white)
+                                .background(GwaTopHomeTheme.surface)
                                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                             }
                         } else {
@@ -868,7 +868,7 @@ struct GwaTopFileFlashcardTab: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
@@ -881,7 +881,7 @@ struct GwaTopFileFlashcardTab: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
@@ -902,7 +902,7 @@ struct GwaTopFileFlashcardTab: View {
                         .font(.gwaTopSystem(size: 13, weight: .bold))
                         .padding(.horizontal, 12).padding(.vertical, 6)
                         .foregroundStyle(active ? .white : GwaTopHomeTheme.textPrimary)
-                        .background(active ? GwaTopHomeTheme.primary : Color.gray.opacity(0.1))
+                        .background(active ? GwaTopHomeTheme.primary : GwaTopHomeTheme.chipFill)
                         .clipShape(Capsule())
                 }
             }
@@ -943,7 +943,7 @@ struct GwaTopFileFlashcardTab: View {
         }
         .padding(28)
         .frame(maxWidth: .infinity)
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
@@ -980,7 +980,7 @@ struct GwaTopFileFlashcardTab: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity)
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
@@ -1307,7 +1307,7 @@ struct GwaTopFileMindmapTab: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
@@ -1318,7 +1318,7 @@ struct GwaTopFileMindmapTab: View {
                 .font(.gwaTopSystem(size: 14)).foregroundStyle(GwaTopHomeTheme.textSecondary)
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(GwaTopHomeTheme.surface).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private func rootNode(_ m: GwaTopMindmapContent) -> some View {
@@ -1336,7 +1336,7 @@ struct GwaTopFileMindmapTab: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
@@ -1399,7 +1399,7 @@ struct MindmapNodeView: View {
                           ? (expanded ? "chevron.down" : "chevron.right")
                           : "circle.fill")
                         .font(.gwaTopSystem(size: hasChildren ? 9 : 5, weight: .bold))
-                        .foregroundStyle(hasChildren ? GwaTopHomeTheme.primary : Color.gray)
+                        .foregroundStyle(hasChildren ? GwaTopHomeTheme.primary : GwaTopHomeTheme.textTertiary)
                         .frame(width: 14)
                     Text(node.label)
                         .font(.gwaTopSystem(size: 15 - CGFloat(depth - 1), weight: depth <= 2 ? .bold : .semibold))
@@ -1417,7 +1417,7 @@ struct MindmapNodeView: View {
                 .padding(.leading, 16)
                 .overlay(
                     Rectangle()
-                        .fill(Color.gray.opacity(0.2))
+                        .fill(GwaTopHomeTheme.line)
                         .frame(width: 1)
                         .padding(.leading, 6),
                     alignment: .leading
@@ -1489,7 +1489,7 @@ struct GwaTopFileMemorizeTab: View {
                                     .foregroundStyle(GwaTopHomeTheme.textSecondary)
                             }
                             .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-                            .background(.white)
+                            .background(GwaTopHomeTheme.surface)
                             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         }
                     }
@@ -1514,7 +1514,7 @@ struct GwaTopFileMemorizeTab: View {
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(GwaTopHomeTheme.surface).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private var introCard: some View {
@@ -1525,7 +1525,7 @@ struct GwaTopFileMemorizeTab: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(GwaTopHomeTheme.surface).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private func pointsList(_ c: GwaTopMemorizeContent) -> some View {
@@ -1579,7 +1579,7 @@ struct GwaTopFileMemorizeTab: View {
                 HStack(spacing: 4) {
                     ForEach(0..<5, id: \.self) { i in
                         Circle()
-                            .fill(i < p.importance ? accent : Color.gray.opacity(0.16))
+                            .fill(i < p.importance ? accent : GwaTopHomeTheme.line)
                             .frame(width: 4, height: 4)
                     }
                     Spacer(minLength: 0)
@@ -1702,7 +1702,7 @@ struct GwaTopFileTopicsTab: View {
                                     .foregroundStyle(GwaTopHomeTheme.textSecondary)
                             }
                             .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-                            .background(.white)
+                            .background(GwaTopHomeTheme.surface)
                             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         }
                     }
@@ -1727,7 +1727,7 @@ struct GwaTopFileTopicsTab: View {
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(GwaTopHomeTheme.surface).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private var introCard: some View {
@@ -1737,7 +1737,7 @@ struct GwaTopFileTopicsTab: View {
                 .font(.gwaTopSystem(size: 14)).foregroundStyle(GwaTopHomeTheme.textSecondary)
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(GwaTopHomeTheme.surface).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private func topicCard(_ t: GwaTopTopic) -> some View {
@@ -2225,7 +2225,7 @@ struct GwaTopNoteEditorSheet: View {
                     .padding(.vertical, 7)
                     .background(
                         RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(mode == m ? Color.white : Color.clear)
+                            .fill(mode == m ? GwaTopHomeTheme.selectedSurface : Color.clear)
                             .shadow(color: mode == m ? GwaTopHomeTheme.cardShadow : .clear, radius: 1, y: 0.5)
                     )
                 }
@@ -2588,7 +2588,7 @@ struct GwaTopFileTutorTab: View {
                             Spacer()
                         }
                         .padding(.horizontal, 12).padding(.vertical, 10)
-                        .background(.white)
+                        .background(GwaTopHomeTheme.surface)
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                     .buttonStyle(.plain)
@@ -2635,7 +2635,7 @@ struct GwaTopFileTutorTab: View {
                 .font(.gwaTopSystem(size: 14, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(width: 28, height: 28)
-                .background(Color.gray)
+                .background(GwaTopHomeTheme.textTertiary)
                 .clipShape(Circle())
         }
     }
@@ -2680,7 +2680,7 @@ struct GwaTopFileTutorTab: View {
                 assistantActionBar(for: msg)
             }
             .padding(.horizontal, 12).padding(.vertical, 9)
-            .background(.white)
+            .background(GwaTopHomeTheme.surface)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             Spacer(minLength: 30)
         }
@@ -2771,7 +2771,7 @@ struct GwaTopFileTutorTab: View {
                 }
             }
             .padding(.horizontal, 12).padding(.vertical, 9)
-            .background(.white)
+            .background(GwaTopHomeTheme.surface)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             Spacer(minLength: 30)
         }
@@ -2795,7 +2795,7 @@ struct GwaTopFileTutorTab: View {
                 .font(.gwaTopSystem(size: 11, weight: .bold).monospacedDigit())
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
                 .padding(.horizontal, 6).padding(.vertical, 2)
-                .background(Color.gray.opacity(0.1))
+                .background(GwaTopHomeTheme.chipFill)
                 .clipShape(Capsule())
         }
     }
@@ -2856,7 +2856,7 @@ struct GwaTopFileTutorTab: View {
             ) {
                 ZStack {
                     Circle()
-                        .fill(Color.gray.opacity(0.12))
+                        .fill(GwaTopHomeTheme.chipFill)
                         .frame(width: 42, height: 42)
                     if isAttaching {
                         ProgressView().scaleEffect(0.7)
@@ -2876,7 +2876,7 @@ struct GwaTopFileTutorTab: View {
                 .font(.gwaTopSystem(size: 16))
                 .lineLimit(1...5)
                 .padding(.horizontal, 12).padding(.vertical, 10)
-                .background(.white)
+                .background(GwaTopHomeTheme.surface)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
             Button {
@@ -2886,7 +2886,7 @@ struct GwaTopFileTutorTab: View {
                     .font(.gwaTopSystem(size: 16, weight: .bold))
                     .foregroundStyle(.white)
                     .frame(width: 42, height: 42)
-                    .background(canSend ? GwaTopHomeTheme.primary : Color.gray.opacity(0.5))
+                    .background(canSend ? GwaTopHomeTheme.primary : GwaTopHomeTheme.controlDisabled)
                     .clipShape(Circle())
             }
             .disabled(!canSend)
@@ -3104,7 +3104,7 @@ private struct GwaTopTutorEnlargedSheet: View {
                         )
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(16)
-                        .background(.white)
+                        .background(GwaTopHomeTheme.surface)
                         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     }
                     .padding(16)

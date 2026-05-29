@@ -106,7 +106,7 @@ struct GwaTopButtonStyle: ButtonStyle {
         case .primary:     return .white
         case .secondary:   return GwaTopHomeTheme.textPrimary
         case .ghost:       return GwaTopHomeTheme.textPrimary
-        case .destructive: return Color(red: 0.78, green: 0.20, blue: 0.20)
+        case .destructive: return GwaTopHomeTheme.danger
         }
     }
 
@@ -116,7 +116,7 @@ struct GwaTopButtonStyle: ButtonStyle {
         case .primary:     GwaTopHomeTheme.primary
         case .secondary:   GwaTopHomeTheme.surface
         case .ghost:       Color.clear
-        case .destructive: Color(red: 0.78, green: 0.20, blue: 0.20).opacity(0.10)
+        case .destructive: GwaTopHomeTheme.danger.opacity(0.10)
         }
     }
 

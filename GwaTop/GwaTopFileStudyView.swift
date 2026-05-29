@@ -222,7 +222,7 @@ struct GwaTopFilePDFTab: View {
                     .frame(maxWidth: .infinity).frame(height: 52)
                     .background(file.fileType == "pdf"
                                 ? GwaTopHomeTheme.primary
-                                : Color.gray.opacity(0.5))
+                                : GwaTopHomeTheme.controlDisabled)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
                 .disabled(file.fileType != "pdf")
@@ -260,7 +260,7 @@ struct GwaTopFilePDFTab: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
@@ -469,7 +469,7 @@ struct GwaTopPDFPlayerView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
     }
 
     private var bottomControls: some View {
@@ -480,7 +480,7 @@ struct GwaTopPDFPlayerView: View {
                 Image(systemName: "chevron.left")
                     .font(.gwaTopSystem(size: 16, weight: .bold))
                     .frame(width: 42, height: 42)
-                    .background(.white)
+                    .background(GwaTopHomeTheme.surface)
                     .clipShape(Circle())
             }
             .disabled(model.currentPage <= 0)
@@ -498,7 +498,7 @@ struct GwaTopPDFPlayerView: View {
                 }
                 .foregroundStyle(GwaTopHomeTheme.textPrimary)
                 .padding(.horizontal, 16).padding(.vertical, 10)
-                .background(.white)
+                .background(GwaTopHomeTheme.surface)
                 .clipShape(Capsule())
             }
 
@@ -508,7 +508,7 @@ struct GwaTopPDFPlayerView: View {
                 Image(systemName: "chevron.right")
                     .font(.gwaTopSystem(size: 16, weight: .bold))
                     .frame(width: 42, height: 42)
-                    .background(.white)
+                    .background(GwaTopHomeTheme.surface)
                     .clipShape(Circle())
             }
             .disabled(model.currentPage + 1 >= model.totalPages)
@@ -634,7 +634,7 @@ struct GwaTopFileSummaryTab: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
@@ -691,7 +691,7 @@ struct GwaTopFileSummaryTab: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
@@ -709,7 +709,7 @@ struct GwaTopFileSummaryTab: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
@@ -739,7 +739,7 @@ struct GwaTopFileSummaryTab: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
@@ -777,7 +777,7 @@ struct GwaTopFileSummaryTab: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 

@@ -119,7 +119,6 @@ struct GwaTopHomeView: View {
                         topGreetingSection
                             .padding(.top, 18)
 
-                        todaySummarySection
                         todayTaskSection
                         subjectProgressSection
                     }
@@ -195,43 +194,63 @@ struct GwaTopHomeView: View {
     }
 
     private var topGreetingSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(currentDateText)
-                .font(.gwaTopSystem(size: 14, weight: .semibold))
-                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+        // 오늘 할 일 = upcomingTodos 중 오늘 마감인 것. done/total 모두 카운트.
+        let todayTodos = (dashboard?.upcomingTodos ?? []).filter {
+            Calendar.current.isDateInToday($0.dueDate)
+        }
+        let todayTotal = todayTodos.count
+        let todayDone = todayTodos.filter(\.isDone).count
+        let todayRemaining = max(0, todayTotal - todayDone)
+        let todayRate = todayTotal == 0 ? 0 : Double(todayDone) / Double(todayTotal)
+        let todayPercent = Int((todayRate * 100).rounded())
 
-            Text("안녕하세요, \(user.firstDisplayName)님")
-                .font(.system(size: 28, weight: .heavy, design: .rounded))
-                .foregroundStyle(GwaTopHomeTheme.textPrimary)
+        return VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(currentDateText)
+                    .font(.gwaTopSystem(size: 14, weight: .semibold))
+                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+
+                Text("안녕하세요,\n\(user.firstDisplayName)님")
+                    .font(.system(size: 28, weight: .heavy, design: .rounded))
+                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                    .lineSpacing(2)
+            }
+
+            // 오늘 할 일 요약 — 카드 없이 플랫. 좌측 텍스트 + 우측 퍼센트 + 하단 thin progress.
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    (
+                        Text("오늘 할 일 ")
+                            .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                        + Text("\(todayRemaining)")
+                            .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                            .fontWeight(.heavy)
+                        + Text("개 남았어요")
+                            .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                    )
+                    .font(.gwaTopSystem(size: 15, weight: .semibold))
+
+                    Spacer(minLength: 8)
+
+                    Text("\(todayPercent)%")
+                        .font(.gwaTopSystem(size: 15, weight: .heavy).monospacedDigit())
+                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                }
+
+                GeometryReader { proxy in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(GwaTopHomeTheme.surfaceMute)
+                        Capsule()
+                            .fill(GwaTopHomeTheme.primary)
+                            .frame(width: max(0, proxy.size.width * todayRate))
+                            .animation(.easeOut(duration: 0.35), value: todayRate)
+                    }
+                }
+                .frame(height: 4)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var todaySummarySection: some View {
-        let summary = dashboard?.thisWeekSummary
-        let total = summary?.total ?? 0
-        let done = summary?.done ?? 0
-        let remaining = max(0, total - done)
-        let rate = summary?.rate ?? 0
-        let percent = Int((rate * 100).rounded())
-        let examCount = (dashboard?.todaySchedules ?? []).filter { $0.type == "exam" }.count
-
-        // 좌: 제목만 / 우: 남은 할 일 칩 한 개. 진행률 ring, 서브 카피, 다른 stat 제거.
-        return HStack(spacing: 12) {
-            Text("이번 주 학습 현황")
-                .font(.gwaTopSystem(size: 15, weight: .bold))
-                .foregroundStyle(GwaTopHomeTheme.textPrimary)
-
-            Spacer()
-
-            GwaTopStatCard(title: "남은 할 일", value: "\(remaining)", unit: "개")
-                .frame(maxWidth: 110)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        // 코랄 단색 → 아주 옅은 코랄 wash. 테두리 없이 부드럽게.
-        .background(GwaTopHomeTheme.primary.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
     private var todayTaskSection: some View {
@@ -484,7 +503,7 @@ struct GwaTopSettingsRow: View {
                 .lineLimit(1)
         }
         .padding(14)
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
@@ -506,35 +525,6 @@ struct GwaTopUserAvatar: View {
     }
 }
 
-struct GwaTopStatCard: View {
-    let title: String
-    let value: String
-    let unit: String
-
-    var body: some View {
-        VStack(spacing: 2) {
-            Text(title)
-                .font(.gwaTopSystem(size: 9, weight: .semibold))
-                .foregroundStyle(GwaTopHomeTheme.textSecondary)
-
-            HStack(alignment: .firstTextBaseline, spacing: 2) {
-                Text(value)
-                    .font(.system(size: 15, weight: .heavy, design: .rounded))
-                    .foregroundStyle(GwaTopHomeTheme.primary)
-
-                Text(unit)
-                    .font(.gwaTopSystem(size: 9, weight: .bold))
-                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
-        // 헤더 카드(살짝 코랄) 위 흰 칩 — 대비를 위해 surface 단색.
-        .background(GwaTopHomeTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-    }
-}
-
 struct GwaTopTodayTaskRow: View {
     let task: GwaTopTodayTask
 
@@ -545,7 +535,7 @@ struct GwaTopTodayTaskRow: View {
             // 시스템 리스트(Apple Reminders/Mail)와 비슷한 무게감이 된다.
             Circle()
                 .fill(task.isDone
-                      ? Color.gray.opacity(0.35)
+                      ? GwaTopHomeTheme.controlDisabled
                       : task.color)
                 .frame(width: 8, height: 8)
                 .padding(.leading, 2)
@@ -573,7 +563,7 @@ struct GwaTopTodayTaskRow: View {
 
             Image(systemName: "chevron.right")
                 .font(.gwaTopSystem(size: 11, weight: .semibold))
-                .foregroundStyle(Color.gray.opacity(0.4))
+                .foregroundStyle(GwaTopHomeTheme.textTertiary)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 13)
@@ -1000,6 +990,25 @@ struct GwaTopHomeTheme {
     static let separator = gwaTopAdaptive(
         light: Color.black.opacity(0.06),
         dark:  Color.white.opacity(0.06)
+    )
+
+    /// 비활성 컨트롤 배경 (disabled button bg 등) — 다크/라이트 모두에서 약하게 보이는 muted gray.
+    /// 기존 `Color.gray.opacity(0.4)` 같은 정적 회색을 대체.
+    static let controlDisabled = gwaTopAdaptive(
+        light: Color(red: 0.78, green: 0.77, blue: 0.74),                  // warm light gray
+        dark:  Color(red: 0.35, green: 0.34, blue: 0.32)                   // warm dark gray
+    )
+    /// 세그먼티드/탭 선택 상태에서 surfaceMute 위에 올라가는 "튀어오른" 표면.
+    /// light: 순백 / dark: 살짝 밝은 surfaceElevated 톤.
+    static let selectedSurface = gwaTopAdaptive(
+        light: Color.white,
+        dark:  Color(red: 0.235, green: 0.231, blue: 0.220)               // #3c3b39
+    )
+    /// 약한 wash/inlay 배경 — 기존 `Color.gray.opacity(0.06~0.1)` 정적 회색 대체.
+    /// surfaceMute 보다 살짝 강한 chip/pill 배경 용도.
+    static let chipFill = gwaTopAdaptive(
+        light: Color.black.opacity(0.06),
+        dark:  Color.white.opacity(0.08)
     )
 
     // 그림자: 거의 없음 — 웹과 동일한 평면적 깊이감. 다크에서도 검정 미세 그림자.

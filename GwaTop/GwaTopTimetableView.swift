@@ -100,7 +100,7 @@ struct GwaTopTimetableView: View {
                 .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity)
                 .frame(height: headerHeight)
-                .background(Color.gray.opacity(0.05))
+                .background(GwaTopHomeTheme.surfaceMute)
 
             ZStack(alignment: .topLeading) {
                 // 시간 격자 가로선
@@ -131,7 +131,7 @@ struct GwaTopTimetableView: View {
         .frame(maxWidth: .infinity)
         .overlay(
             Rectangle()
-                .stroke(Color.gray.opacity(0.1), lineWidth: 0.5)
+                .stroke(GwaTopHomeTheme.line, lineWidth: 0.5)
         )
     }
 
@@ -191,7 +191,7 @@ struct GwaTopTimetableView: View {
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Color.gray.opacity(0.08))
+                        .background(GwaTopHomeTheme.chipFill)
                         .clipShape(Capsule())
                     }
                 }

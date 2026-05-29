@@ -65,7 +65,7 @@ struct GwaTopSyllabusUploadSheet: View {
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
-                        .background(canSubmit ? GwaTopHomeTheme.primary : Color.gray.opacity(0.4))
+                        .background(canSubmit ? GwaTopHomeTheme.primary : GwaTopHomeTheme.controlDisabled)
                         .foregroundStyle(.white)
                         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     }
@@ -167,7 +167,7 @@ struct GwaTopSyllabusUploadSheet: View {
                 }
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.white)
+                .background(GwaTopHomeTheme.surface)
                 .clipShape(RoundedRectangle(cornerRadius: 14))
             } else {
                 // "AI 자동 매칭" + 기존 과목 리스트를 함께 Picker 선택지로
@@ -195,7 +195,7 @@ struct GwaTopSyllabusUploadSheet: View {
                 .pickerStyle(.menu)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(.white)
+                .background(GwaTopHomeTheme.surface)
                 .clipShape(RoundedRectangle(cornerRadius: 14))
             }
         }
@@ -219,7 +219,7 @@ struct GwaTopSyllabusUploadSheet: View {
                     }
                 }
                 .padding(14)
-                .background(.white)
+                .background(GwaTopHomeTheme.surface)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             .buttonStyle(.plain)
@@ -272,7 +272,7 @@ struct GwaTopSyllabusUploadSheet: View {
             Spacer()
         }
         .padding(14)
-        .background(.white)
+        .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
