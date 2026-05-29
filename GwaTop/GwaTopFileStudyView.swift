@@ -81,14 +81,8 @@ struct GwaTopFileStudyView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            // nav title 의 파일명은 아래 fileHeader 와 중복 → 제거.
-            // toolbar 만 유지해서 우상단 "닫기" 는 살림.
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("닫기") { dismiss() }
-                }
-            }
+            // nav bar 전체 숨김 — "닫기" 는 fileHeader 우측에 인라인 배치.
+            .toolbar(.hidden, for: .navigationBar)
             .task {
                 // 0) 이전에 같은 파일을 닫고 다시 들어온 경우 자동 정리 타이머 취소 — 캐시 재사용.
                 GwaTopPDFCache.shared.cancelEviction(fileId: file.id)
@@ -138,6 +132,17 @@ struct GwaTopFileStudyView: View {
             }
 
             Spacer()
+
+            // 미니멀 "닫기" — pill 배경 없이 coral 텍스트만.
+            Button {
+                dismiss()
+            } label: {
+                Text("닫기")
+                    .font(.gwaTopSystem(size: 15, weight: .semibold))
+                    .foregroundStyle(GwaTopHomeTheme.primary)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 10)
