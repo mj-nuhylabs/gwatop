@@ -31,14 +31,16 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/v1")
 app.include_router(semesters_router, prefix="/v1")
 app.include_router(courses_router, prefix="/v1")
+# study_router 는 files_router 의 GET /ai-contents/{type} 와 path 가 겹친다.
+# FastAPI 는 먼저 등록된 라우트가 우선하므로, scope(pages) 쿼리를 지원하는
+# study_router 를 files_router 보다 *먼저* 등록해야 한다. (이 순서가 어긋나면
+# files_router 의 비-scope 핸들러가 가로채 pages 쿼리가 조용히 무시된다.)
+app.include_router(study_router, prefix="/v1")
 app.include_router(files_router, prefix="/v1")
 app.include_router(schedules_router, prefix="/v1")
 app.include_router(todos_router, prefix="/v1")
 app.include_router(home_router, prefix="/v1")
 app.include_router(devices_router, prefix="/v1")
-# study_router 는 files_router 의 /ai-contents/{type} 와 path 가 겹치므로
-# 더 구체적인 study_router (scope 쿼리 지원) 가 먼저 등록되어야 한다.
-app.include_router(study_router, prefix="/v1")
 app.include_router(admin_router, prefix="/v1")
 
 
