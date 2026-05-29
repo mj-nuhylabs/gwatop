@@ -84,8 +84,7 @@ struct GwaTopTimetableView: View {
                 )
             }
         }
-        .padding(8)
-        .gwaTopCard(radius: 18)
+        .padding(.vertical, 8)
     }
 
     private func dayColumn(
@@ -215,8 +214,7 @@ struct GwaTopTimetableView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .gwaTopCard(radius: 14)
+            .padding(.vertical, 14)
         )
     }
 
