@@ -250,6 +250,7 @@ struct GwaTopAIStudyView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
+        .contentShape(Rectangle())   // 행 전체(빈 공간 포함)를 탭 영역으로.
     }
 
     /// 주차 chip + 날짜 + 상태(준비 완료 / 처리 중 / 실패).
