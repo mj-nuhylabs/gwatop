@@ -127,21 +127,35 @@ async def social_login(body: SocialLoginRequest, db: AsyncSession = Depends(get_
         raise HTTPException(401, detail={"error": "invalid_token", "message": "Google 계정 정보를 가져올 수 없습니다."})
 
     name = token_data.get("name") or email.split("@")[0]
+    # tokeninfo 는 email_verified 를 문자열 "true"/"false" 또는 bool 로 줄 수 있다.
+    email_verified = str(token_data.get("email_verified", "")).lower() == "true"
 
     result = await db.execute(select(User).where(User.provider == "google", User.provider_id == google_sub))
     user = result.scalar_one_or_none()
 
     if not user:
+        # google sub 로 못 찾으면 같은 이메일의 기존 계정과 병합을 시도한다.
+        # 단, Google 이 이메일 소유권을 인증(email_verified)한 경우에만 허용 —
+        # 미인증 토큰으로 타인의 email-가입 계정을 탈취하는 것을 막는다.
         email_result = await db.execute(select(User).where(User.email == email))
-        user = email_result.scalar_one_or_none()
+        existing = email_result.scalar_one_or_none()
+        if existing is not None:
+            if not email_verified:
+                raise HTTPException(
+                    401,
+                    detail={
+                        "error": "email_not_verified",
+                        "message": "이메일이 인증된 Google 계정으로만 로그인할 수 있어요.",
+                    },
+                )
+            if existing.provider == "email":
+                existing.provider = "google"
+                existing.provider_id = google_sub
+                await db.commit()
+                await db.refresh(existing)
+            user = existing
 
-    if user:
-        if user.provider == "email":
-            user.provider = "google"
-            user.provider_id = google_sub
-            await db.commit()
-            await db.refresh(user)
-    else:
+    if user is None:
         user = User(
             email=email,
             name=name,
@@ -232,7 +246,7 @@ async def change_password(
 @router.post("/refresh")
 async def refresh_token(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
     try:
-        user_id = decode_token(body.refresh_token)
+        user_id = decode_token(body.refresh_token, expected_type="refresh")
     except Exception:
         raise HTTPException(401, detail={"error": "invalid_token", "message": "리프레시 토큰이 유효하지 않습니다."})
 
