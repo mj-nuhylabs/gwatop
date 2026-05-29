@@ -171,6 +171,8 @@ struct GwaTopCalendarView: View {
     // MARK: - 상단 탭 전환
 
     private var topTabSwitcher: some View {
+        // 미니멀 아이콘 토글 — 좌측 정렬, 작은 정사각 아이콘 버튼.
+        // 선택: primary 코랄 / 비선택: surfaceMute 회색.
         HStack(spacing: 6) {
             ForEach(TopTab.allCases) { tab in
                 let isSelected = selectedTopTab == tab
@@ -182,24 +184,17 @@ struct GwaTopCalendarView: View {
                         Task { await loadCoursesIfNeeded() }
                     }
                 } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: tab.icon)
-                            .font(.gwaTopSystem(size: 13, weight: .bold))
-                        Text(tab.label)
-                            .font(.gwaTopSystem(size: 14, weight: .bold))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 40)
-                    .foregroundStyle(isSelected ? .white : GwaTopHomeTheme.primary)
-                    .background(isSelected ? GwaTopHomeTheme.primary : Color.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(GwaTopHomeTheme.primary.opacity(0.25), lineWidth: isSelected ? 0 : 1)
-                    )
+                    Image(systemName: tab.icon)
+                        .font(.gwaTopSystem(size: 15, weight: .bold))
+                        .foregroundStyle(isSelected ? .white : GwaTopHomeTheme.textSecondary)
+                        .frame(width: 38, height: 38)
+                        .background(isSelected ? GwaTopHomeTheme.primary : GwaTopHomeTheme.surfaceMute)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(tab.label)
             }
+            Spacer()
         }
         .padding(4)
         .background(Color.white.opacity(0.45))
