@@ -241,7 +241,20 @@ struct GwaTopAssignmentsView: View {
 
     @MainActor
     private func load() async {
-        isLoading = true
+        // 0) 스플래시 prefetch 캐시 hydrate — 깜빡임 제거.
+        let store = GwaTopAppDataStore.shared
+        if !store.upcomingTodos.isEmpty {
+            assignments = store.upcomingTodos
+                .filter { !$0.isAuto }
+                .map(GwaTopAssignment.init(dto:))
+            if store.isCacheFresh {
+                isLoading = false
+                loadError = nil
+                return
+            }
+        }
+
+        if assignments.isEmpty { isLoading = true }
         loadError = nil
         defer { isLoading = false }
 

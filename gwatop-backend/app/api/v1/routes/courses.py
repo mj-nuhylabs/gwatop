@@ -56,6 +56,7 @@ async def create_course(
         name=body.name,
         professor=body.professor,
         color=body.color,
+        location=body.location,
         schedule=body.schedule,
     )
     db.add(course)

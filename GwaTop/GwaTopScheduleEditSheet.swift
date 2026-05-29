@@ -121,11 +121,43 @@ struct GwaTopScheduleEditSheet: View {
 
                     VStack(alignment: .leading, spacing: 6) {
                         label("메모 (선택)")
-                        TextEditor(text: $description)
-                            .frame(minHeight: 90)
-                            .padding(8)
-                            .background(.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        ZStack(alignment: .topLeading) {
+                            // 빈 상태에서 사용자가 입력 가능한 칸임을 인지할 수 있게 placeholder + 점선 박스.
+                            // TextEditor 자체에는 placeholder 기능이 없어서 ZStack 으로 직접 합성.
+                            if description.isEmpty {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "pencil.line")
+                                            .font(.gwaTopSystem(size: 12, weight: .semibold))
+                                        Text("예: 강의실 위치, 준비물, 참고 링크 등")
+                                            .font(.gwaTopSystem(size: 14, weight: .medium))
+                                    }
+                                    .foregroundStyle(GwaTopHomeTheme.textSecondary.opacity(0.7))
+                                    Text("탭하여 적어두면 알림과 함께 보여드려요.")
+                                        .font(.gwaTopSystem(size: 12, weight: .regular))
+                                        .foregroundStyle(GwaTopHomeTheme.textSecondary.opacity(0.5))
+                                }
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 16)
+                                .allowsHitTesting(false)
+                            }
+                            TextEditor(text: $description)
+                                .scrollContentBackground(.hidden)
+                                .frame(minHeight: 110)
+                                .padding(8)
+                        }
+                        .background(GwaTopHomeTheme.surface)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .strokeBorder(
+                                    GwaTopHomeTheme.primary.opacity(description.isEmpty ? 0.30 : 0.5),
+                                    style: StrokeStyle(
+                                        lineWidth: description.isEmpty ? 1.2 : 1.4,
+                                        dash: description.isEmpty ? [5, 4] : []
+                                    )
+                                )
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
 
                     if let msg = errorMessage {

@@ -13,6 +13,8 @@ struct GwaTopLoginView: View {
 
     @AppStorage("accessToken")  private var accessToken:  String = ""
     @AppStorage("refreshToken") private var refreshToken: String = ""
+    /// 로그인 유지 체크 여부 — true 일 때만 앱 재실행 시 자동 로그인.
+    @AppStorage("keepSignedIn") private var keepSignedIn: Bool = true
 
     @State private var email: String = ""
     @State private var password: String = ""
@@ -70,6 +72,22 @@ struct GwaTopLoginView: View {
                             }
                             .buttonStyle(.plain)
                         }
+                        .padding(.bottom, 16)
+
+                        // 로그인 유지 체크 — 체크 시에만 다음 실행에서 자동 로그인.
+                        Button {
+                            keepSignedIn.toggle()
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: keepSignedIn ? "checkmark.square.fill" : "square")
+                                    .font(.gwaTopSystem(size: 18, weight: .semibold))
+                                    .foregroundStyle(keepSignedIn ? GwaTopTheme.primary : GwaTopTheme.textSecondary)
+                                Text("로그인 유지")
+                                    .font(.gwaTopSystem(size: 14, weight: .semibold))
+                                    .foregroundStyle(GwaTopTheme.textPrimary)
+                            }
+                        }
+                        .buttonStyle(.plain)
                         .padding(.bottom, 22)
 
                         // 메인 CTA — pill primary, full width

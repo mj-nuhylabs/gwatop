@@ -14,6 +14,8 @@ class Course(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     professor: Mapped[str | None] = mapped_column(String, nullable=True)
     color: Mapped[str | None] = mapped_column(String(7), nullable=True)
+    # 강의계획서에서 추출한 강의실(장소). 예: "공학관 401".
+    location: Mapped[str | None] = mapped_column(String, nullable=True)
     schedule: Mapped[list | None] = mapped_column(JSON, nullable=True)
     # 강의계획서에서 추출한 주차별 토픽/노트 (Day 4 분류용 컨텍스트).
     # [{"week_number": int, "topic": str|null, "notes": str|null}, ...]

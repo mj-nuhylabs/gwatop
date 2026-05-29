@@ -24,6 +24,9 @@ struct GwaTopCalendarView: View {
     @State private var showingCreateSheet: Bool = false
     @State private var editingEvent: GwaTopCalendarEvent? = nil
     @State private var selectedTopTab: TopTab = .calendar
+    // 시간표 시트 상태 — 탭 시 선택된 과목, + 버튼 시 추가 시트 노출.
+    @State private var timetableEditingCourse: GwaTopCourseDTO? = nil
+    @State private var showingTimetableAddSheet: Bool = false
 
     /// 강의계획서 파싱 진행 상태 — 배너 표시 + 완료 시 자동 reload 용.
     @ObservedObject private var syllabusWatcher = GwaTopSyllabusWatcher.shared
@@ -84,23 +87,28 @@ struct GwaTopCalendarView: View {
                 }
 
                 // FAB — 우하단 검은 원형 +
-                if selectedTopTab == .calendar {
-                    Button {
+                // 현재 탭에 맞춰 추가 시트를 띄움 (feat/hyunnow 로직 통합).
+                // - 캘린더: 새 일정 시트
+                // - 시간표: 에브리타임 스타일 시간표 추가 시트
+                Button {
+                    if selectedTopTab == .timetable {
+                        showingTimetableAddSheet = true
+                    } else {
                         showingCreateSheet = true
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.gwaTopSystem(size: 22, weight: .heavy))
-                            .foregroundStyle(.white)
-                            .frame(width: 56, height: 56)
-                            .background(GwaTopHomeTheme.textPrimary)
-                            .clipShape(Circle())
-                            .shadow(color: .black.opacity(0.22), radius: 14, x: 0, y: 6)
                     }
-                    .padding(.trailing, 22)
-                    .padding(.bottom, 22)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                    .allowsHitTesting(true)
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.gwaTopSystem(size: 22, weight: .heavy))
+                        .foregroundStyle(.white)
+                        .frame(width: 56, height: 56)
+                        .background(GwaTopHomeTheme.textPrimary)
+                        .clipShape(Circle())
+                        .shadow(color: .black.opacity(0.22), radius: 14, x: 0, y: 6)
                 }
+                .padding(.trailing, 22)
+                .padding(.bottom, 22)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                .allowsHitTesting(true)
             }
             .toolbar(.hidden, for: .navigationBar)
             .sheet(item: $selectedEvent) { event in
@@ -138,6 +146,37 @@ struct GwaTopCalendarView: View {
                         await loadCoursesIfNeeded(force: true)
                     }
                 })
+                .presentationDetents([.large])
+            }
+            // 시간표 블록 탭 → 과목 정보/수정 시트
+            .sheet(item: $timetableEditingCourse) { course in
+                GwaTopTimetableCourseSheet(
+                    course: course,
+                    onSaved: { _ in
+                        GwaTopAppDataStore.shared.refreshCoursesInBackground()
+                        Task { await loadCoursesIfNeeded(force: true) }
+                    },
+                    onDeleted: { _ in
+                        GwaTopAppDataStore.shared.refreshCoursesInBackground()
+                        Task {
+                            await loadCoursesIfNeeded(force: true)
+                            await reload()
+                        }
+                    }
+                )
+                .presentationDetents([.large])
+            }
+            // 시간표 + 버튼 → 새 슬롯 추가 시트
+            .sheet(isPresented: $showingTimetableAddSheet) {
+                GwaTopTimetableAddSheet(
+                    existingCourses: courses,
+                    activeSemesterId: GwaTopAppDataStore.shared.semesters.first(where: { $0.isActive })?.id
+                        ?? GwaTopAppDataStore.shared.semesters.first?.id,
+                    onSaved: {
+                        GwaTopAppDataStore.shared.refreshCoursesInBackground()
+                        Task { await loadCoursesIfNeeded(force: true) }
+                    }
+                )
                 .presentationDetents([.large])
             }
             .task {
@@ -266,13 +305,27 @@ struct GwaTopCalendarView: View {
                 errorBanner(message: msg)
             }
 
-            GwaTopTimetableView(courses: courses)
+            GwaTopTimetableView(
+                courses: courses,
+                onSelectCourse: { course in
+                    timetableEditingCourse = course
+                },
+                onAddTapped: {
+                    showingTimetableAddSheet = true
+                }
+            )
         }
     }
 
     @MainActor
     private func loadCoursesIfNeeded(force: Bool = false) async {
         if !force, !courses.isEmpty { return }
+        // 스플래시 캐시 hydrate.
+        let store = GwaTopAppDataStore.shared
+        if !force, !store.courses.isEmpty {
+            courses = store.courses
+            if store.isCacheFresh { return }
+        }
         do {
             courses = try await GwaTopCourseService.shared.fetchAll()
         } catch {
@@ -283,7 +336,24 @@ struct GwaTopCalendarView: View {
 
     @MainActor
     private func reload(jumpToLatest: Bool = false) async {
-        isLoading = true
+        // 0) 스플래시 prefetch 캐시 hydrate — 깜빡임 제거. fresh 면 네트워크 호출 스킵.
+        let store = GwaTopAppDataStore.shared
+        if !store.allSchedules.isEmpty {
+            events = store.allSchedules.map { GwaTopCalendarEvent(dto: $0) }
+            if jumpToLatest {
+                jumpToFirstUpcomingOrAuto()
+            } else if !events.isEmpty && eventsInDisplayedMonth.isEmpty {
+                jumpToFirstUpcomingOrAuto()
+            }
+            if store.isCacheFresh && !jumpToLatest {
+                isLoading = false
+                loadErrorMessage = nil
+                return
+            }
+        }
+
+        // 캐시가 있으면 spinner 안 보여줌 — 이미 데이터가 차 있으니 백그라운드 갱신만.
+        if events.isEmpty { isLoading = true }
         loadErrorMessage = nil
         do {
             let dtos = try await GwaTopScheduleService.shared.fetchAll()

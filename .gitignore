@@ -80,3 +80,6 @@ gwatop-backend/server.log
 # SSH/EC2 키 — 절대 커밋 금지
 *.pem
 *.key
+
+# gwatop-web — 별도 GitHub 저장소(mj-nuhylabs/gwatop-web)로 관리, 중첩 클론
+gwatop-web/

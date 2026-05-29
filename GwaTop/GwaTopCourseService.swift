@@ -5,7 +5,7 @@
 
 import Foundation
 
-struct GwaTopClassTimeDTO: Decodable, Equatable, Hashable {
+struct GwaTopClassTimeDTO: Codable, Equatable, Hashable {
     let day: String        // MON/TUE/WED/THU/FRI/SAT/SUN
     let startTime: String  // "HH:MM"
     let endTime: String    // "HH:MM"
@@ -23,6 +23,7 @@ struct GwaTopCourseDTO: Decodable, Identifiable, Equatable {
     let name: String
     let professor: String?
     let color: String?
+    let location: String?
     let schedule: [GwaTopClassTimeDTO]?
 
     enum CodingKeys: String, CodingKey {
@@ -31,6 +32,7 @@ struct GwaTopCourseDTO: Decodable, Identifiable, Equatable {
         case name
         case professor
         case color
+        case location
         case schedule
     }
 }
@@ -39,12 +41,16 @@ struct GwaTopCourseCreateRequest: Encodable {
     let name: String
     let professor: String?
     let color: String
+    let location: String?
+    let schedule: [GwaTopClassTimeDTO]?
 }
 
 struct GwaTopCourseUpdateRequest: Encodable {
     let name: String?
     let professor: String?
     let color: String?
+    let location: String?
+    let schedule: [GwaTopClassTimeDTO]?
 }
 
 actor GwaTopCourseService {
@@ -58,9 +64,13 @@ actor GwaTopCourseService {
         semesterId: String,
         name: String,
         professor: String?,
-        color: String
+        color: String,
+        location: String? = nil,
+        schedule: [GwaTopClassTimeDTO]? = nil
     ) async throws -> GwaTopCourseDTO {
-        let body = GwaTopCourseCreateRequest(name: name, professor: professor, color: color)
+        let body = GwaTopCourseCreateRequest(
+            name: name, professor: professor, color: color, location: location, schedule: schedule
+        )
         return try await GwaTopAPIClient.shared.post(
             "/v1/semesters/\(semesterId)/courses",
             body: body
@@ -71,9 +81,13 @@ actor GwaTopCourseService {
         id: String,
         name: String? = nil,
         professor: String? = nil,
-        color: String? = nil
+        color: String? = nil,
+        location: String? = nil,
+        schedule: [GwaTopClassTimeDTO]? = nil
     ) async throws -> GwaTopCourseDTO {
-        let body = GwaTopCourseUpdateRequest(name: name, professor: professor, color: color)
+        let body = GwaTopCourseUpdateRequest(
+            name: name, professor: professor, color: color, location: location, schedule: schedule
+        )
         return try await GwaTopAPIClient.shared.put("/v1/courses/\(id)", body: body)
     }
 
