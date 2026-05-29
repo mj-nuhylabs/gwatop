@@ -14,17 +14,21 @@ from pathlib import PurePosixPath
 
 # 우선순위가 높은 패턴부터 정렬해두면 더 구체적인 표현이 먼저 매칭된다.
 # 모든 패턴은 정수 1~30 범위로 캡처 그룹을 잡아야 한다.
+# 숫자 캡처 끝을 \b 대신 (?!\d) 로 둔다 — \b 는 'week5_intro' 처럼 숫자 뒤에
+# '_'(정규식상 word 문자)가 오면 경계가 없어 매칭이 실패한다. (?!\d) 는 뒤가
+# 또 다른 숫자만 아니면(언더스코어/점/하이픈/문자/끝 모두) 허용하므로 부분 숫자
+# 매칭은 막으면서 '_' 구분 파일명을 정상 인식한다.
 _WEEK_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # "3주차", "제3주차", "3 주차"
     ("주차", re.compile(r"(?:제\s*)?(\d{1,2})\s*주\s*차", re.IGNORECASE)),
     # "주차3", "주 3"
     ("주차역", re.compile(r"주\s*차?\s*(\d{1,2})", re.IGNORECASE)),
     # "week 5", "wk5", "w5"
-    ("week", re.compile(r"\b(?:week|wk|w)\s*[-_# ]?\s*(\d{1,2})\b", re.IGNORECASE)),
+    ("week", re.compile(r"\b(?:week|wk|w)\s*[-_# ]?\s*(\d{1,2})(?!\d)", re.IGNORECASE)),
     # "chapter 4", "ch4", "ch_4"
-    ("chapter", re.compile(r"\b(?:chapter|chap|ch)\s*[-_# ]?\s*(\d{1,2})\b", re.IGNORECASE)),
+    ("chapter", re.compile(r"\b(?:chapter|chap|ch)\s*[-_# ]?\s*(\d{1,2})(?!\d)", re.IGNORECASE)),
     # "lecture 6", "lec6"
-    ("lecture", re.compile(r"\b(?:lecture|lec)\s*[-_# ]?\s*(\d{1,2})\b", re.IGNORECASE)),
+    ("lecture", re.compile(r"\b(?:lecture|lec)\s*[-_# ]?\s*(\d{1,2})(?!\d)", re.IGNORECASE)),
     # 마지막 fallback — 파일명 맨 앞의 "01_", "02-", "03." 같은 숫자 prefix.
     # 가장 약한 신호이므로 confidence를 따로 낮춰서 부여한다.
     ("prefix", re.compile(r"^\s*(\d{1,2})\s*[._\-]")),

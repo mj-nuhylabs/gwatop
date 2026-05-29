@@ -1,12 +1,12 @@
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_current_user
-from app.api.v1.deps_owned import owned_course, owned_todo
+from app.api.v1.deps_owned import owned_course, owned_schedule, owned_todo
 from app.core.database import get_db
 from app.models.course import Course
 from app.models.semester import Semester
@@ -95,6 +95,16 @@ async def create_todo(
     db: AsyncSession = Depends(get_db),
 ):
     course = await owned_course(body.course_id, current_user, db)
+
+    # schedule_id 가 주어지면 그 일정도 현재 유저 소유이며 같은 course 인지 검증한다.
+    # (검증 없이 저장하면 타인의 schedule 에 todo 를 링크하는 IDOR 가 된다.)
+    if body.schedule_id is not None:
+        schedule, _ = await owned_schedule(body.schedule_id, current_user, db)
+        if schedule.course_id != body.course_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="schedule_id 가 course_id 와 일치하지 않습니다.",
+            )
 
     todo = Todo(
         course_id=body.course_id,

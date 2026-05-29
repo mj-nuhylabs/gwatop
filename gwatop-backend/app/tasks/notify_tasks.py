@@ -157,6 +157,9 @@ async def _run_notify_due_dday(SessionLocal) -> None:
             sent_total += count
             logger.info("[NOTIFY_DDAY] todo user=%s count=%d pushed=%d", uid, todo_count, count)
 
+        # push_to_user 가 stage 한 invalid 토큰 삭제를 여기서 일괄 커밋.
+        await session.commit()
+
         if sent_total == 0:
             logger.info("[NOTIFY_DDAY] no notifications sent (no schedules/todos in window)")
         else:
@@ -209,4 +212,6 @@ async def _run_notify_classified(file_id: str, SessionLocal) -> None:
             body=body,
             data={"type": "file_classified", "file_id": str(file_row.id)},
         )
+        # push_to_user 가 stage 한 invalid 토큰 삭제 커밋.
+        await session.commit()
         logger.info("[NOTIFY_CLASSIFIED] file=%s user=%s pushed=%d", file_id, user_id, count)

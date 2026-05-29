@@ -21,6 +21,9 @@ struct GwaTopCalendarView: View {
     @State private var isLoading: Bool = false
     @State private var loadErrorMessage: String? = nil
     @State private var didInitialLoad: Bool = false
+    // "빈 달이면 가장 가까운 일정으로 점프" 자동 동작을 뷰 생애 최초 1회로 제한하기 위한 플래그.
+    // (didInitialLoad 는 reload 호출 전에 이미 true 라 구분 불가 → 별도 플래그)
+    @State private var didAutoJumpOnLoad: Bool = false
     @State private var showingCreateSheet: Bool = false
     @State private var editingEvent: GwaTopCalendarEvent? = nil
     @State private var selectedTopTab: TopTab = .calendar
@@ -414,8 +417,12 @@ struct GwaTopCalendarView: View {
         if !store.allSchedules.isEmpty {
             events = store.allSchedules.map { GwaTopCalendarEvent(dto: $0) }
             if jumpToLatest {
+                didAutoJumpOnLoad = true
                 jumpToFirstUpcomingOrAuto()
-            } else if !events.isEmpty && eventsInDisplayedMonth.isEmpty {
+            } else if !didAutoJumpOnLoad && !events.isEmpty && eventsInDisplayedMonth.isEmpty {
+                // 빈 달을 보던 사용자가 새로고침/탭 재진입 때마다 끌려가지 않도록, 이
+                // 자동 점프는 뷰 생애 최초 1회만 한다 (명시적 jumpToLatest 는 항상 점프).
+                didAutoJumpOnLoad = true
                 jumpToFirstUpcomingOrAuto()
             }
             if store.isCacheFresh && !jumpToLatest {
@@ -437,8 +444,12 @@ struct GwaTopCalendarView: View {
             //  2) 일반 로드인데 현재 displayedMonth에 일정이 0이면서 어딘가에 일정이 있을 때
             //     → 사용자가 빈 달을 보고 "데이터가 사라졌다"고 오해하는 것 방지
             if jumpToLatest {
+                didAutoJumpOnLoad = true
                 jumpToFirstUpcomingOrAuto()
-            } else if !events.isEmpty && eventsInDisplayedMonth.isEmpty {
+            } else if !didAutoJumpOnLoad && !events.isEmpty && eventsInDisplayedMonth.isEmpty {
+                // 빈 달을 보던 사용자가 새로고침/탭 재진입 때마다 끌려가지 않도록, 이
+                // 자동 점프는 뷰 생애 최초 1회만 한다 (명시적 jumpToLatest 는 항상 점프).
+                didAutoJumpOnLoad = true
                 jumpToFirstUpcomingOrAuto()
             }
         } catch {
@@ -491,7 +502,9 @@ struct GwaTopCalendarView: View {
     }
 
     private var monthGrid: some View {
-        VStack(spacing: 0) {
+        // 셀마다 mergedEvents 를 선형 스캔(O 일수×이벤트)하지 않도록, 날짜(자정)별로 한 번만 그룹핑.
+        let eventsByDay = Dictionary(grouping: mergedEvents) { calendar.startOfDay(for: $0.startDate) }
+        return VStack(spacing: 0) {
             // 월 표시("2026년 6월")와 이동 화살표는 상단 헤더로 이동했다.
             // 요일 헤더
             HStack(spacing: 0) {
@@ -513,7 +526,7 @@ struct GwaTopCalendarView: View {
                         GwaTopCalendarDayCell(
                             day: day,
                             isToday: calendar.isDateInToday(day.date),
-                            events: eventsForDate(day.date),
+                            events: eventsByDay[calendar.startOfDay(for: day.date)] ?? [],
                             onEventTap: { event in
                                 selectedEvent = event
                             },
@@ -682,10 +695,6 @@ struct GwaTopCalendarView: View {
 
     private var selectedDateTitle: String {
         GwaTopDateFormatters.koMonthDayWeekday.string(from: selectedDate)
-    }
-
-    private func eventsForDate(_ date: Date) -> [GwaTopCalendarEvent] {
-        mergedEvents.filter { calendar.isDate($0.startDate, inSameDayAs: date) }
     }
 
     private func moveMonth(by value: Int) {

@@ -27,6 +27,7 @@ from datetime import datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import select, delete
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import make_celery_session_factory
@@ -54,6 +55,21 @@ from app.services.todo_generator import build_auto_todos
 from app.tasks.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+
+
+async def _commit_or_skip_duplicate(session) -> bool:
+    """commit 하고, (file_id, content_type, scope) 유니크 충돌이면 rollback 후 False 반환.
+
+    동시 워커가 같은 AIContent 조합을 먼저 저장한 race 를 흡수한다. 유니크 제약이
+    아직 없는 환경(마이그레이션 미적용)에선 IntegrityError 가 안 나므로 기존 동작과 동일.
+    """
+    try:
+        await session.commit()
+        return True
+    except IntegrityError:
+        await session.rollback()
+        logger.info("AIContent 중복 저장 race — 다른 워커가 먼저 저장함, skip")
+        return False
 
 
 # ---------- Celery entry points ----------
@@ -783,8 +799,8 @@ async def _run_generate_summary(file_id: str, SessionLocal) -> None:
             select(AIContent).where(
                 AIContent.file_id == file_row.id,
                 AIContent.content_type == "summary",
-            )
-        )).scalar_one_or_none()
+            ).order_by(AIContent.generated_at.desc())
+        )).scalars().first()
         if existing is not None:
             logger.info("generate_summary: already exists for file=%s", file_id)
             return
@@ -804,7 +820,8 @@ async def _run_generate_summary(file_id: str, SessionLocal) -> None:
             content=payload,
         )
         session.add(ac)
-        await session.commit()
+        if not await _commit_or_skip_duplicate(session):
+            return
         logger.info(
             "generate_summary: saved file=%s tokens=%s headline=%r",
             file_id, payload.get("tokens"), payload.get("headline", "")[:80],
@@ -828,8 +845,8 @@ async def _run_analyze_file(file_id: str, SessionLocal) -> None:
             select(AIContent).where(
                 AIContent.file_id == file_row.id,
                 AIContent.content_type == "analysis",
-            )
-        )).scalar_one_or_none()
+            ).order_by(AIContent.generated_at.desc())
+        )).scalars().first()
         if existing is not None:
             logger.info("analyze_file: already exists file=%s", file_id)
             return
@@ -849,7 +866,8 @@ async def _run_analyze_file(file_id: str, SessionLocal) -> None:
             content=payload,
         )
         session.add(ac)
-        await session.commit()
+        if not await _commit_or_skip_duplicate(session):
+            return
         logger.info(
             "analyze_file: saved file=%s tokens=%s concepts=%d terms=%d",
             file_id, payload.get("tokens"),
@@ -903,8 +921,8 @@ async def _run_generate_ai_content(
                 AIContent.file_id == file_row.id,
                 AIContent.content_type == content_type,
                 AIContent.scope == scope,
-            )
-        )).scalar_one_or_none()
+            ).order_by(AIContent.generated_at.desc())
+        )).scalars().first()
         should_regenerate = force or bool(exclude_questions)
         if existing is not None and not should_regenerate:
             logger.info(
@@ -934,8 +952,8 @@ async def _run_generate_ai_content(
                 select(AIContent).where(
                     AIContent.file_id == file_row.id,
                     AIContent.content_type == "analysis",
-                )
-            )).scalar_one_or_none()
+                ).order_by(AIContent.generated_at.desc())
+            )).scalars().first()
             if analysis_row is not None and isinstance(analysis_row.content, dict):
                 analysis_payload = analysis_row.content
                 logger.info(
@@ -961,7 +979,9 @@ async def _run_generate_ai_content(
                         content=analysis_payload,
                     )
                     session.add(inline_ac)
-                    await session.commit()
+                    # 충돌(다른 워커가 분석본 먼저 저장)이어도 analysis_payload 는 메모리에
+                    # 있으므로 그대로 입력으로 쓰고 진행한다 (return 하지 않음).
+                    await _commit_or_skip_duplicate(session)
                     logger.info(
                         "generate_ai_content: inline analysis saved file=%s tokens=%s",
                         file_id, analysis_payload.get("tokens"),
@@ -994,7 +1014,8 @@ async def _run_generate_ai_content(
                 requested_by_user_id=UUID(requested_by_user_id) if requested_by_user_id else None,
             )
             session.add(err_ac)
-            await session.commit()
+            # 에러 row 저장 중 충돌이면(다른 워커가 정상 결과를 이미 저장) 덮지 않는다.
+            await _commit_or_skip_duplicate(session)
             return
 
         ac = AIContent(
@@ -1005,7 +1026,8 @@ async def _run_generate_ai_content(
             requested_by_user_id=UUID(requested_by_user_id) if requested_by_user_id else None,
         )
         session.add(ac)
-        await session.commit()
+        if not await _commit_or_skip_duplicate(session):
+            return
         logger.info(
             "generate_ai_content: saved file=%s type=%s scope=%s tokens=%s",
             file_id, content_type, scope, payload.get("tokens"),

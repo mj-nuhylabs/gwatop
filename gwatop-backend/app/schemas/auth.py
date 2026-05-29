@@ -1,10 +1,11 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 import uuid
 
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str
+    # 비밀번호 변경(PasswordChangeRequest.new_password) 정책과 동일하게 8자 이상 강제.
+    password: str = Field(..., min_length=8, max_length=200)
     name: str
     school: str | None = None
     student_id: str | None = None

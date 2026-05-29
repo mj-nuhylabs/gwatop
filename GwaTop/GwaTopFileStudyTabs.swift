@@ -724,7 +724,7 @@ struct GwaTopFileQuizTab: View {
             quiz = resp.quiz()
             resetPlayerState()
         } catch {
-            self.error = error.localizedDescription
+            if !isCancellation(error) { self.error = error.localizedDescription }
         }
     }
 }
@@ -1171,7 +1171,7 @@ struct GwaTopFileFlashcardTab: View {
             let statuses = (try? await GwaTopFileService.shared
                 .flashcardStatuses(fileId: file.id, scope: scope)) ?? [:]
             applyStatuses(statuses)
-        } catch { self.error = error.localizedDescription }
+        } catch { if !isCancellation(error) { self.error = error.localizedDescription } }
     }
 
     @MainActor
@@ -1373,7 +1373,7 @@ struct GwaTopFileMindmapTab: View {
             }
             mindmap = resp.mindmap()
             expandedLabels = []
-        } catch { self.error = error.localizedDescription }
+        } catch { if !isCancellation(error) { self.error = error.localizedDescription } }
     }
 }
 
@@ -1637,7 +1637,7 @@ struct GwaTopFileMemorizeTab: View {
                 return
             }
             content = resp.memorize()
-        } catch { self.error = error.localizedDescription }
+        } catch { if !isCancellation(error) { self.error = error.localizedDescription } }
     }
 }
 
@@ -1821,7 +1821,7 @@ struct GwaTopFileTopicsTab: View {
                 return
             }
             content = resp.topics()
-        } catch { self.error = error.localizedDescription }
+        } catch { if !isCancellation(error) { self.error = error.localizedDescription } }
     }
 }
 

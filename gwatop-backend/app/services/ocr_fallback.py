@@ -40,14 +40,27 @@ class OCRError(Exception):
 
 
 _client: AsyncOpenAI | None = None
+_client_loop: asyncio.AbstractEventLoop | None = None
 
 
 def _get_client() -> AsyncOpenAI:
-    global _client
-    if _client is None:
-        if not settings.OPENAI_API_KEY:
-            raise OCRError("OPENAI_API_KEY is not configured")
+    """현재 이벤트 루프에 바인딩된 AsyncOpenAI 클라이언트를 반환한다.
+
+    Celery 는 태스크마다 새 asyncio.run() 루프를 만든다. AsyncOpenAI 내부 httpx/anyio
+    상태는 생성 시점 루프에 묶이므로, 다른 루프에서 재사용하면 'Future attached to a
+    different loop' 류 에러가 난다. 루프가 바뀌면 클라이언트를 새로 만든다(같은 태스크
+    안에서는 캐시 재사용).
+    """
+    global _client, _client_loop
+    if not settings.OPENAI_API_KEY:
+        raise OCRError("OPENAI_API_KEY is not configured")
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if _client is None or _client_loop is not loop:
         _client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        _client_loop = loop
     return _client
 
 
@@ -79,6 +92,25 @@ def render_pdf_pages_to_png(
             pix = page.get_pixmap(matrix=matrix, alpha=False)
             images.append(pix.tobytes("png"))
     return images
+
+
+def _pdf_page_count(pdf_bytes: bytes) -> int:
+    with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+        return doc.page_count
+
+
+def _render_page_range(
+    pdf_bytes: bytes, start: int, end: int, *, dpi: int = TARGET_DPI
+) -> list[bytes]:
+    """[start, end) 범위 페이지만 PNG bytes 로 렌더링 (배치 단위 OCR 용 — 메모리 절약)."""
+    zoom = dpi / 72.0
+    matrix = fitz.Matrix(zoom, zoom)
+    out: list[bytes] = []
+    with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+        for i in range(start, min(end, doc.page_count)):
+            pix = doc[i].get_pixmap(matrix=matrix, alpha=False)
+            out.append(pix.tobytes("png"))
+    return out
 
 
 async def _ocr_single_page(png_bytes: bytes, page_index: int) -> str:
@@ -125,19 +157,27 @@ async def ocr_pdf(pdf_bytes: bytes) -> str:
     페이지들을 asyncio.gather 로 병렬 호출 — 50페이지 PDF 면 약 5~10초.
     OpenAI 호출 동시성 제한을 고려해 한 번에 최대 6개씩 처리.
     """
-    pages = render_pdf_pages_to_png(pdf_bytes)
-    if not pages:
+    total = _pdf_page_count(pdf_bytes)
+    if total == 0:
         return ""
+    n = min(total, MAX_PAGES_TO_OCR)
+    if total > MAX_PAGES_TO_OCR:
+        logger.warning("OCR: 페이지 수 상한(%d) 도달, 이후 페이지 무시", MAX_PAGES_TO_OCR)
 
-    logger.info("OCR start: %d pages", len(pages))
+    logger.info("OCR start: %d pages", n)
 
-    # OpenAI rate limit 보호를 위한 batch.
+    # 배치 단위로 렌더링 → OCR. 전 페이지 PNG 를 한꺼번에 메모리에 들지 않아 워커
+    # 메모리 점유가 ~BATCH_SIZE 장 수준으로 유지된다. OpenAI rate limit 보호도 겸함.
     BATCH_SIZE = 6
-    results: list[str] = [""] * len(pages)
-    for batch_start in range(0, len(pages), BATCH_SIZE):
-        batch = pages[batch_start : batch_start + BATCH_SIZE]
+    results: list[str] = [""] * n
+    for batch_start in range(0, n, BATCH_SIZE):
+        batch_end = min(batch_start + BATCH_SIZE, n)
+        # 이 배치 페이지만 렌더링 — 이전 배치 PNG 는 GC 됨.
+        batch_pngs = await asyncio.to_thread(
+            _render_page_range, pdf_bytes, batch_start, batch_end
+        )
         coros = [
-            _ocr_single_page(png, batch_start + i) for i, png in enumerate(batch)
+            _ocr_single_page(png, batch_start + i) for i, png in enumerate(batch_pngs)
         ]
         batch_results = await asyncio.gather(*coros, return_exceptions=True)
         for i, r in enumerate(batch_results):
@@ -149,7 +189,7 @@ async def ocr_pdf(pdf_bytes: bytes) -> str:
 
     joined = "\n\n".join(t for t in results if t.strip())
     logger.info(
-        "OCR done: total chars=%d (pages=%d)", len(joined), len(pages)
+        "OCR done: total chars=%d (pages=%d)", len(joined), n
     )
     return joined
 

@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_current_user
@@ -137,7 +138,7 @@ async def study_get_ai_content(
                 AIContent.scope == scope,
             )
         ).order_by(AIContent.generated_at.desc())
-    )).scalar_one_or_none()
+    )).scalars().first()
 
     if row is None:
         # 아직 생성 안 됨 — 폴링이 곧 다시 호출하므로 캐시 금지.
@@ -208,8 +209,8 @@ async def study_generate_ai_content(
                 AIContent.content_type == content_type,
                 AIContent.scope == scope,
             )
-        )
-    )).scalar_one_or_none()
+        ).order_by(AIContent.generated_at.desc())
+    )).scalars().first()
     if existing is not None and not req.force:
         return {
             "file_id": str(file_id),
@@ -356,7 +357,22 @@ async def set_flashcard_status(
     else:
         existing.status = body.status
 
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # 토글 연타 race — 다른 요청이 같은 카드를 먼저 insert 함. 재조회 후 update.
+        await db.rollback()
+        existing = (await db.execute(
+            select(UserFlashcardStatus).where(
+                UserFlashcardStatus.user_id == current_user.id,
+                UserFlashcardStatus.file_id == file_id,
+                UserFlashcardStatus.scope == scope,
+                UserFlashcardStatus.card_front == body.card_front,
+            )
+        )).scalars().first()
+        if existing is not None:
+            existing.status = body.status
+            await db.commit()
     return {
         "file_id": str(file_id),
         "scope": scope,
@@ -397,8 +413,8 @@ async def add_more_flashcards(
                 AIContent.content_type == "flashcard",
                 AIContent.scope == scope,
             )
-        )
-    )).scalar_one_or_none()
+        ).order_by(AIContent.generated_at.desc())
+    )).scalars().first()
 
     existing_cards: list[dict] = []
     if existing_row is not None and isinstance(existing_row.content, dict):
@@ -420,8 +436,8 @@ async def add_more_flashcards(
             select(AIContent).where(
                 AIContent.file_id == file_row.id,
                 AIContent.content_type == "analysis",
-            )
-        )).scalar_one_or_none()
+            ).order_by(AIContent.generated_at.desc())
+        )).scalars().first()
         if analysis_row is not None and isinstance(analysis_row.content, dict):
             analysis_payload = analysis_row.content
 

@@ -21,6 +21,8 @@ struct GwaTopAIStudyView: View {
     @State private var courses: [GwaTopCourseDTO] = []
     @State private var filesByCourse: [String: [GwaTopFileSummary]] = [:]
     @State private var isLoadingCourses = false
+    // reloadAllFiles 동시 실행 시 가장 최근 호출만 결과를 반영하기 위한 세대 카운터.
+    @State private var reloadGeneration = 0
     @State private var loadingCourseIds: Set<String> = []
     @State private var loadError: String? = nil
     @State private var showUploadSheet = false
@@ -451,6 +453,10 @@ struct GwaTopAIStudyView: View {
     @MainActor
     private func reloadAllFiles(silent: Bool = false) async {
         guard !courses.isEmpty else { return }
+        // 동시 실행 race 방지: 가장 최근에 시작한 reload 만 결과를 반영한다. 느린 이전
+        // reload 가 나중에 끝나며 최신 데이터를 stale 응답으로 덮어쓰는 깜빡임을 막는다.
+        reloadGeneration += 1
+        let myGen = reloadGeneration
         let store = GwaTopAppDataStore.shared
         // ── 캐시 hydrate ─────────────────────────────────────────────────────────────
         // silent=false (.task / refreshable) — 사용자가 빈 화면을 보지 않게 캐시로 즉시 채움.
@@ -485,14 +491,16 @@ struct GwaTopAIStudyView: View {
                 }
             }
             for await (cid, result) in group {
+                // 더 새로운 reload 가 시작됐으면 이 결과는 stale — 반영하지 않는다.
+                if myGen != reloadGeneration { continue }
                 if let result {
                     filesByCourse[cid] = result
                 }
                 loadingCourseIds.remove(cid)
             }
         }
-        // 진행 중 파일이 있으면 다음 폴 예약.
-        if hasInProgress {
+        // 진행 중 파일이 있으면 다음 폴 예약. (최신 reload 일 때만)
+        if myGen == reloadGeneration && hasInProgress {
             pollTick += 1
         }
     }
