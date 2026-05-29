@@ -15,23 +15,13 @@
 
 import SwiftUI
 
-// MARK: - 색상 팔레트 (차분한 톤)
+// MARK: - 색상 팔레트 (앱 공용 토큰 — 코랄 primary + 과목 파스텔)
 
-private let kBranchColors: [Color] = [
-    Color(red: 0.40, green: 0.52, blue: 0.66),  // muted slate blue
-    Color(red: 0.58, green: 0.54, blue: 0.42),  // muted olive
-    Color(red: 0.55, green: 0.45, blue: 0.55),  // muted plum
-    Color(red: 0.40, green: 0.58, blue: 0.55),  // muted teal
-    Color(red: 0.62, green: 0.50, blue: 0.45),  // muted brick
-    Color(red: 0.45, green: 0.56, blue: 0.45),  // muted moss
-    Color(red: 0.52, green: 0.52, blue: 0.60),  // muted lavender
-    Color(red: 0.56, green: 0.48, blue: 0.42),  // muted tan
-]
+/// 가지 색상 — 과목 카드와 동일한 파스텔 팔레트를 그대로 사용해 앱 전체 톤과 통일.
+private let kBranchColors: [Color] = GwaTopCourseColorPalette.map(Color.gwaTopHex)
 
-private let kRootColor = Color(red: 0.22, green: 0.27, blue: 0.36)   // deep slate
-private let kLineColor = Color(white: 0.55)
-private let kSurface   = Color.white
-private let kLeafText  = Color(white: 0.22)
+private let kRootColor = GwaTopHomeTheme.primary  // Claude coral #cc785c
+private let kSurface   = GwaTopHomeTheme.surface  // 노드 배경 (다크 자동 전환)
 
 // MARK: - 내부 좌표 모델
 
@@ -177,44 +167,44 @@ struct GwaTopMindmapCanvas: View {
             }
 
             ZStack {
-                Color.clear
+                // 전체 영역을 드래그/핀치 가능한 hit target 으로 — 노드 밖 빈 곳을 잡아도 이동.
+                GwaTopHomeTheme.background
 
-                // 1) 연결선 — 직각(L자) 라우팅.
-                Path { path in
-                    for node in shifted where node.level > 0 {
-                        guard let parent = node.parentPosition else { continue }
-                        let p1 = parent
-                        let p2 = node.position
-                        let midX = (p1.x + p2.x) / 2
-                        path.move(to: p1)
-                        path.addLine(to: CGPoint(x: midX, y: p1.y))
-                        path.addLine(to: CGPoint(x: midX, y: p2.y))
-                        path.addLine(to: p2)
+                // 변환(확대·이동)되는 캔버스 콘텐츠.
+                ZStack {
+                    // 1) 연결선 — 부모→자식 부드러운 곡선, 가지 색상으로.
+                    ForEach(shifted.filter { $0.level > 0 }) { node in
+                        if let parent = node.parentPosition {
+                            connector(from: parent, to: node.position)
+                                .stroke(
+                                    node.color.opacity(0.7),
+                                    style: StrokeStyle(lineWidth: 2.0, lineCap: .round, lineJoin: .round)
+                                )
+                        }
                     }
-                }
-                .stroke(kLineColor.opacity(0.55),
-                        style: StrokeStyle(lineWidth: 1.0, lineCap: .square, lineJoin: .miter))
 
-                // 2) 노드 — level 순서로 그려서 자식이 부모 위로 안 가도록.
-                ForEach(shifted.sorted { $0.level < $1.level }) { node in
-                    nodeView(node)
-                        .position(node.position)
-                        .onTapGesture {
-                            guard node.level == 1, node.childCount > 0 else { return }
-                            withAnimation(.easeInOut(duration: 0.22)) {
-                                if expandedBranches.contains(node.label) {
-                                    expandedBranches.remove(node.label)
-                                } else {
-                                    expandedBranches.insert(node.label)
+                    // 2) 노드 — level 순서로 그려서 자식이 부모 위로 안 가도록.
+                    ForEach(shifted.sorted { $0.level < $1.level }) { node in
+                        nodeView(node)
+                            .position(node.position)
+                            .onTapGesture {
+                                guard node.level == 1, node.childCount > 0 else { return }
+                                withAnimation(.easeInOut(duration: 0.22)) {
+                                    if expandedBranches.contains(node.label) {
+                                        expandedBranches.remove(node.label)
+                                    } else {
+                                        expandedBranches.insert(node.label)
+                                    }
                                 }
                             }
-                        }
+                    }
                 }
+                .frame(width: canvasSize.width, height: canvasSize.height)
+                .scaleEffect(scale)
+                .offset(offset)
             }
-            .frame(width: canvasSize.width, height: canvasSize.height)
-            .scaleEffect(scale)
-            .offset(offset)
-            .position(x: geo.size.width / 2, y: geo.size.height / 2)
+            .frame(width: geo.size.width, height: geo.size.height)
+            .contentShape(Rectangle())
             .gesture(
                 SimultaneousGesture(
                     MagnificationGesture()
@@ -222,7 +212,7 @@ struct GwaTopMindmapCanvas: View {
                             scale = max(minScale, min(maxScale, lastScale * value))
                         }
                         .onEnded { _ in lastScale = scale },
-                    DragGesture()
+                    DragGesture(minimumDistance: 1)
                         .onChanged { v in
                             offset = CGSize(
                                 width: lastOffset.width + v.translation.width,
@@ -238,48 +228,56 @@ struct GwaTopMindmapCanvas: View {
                 }
             }
         }
-        .frame(minHeight: 480)
-        .background(Color(white: 0.985))
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .stroke(Color(white: 0.88), lineWidth: 0.5)
-        )
+        .background(GwaTopHomeTheme.background)
         .overlay(alignment: .bottomTrailing) { zoomControls }
+    }
+
+    /// 부모→자식 수평 cubic Bézier — 양 끝은 수평으로 빠져나가 부드러운 S 곡선.
+    private func connector(from p1: CGPoint, to p2: CGPoint) -> Path {
+        var path = Path()
+        let midX = (p1.x + p2.x) / 2
+        path.move(to: p1)
+        path.addCurve(
+            to: p2,
+            control1: CGPoint(x: midX, y: p1.y),
+            control2: CGPoint(x: midX, y: p2.y)
+        )
+        return path
     }
 
     // MARK: - 줌 컨트롤
 
     private var zoomControls: some View {
-        VStack(spacing: 1) {
+        VStack(spacing: 4) {
             zoomButton(systemName: "plus") {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     let next = min(maxScale, scale + 0.25)
                     scale = next; lastScale = next
                 }
             }
-            Divider().frame(width: 28)
+            Divider().frame(width: 22)
             zoomButton(systemName: "minus") {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     let next = max(minScale, scale - 0.25)
                     scale = next; lastScale = next
                 }
             }
-            Divider().frame(width: 28)
+            Divider().frame(width: 22)
             zoomButton(systemName: "arrow.up.left.and.arrow.down.right") {
                 withAnimation(.easeInOut(duration: 0.25)) { resetView() }
             }
         }
-        .gwaTopCard(radius: 4)
-        .padding(10)
+        .padding(.vertical, 6)
+        .gwaTopCard(radius: 16)
+        .padding(16)
     }
 
     private func zoomButton(systemName: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.gwaTopSystem(size: 12, weight: .semibold))
-                .foregroundStyle(Color(white: 0.30))
-                .frame(width: 28, height: 28)
+                .font(.gwaTopSystem(size: 14, weight: .bold))
+                .foregroundStyle(GwaTopHomeTheme.primary)
+                .frame(width: 38, height: 34)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -296,27 +294,30 @@ struct GwaTopMindmapCanvas: View {
     private func nodeView(_ node: PositionedNode) -> some View {
         switch node.level {
         case 0:
-            // root — 다크 슬레이트, 살짝만 둥근 사각.
+            // root — 코랄 primary 알약, 흰 텍스트. 앱의 주요 버튼 톤과 통일.
             Text(node.label)
                 .font(.gwaTopSystem(size: 17, weight: .heavy))
                 .foregroundStyle(.white)
                 .lineLimit(3)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 14)
+                .padding(.horizontal, 22)
+                .padding(.vertical, 16)
                 .frame(maxWidth: 220)
-                .background(kRootColor)
-                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .background(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(GwaTopHomeTheme.primaryGradient)
+                )
+                .shadow(color: kRootColor.opacity(0.25), radius: 10, y: 4)
 
         case 1:
-            // 1단계 — 흰 배경 + 컬러 보더 + 컬러 라벨. 자식 수 뱃지.
-            HStack(spacing: 8) {
-                Rectangle()
+            // 1단계 — surface 카드 + 파스텔 좌측 액센트 + 자식 수 뱃지.
+            HStack(spacing: 10) {
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
                     .fill(node.color)
-                    .frame(width: 4, height: 22)
+                    .frame(width: 5, height: 24)
                 Text(node.label)
                     .font(.gwaTopSystem(size: 16, weight: .bold))
-                    .foregroundStyle(Color(white: 0.12))
+                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
 
@@ -327,38 +328,39 @@ struct GwaTopMindmapCanvas: View {
                         Text("\(node.childCount)")
                             .font(.gwaTopSystem(size: 12, weight: .bold))
                     }
-                    .foregroundStyle(node.color)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(node.color.opacity(0.12))
-                    .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+                    .foregroundStyle(GwaTopHomeTheme.textPrimary.opacity(0.8))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(node.color.opacity(0.30))
+                    .clipShape(Capsule())
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
             .frame(maxWidth: 230)
             .background(kSurface)
-            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .stroke(node.color.opacity(0.65), lineWidth: 1.4)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(node.color.opacity(0.55), lineWidth: 1.5)
             )
+            .shadow(color: GwaTopHomeTheme.cardShadow, radius: 6, y: 2)
 
         default:
-            // 2단계 leaf — 더 옅은 톤, 동일한 살짝 둥근 사각.
+            // 2단계 leaf — 파스텔 tint 배경, 둥근 카드.
             Text(node.label)
-                .font(.gwaTopSystem(size: 14, weight: .bold))
-                .foregroundStyle(Color(white: 0.15))
+                .font(.gwaTopSystem(size: 14, weight: .semibold))
+                .foregroundStyle(GwaTopHomeTheme.textPrimary)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
                 .frame(maxWidth: 210)
-                .background(kSurface)
-                .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+                .background(node.color.opacity(0.16))
+                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .stroke(node.color.opacity(0.45), lineWidth: 1.0)
+                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        .stroke(node.color.opacity(0.40), lineWidth: 1.0)
                 )
         }
     }
