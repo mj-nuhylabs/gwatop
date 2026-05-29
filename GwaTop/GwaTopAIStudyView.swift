@@ -290,10 +290,16 @@ struct GwaTopAIStudyView: View {
             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 
+    /// 백엔드의 최종(준비 완료) 상태들. 자료는 classified/unclassified,
+    /// 강의계획서는 parsed 로 끝난다. 이 중 하나면 더 이상 "처리 중"이 아니다.
+    private static let readyStatuses: Set<String> = [
+        "classified", "unclassified", "parsed", "done"
+    ]
+
     @ViewBuilder
     private func statusIcon(_ f: GwaTopFileSummary) -> some View {
         switch f.status {
-        case "classified":
+        case let s where Self.readyStatuses.contains(s):
             HStack(spacing: 3) {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.gwaTopSystem(size: 10, weight: .semibold))

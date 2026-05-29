@@ -745,48 +745,35 @@ struct GwaTopFileSummaryTab: View {
 
     private func sectionsCard(_ s: GwaTopAISummary) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 6) {
-                Text("섹션별 요약")
-                    .font(.gwaTopSystem(size: 14, weight: .bold))
-                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                if s.sections.count > 3 {
-                    // 섹션이 많을 때 내부 스크롤이 있음을 시각적으로 안내.
-                    Text("스크롤")
-                        .font(.gwaTopSystem(size: 11, weight: .semibold))
-                        .foregroundStyle(GwaTopHomeTheme.textSecondary.opacity(0.7))
-                        .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(GwaTopHomeTheme.textSecondary.opacity(0.08))
-                        .clipShape(Capsule())
-                }
-                Spacer(minLength: 0)
-            }
-            // 섹션이 많아져도 카드가 화면 전체를 잠식하지 않도록 내부 스크롤로 제한.
-            ScrollView(.vertical, showsIndicators: true) {
-                VStack(alignment: .leading, spacing: 12) {
-                    ForEach(Array(s.sections.enumerated()), id: \.offset) { idx, section in
-                        VStack(alignment: .leading, spacing: 4) {
-                            // 섹션 제목 + 본문 모두 LaTeX 수식 가능성 있어 GwaTopMathText.
-                            GwaTopMathText(
-                                section.title,
-                                fontSize: 15, weight: .bold,
-                                color: GwaTopHomeTheme.textPrimary
-                            )
-                            GwaTopMathText(
-                                section.body,
-                                fontSize: 14, weight: .medium,
-                                color: GwaTopHomeTheme.textSecondary
-                            )
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.bottom, 4)
-                        if idx < s.sections.count - 1 {
-                            Divider().opacity(0.4)
-                        }
+            Text("섹션별 요약")
+                .font(.gwaTopSystem(size: 14, weight: .bold))
+                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            // 외부 스크롤과 같은 축의 내부 ScrollView가 중첩되면 제스처가 한 번에 전달되지
+            // 않아 "탭 후 스크롤" 문제가 생긴다. 내부 스크롤을 없애고 섹션을 그대로 펼쳐
+            // 전체가 하나의 스크롤로 끊김 없이 이어지게 한다.
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(Array(s.sections.enumerated()), id: \.offset) { idx, section in
+                    VStack(alignment: .leading, spacing: 4) {
+                        // 섹션 제목 + 본문 모두 LaTeX 수식 가능성 있어 GwaTopMathText.
+                        GwaTopMathText(
+                            section.title,
+                            fontSize: 15, weight: .bold,
+                            color: GwaTopHomeTheme.textPrimary
+                        )
+                        GwaTopMathText(
+                            section.body,
+                            fontSize: 14, weight: .medium,
+                            color: GwaTopHomeTheme.textSecondary
+                        )
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.bottom, 4)
+                    if idx < s.sections.count - 1 {
+                        Divider().opacity(0.4)
                     }
                 }
-                .padding(.trailing, 4)
             }
-            .frame(maxHeight: 380)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)

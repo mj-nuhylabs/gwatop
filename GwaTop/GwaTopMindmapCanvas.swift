@@ -166,6 +166,20 @@ struct GwaTopMindmapCanvas: View {
                 )
             }
 
+            // root(마인드맵 중심)의 shifted 좌표 — 확대 anchor·화면 고정 기준점.
+            let rootShifted = CGPoint(x: -layout.bounds.minX, y: -layout.bounds.minY)
+            // 확대 anchor 를 root 로 맞춰, 핀치/줌이 캔버스 기하 중심이 아닌 root 기준으로 일어나게.
+            let rootAnchor = UnitPoint(
+                x: canvasSize.width  > 0 ? rootShifted.x / canvasSize.width  : 0.5,
+                y: canvasSize.height > 0 ? rootShifted.y / canvasSize.height : 0.5
+            )
+            // 자식이 펼쳐져 bounds 가 바뀌어도 root 가 항상 화면 중앙에 고정되도록 보정.
+            // (anchor 가 root 라 scale 과 무관 → 보정값은 스케일을 곱하지 않는다.)
+            let baseOffset = CGSize(
+                width:  canvasSize.width  / 2 - rootShifted.x,
+                height: canvasSize.height / 2 - rootShifted.y
+            )
+
             ZStack {
                 // 전체 영역을 드래그/핀치 가능한 hit target 으로 — 노드 밖 빈 곳을 잡아도 이동.
                 GwaTopHomeTheme.background
@@ -200,8 +214,11 @@ struct GwaTopMindmapCanvas: View {
                     }
                 }
                 .frame(width: canvasSize.width, height: canvasSize.height)
-                .scaleEffect(scale)
-                .offset(offset)
+                .scaleEffect(scale, anchor: rootAnchor)
+                .offset(
+                    x: offset.width  + baseOffset.width,
+                    y: offset.height + baseOffset.height
+                )
             }
             .frame(width: geo.size.width, height: geo.size.height)
             .contentShape(Rectangle())
@@ -229,7 +246,6 @@ struct GwaTopMindmapCanvas: View {
             }
         }
         .background(GwaTopHomeTheme.background)
-        .overlay(alignment: .bottomTrailing) { zoomControls }
     }
 
     /// 부모→자식 수평 cubic Bézier — 양 끝은 수평으로 빠져나가 부드러운 S 곡선.
@@ -245,43 +261,7 @@ struct GwaTopMindmapCanvas: View {
         return path
     }
 
-    // MARK: - 줌 컨트롤
-
-    private var zoomControls: some View {
-        VStack(spacing: 4) {
-            zoomButton(systemName: "plus") {
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    let next = min(maxScale, scale + 0.25)
-                    scale = next; lastScale = next
-                }
-            }
-            Divider().frame(width: 22)
-            zoomButton(systemName: "minus") {
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    let next = max(minScale, scale - 0.25)
-                    scale = next; lastScale = next
-                }
-            }
-            Divider().frame(width: 22)
-            zoomButton(systemName: "arrow.up.left.and.arrow.down.right") {
-                withAnimation(.easeInOut(duration: 0.25)) { resetView() }
-            }
-        }
-        .padding(.vertical, 6)
-        .gwaTopCard(radius: 16)
-        .padding(16)
-    }
-
-    private func zoomButton(systemName: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.gwaTopSystem(size: 14, weight: .bold))
-                .foregroundStyle(GwaTopHomeTheme.primary)
-                .frame(width: 38, height: 34)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
+    // MARK: - 뷰 초기화 (더블탭)
 
     private func resetView() {
         scale = 1.0; lastScale = 1.0

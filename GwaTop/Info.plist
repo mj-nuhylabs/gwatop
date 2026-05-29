@@ -25,6 +25,16 @@
 	<array>
 		<string>PretendardVariable.ttf</string>
 	</array>
+	<!--
+	  Apple 캘린더 통합 — EventKit 읽기 권한.
+	  iOS 17+ 는 NSCalendarsFullAccessUsageDescription 필요 (write 도 가능한 풀 액세스).
+	  iOS 16 이하는 NSCalendarsUsageDescription 으로 fallback.
+	  현재 통합은 read-only — 사용자의 Apple 캘린더 이벤트를 우리 캘린더에 함께 표시만 함.
+	-->
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Apple 캘린더의 일정을 과탑 캘린더에 함께 표시해드려요. 일정을 수정하거나 추가하지는 않아요.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Apple 캘린더의 일정을 과탑 캘린더에 함께 표시해드려요.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSExceptionDomains</key>
