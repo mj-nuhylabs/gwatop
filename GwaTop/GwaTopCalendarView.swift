@@ -65,18 +65,8 @@ struct GwaTopCalendarView: View {
                     .ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    GwaTopScreenHeader(title: selectedTopTab.label) {
-                        Button {
-                            showingCreateSheet = true
-                        } label: {
-                            Image(systemName: "plus")
-                                .font(.gwaTopSystem(size: 16, weight: .bold))
-                                .foregroundStyle(.white)
-                                .frame(width: 38, height: 38)
-                                .background(GwaTopHomeTheme.primary)
-                                .clipShape(Circle())
-                        }
-                    }
+                    // 헤더 + 버튼은 제거 — 우하단 FAB 로 통일.
+                    GwaTopScreenHeader(title: selectedTopTab.label)
 
                     ScrollView(showsIndicators: false) {
                         VStack(spacing: 16) {
@@ -89,8 +79,27 @@ struct GwaTopCalendarView: View {
                             }
                         }
                         .padding(.horizontal, 20)
-                        .padding(.bottom, 32)
+                        .padding(.bottom, 96)   // FAB 가림 방지 여유
                     }
+                }
+
+                // FAB — 우하단 검은 원형 +
+                if selectedTopTab == .calendar {
+                    Button {
+                        showingCreateSheet = true
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.gwaTopSystem(size: 22, weight: .heavy))
+                            .foregroundStyle(.white)
+                            .frame(width: 56, height: 56)
+                            .background(GwaTopHomeTheme.textPrimary)
+                            .clipShape(Circle())
+                            .shadow(color: .black.opacity(0.22), radius: 14, x: 0, y: 6)
+                    }
+                    .padding(.trailing, 22)
+                    .padding(.bottom, 22)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .allowsHitTesting(true)
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
@@ -213,7 +222,7 @@ struct GwaTopCalendarView: View {
             }
 
             monthGrid
-            selectedDaySection
+            // selectedDaySection 제거 — 일정은 셀 안 pill 로 직접 노출. tap 시 detail sheet.
             syllabusUploadCard
         }
     }
@@ -345,67 +354,91 @@ struct GwaTopCalendarView: View {
     }
 
     private var monthGrid: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 0) {
+            // 헤더: 월 + chevrons (카드 wrapper 제거 — 전면 노출)
             HStack {
+                Text(monthTitle)
+                    .font(.system(size: 22, weight: .heavy, design: .rounded))
+                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
+
+                Image(systemName: "chevron.down")
+                    .font(.gwaTopSystem(size: 14, weight: .bold))
+                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+
+                Spacer()
+
                 Button {
                     moveMonth(by: -1)
                 } label: {
                     Image(systemName: "chevron.left")
-                        .font(.gwaTopSystem(size: 15, weight: .bold))
-                        .foregroundStyle(GwaTopHomeTheme.primary)
-                        .frame(width: 36, height: 36)
-                        .background(GwaTopHomeTheme.primary.opacity(0.09))
-                        .clipShape(Circle())
+                        .font(.gwaTopSystem(size: 14, weight: .bold))
+                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                        .frame(width: 32, height: 32)
                 }
-
-                Spacer()
-
-                Text(monthTitle)
-                    .font(.system(size: 20, weight: .heavy, design: .rounded))
-                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
-
-                Spacer()
-
                 Button {
                     moveMonth(by: 1)
                 } label: {
                     Image(systemName: "chevron.right")
-                        .font(.gwaTopSystem(size: 15, weight: .bold))
-                        .foregroundStyle(GwaTopHomeTheme.primary)
-                        .frame(width: 36, height: 36)
-                        .background(GwaTopHomeTheme.primary.opacity(0.09))
-                        .clipShape(Circle())
+                        .font(.gwaTopSystem(size: 14, weight: .bold))
+                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                        .frame(width: 32, height: 32)
                 }
             }
+            .padding(.bottom, 8)
 
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 7), count: 7), spacing: 8) {
+            // 요일 헤더
+            HStack(spacing: 0) {
                 ForEach(weekdaySymbols, id: \.self) { symbol in
                     Text(symbol)
-                        .font(.gwaTopSystem(size: 12, weight: .bold))
+                        .font(.gwaTopSystem(size: 11, weight: .bold))
                         .foregroundStyle(symbol == "일" ? GwaTopHomeTheme.danger.opacity(0.75) : GwaTopHomeTheme.textSecondary)
                         .frame(maxWidth: .infinity)
                 }
+            }
+            .padding(.vertical, 6)
 
-                ForEach(monthDays) { day in
-                    GwaTopCalendarDayCell(
-                        day: day,
-                        isSelected: calendar.isDate(day.date, inSameDayAs: selectedDate),
-                        isToday: calendar.isDateInToday(day.date),
-                        events: eventsForDate(day.date)
-                    )
-                    .onTapGesture {
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.86)) {
-                            selectedDate = day.date
-                            if !calendar.isDate(day.date, equalTo: displayedMonth, toGranularity: .month) {
-                                displayedMonth = day.date
+            sectionDivider.opacity(0.5)
+
+            // 주 단위 행 + hairline divider
+            ForEach(Array(monthDaysByWeek.enumerated()), id: \.offset) { idx, week in
+                HStack(alignment: .top, spacing: 0) {
+                    ForEach(week) { day in
+                        GwaTopCalendarDayCell(
+                            day: day,
+                            isToday: calendar.isDateInToday(day.date),
+                            events: eventsForDate(day.date),
+                            onEventTap: { event in
+                                selectedEvent = event
+                            },
+                            onCellTap: {
+                                withAnimation(.spring(response: 0.25, dampingFraction: 0.86)) {
+                                    selectedDate = day.date
+                                    if !calendar.isDate(day.date, equalTo: displayedMonth, toGranularity: .month) {
+                                        displayedMonth = day.date
+                                    }
+                                }
                             }
-                        }
+                        )
                     }
+                }
+                if idx < monthDaysByWeek.count - 1 {
+                    sectionDivider.opacity(0.5)
                 }
             }
         }
-        .padding(16)
-        .gwaTopCard(radius: 24)
+    }
+
+    /// 42개 monthDays 를 7개씩 묶어 6주.
+    private var monthDaysByWeek: [[GwaTopCalendarDay]] {
+        stride(from: 0, to: monthDays.count, by: 7).map {
+            Array(monthDays[$0..<min($0 + 7, monthDays.count)])
+        }
+    }
+
+    private var sectionDivider: some View {
+        Rectangle()
+            .fill(GwaTopHomeTheme.line)
+            .frame(height: 1)
     }
 
     private var selectedDaySection: some View {
@@ -594,44 +627,78 @@ private struct GwaTopCalendarDay: Identifiable, Equatable {
 
 private struct GwaTopCalendarDayCell: View {
     let day: GwaTopCalendarDay
-    let isSelected: Bool
     let isToday: Bool
     let events: [GwaTopCalendarEvent]
+    let onEventTap: (GwaTopCalendarEvent) -> Void
+    let onCellTap: () -> Void
 
     var body: some View {
-        VStack(spacing: 5) {
-            Text(day.dayNumber)
-                .font(.gwaTopSystem(size: 14, weight: isSelected || isToday ? .heavy : .bold))
-                .foregroundStyle(foregroundColor)
-                .frame(width: 30, height: 30)
-                .background(circleBackground)
-                .clipShape(Circle())
+        VStack(alignment: .leading, spacing: 3) {
+            // 날짜 — 오늘이면 검은 원 + 흰 글자, 일요일은 빨강, 다른 달은 흐리게
+            HStack {
+                Group {
+                    if isToday {
+                        Text(day.dayNumber)
+                            .font(.gwaTopSystem(size: 12, weight: .heavy))
+                            .foregroundStyle(.white)
+                            .frame(width: 22, height: 22)
+                            .background(GwaTopHomeTheme.textPrimary)
+                            .clipShape(Circle())
+                    } else {
+                        Text(day.dayNumber)
+                            .font(.gwaTopSystem(size: 12, weight: .semibold))
+                            .foregroundStyle(dateColor)
+                            .frame(width: 22, height: 22)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
 
-            HStack(spacing: 3) {
-                ForEach(events.prefix(3)) { event in
-                    Circle()
-                        .fill(event.course.color)
-                        .frame(width: 5, height: 5)
+            // 이벤트 pill (최대 2개) + 초과 시 +N
+            VStack(spacing: 2) {
+                ForEach(events.prefix(2)) { event in
+                    Button {
+                        onEventTap(event)
+                    } label: {
+                        Text(event.title)
+                            .font(.gwaTopSystem(size: 9, weight: .semibold))
+                            .foregroundStyle(event.course.color)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(event.course.color.opacity(0.18))
+                            .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                }
+                if events.count > 2 {
+                    Text("+\(events.count - 2)")
+                        .font(.gwaTopSystem(size: 9, weight: .semibold))
+                        .foregroundStyle(GwaTopHomeTheme.textTertiary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.leading, 4)
                 }
             }
-            .frame(height: 6)
+
+            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 48)
-        .background(isSelected ? GwaTopHomeTheme.primary.opacity(0.08) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .opacity(day.isCurrentMonth ? 1.0 : 0.35)
+        .frame(maxWidth: .infinity, minHeight: 78, alignment: .topLeading)
+        .padding(.horizontal, 3)
+        .padding(.vertical, 4)
+        .opacity(day.isCurrentMonth ? 1.0 : 0.38)
+        .contentShape(Rectangle())
+        .onTapGesture { onCellTap() }
     }
 
-    private var foregroundColor: Color {
-        if isSelected { return .white }
-        if isToday { return GwaTopHomeTheme.primary }
+    /// 날짜 색: 다른 달 → tertiary, 일요일 → danger, 그 외 → textPrimary
+    private var dateColor: Color {
+        if !day.isCurrentMonth { return GwaTopHomeTheme.textTertiary }
+        if Calendar.current.component(.weekday, from: day.date) == 1 {
+            return GwaTopHomeTheme.danger
+        }
         return GwaTopHomeTheme.textPrimary
-    }
-
-    private var circleBackground: Color {
-        if isSelected { return GwaTopHomeTheme.primary }
-        return .clear
     }
 }
 
