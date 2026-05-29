@@ -133,16 +133,38 @@ struct GwaTopHomeView: View {
 
     @MainActor
     private func load() async {
-        isLoading = true
+        // 1) 스플래시 prefetch 결과를 우선 그대로 표시 — 깜빡임 제거.
+        let store = GwaTopAppDataStore.shared
+        if let cachedDash = store.dashboard {
+            dashboard = cachedDash
+        }
+        if !store.courses.isEmpty {
+            courses = store.courses
+        }
+        // weekTodos 는 store.upcomingTodos (3주) 중 이번 주만 필터.
+        if !store.upcomingTodos.isEmpty {
+            let cal = Calendar.current
+            let now = Date()
+            let weekStart = cal.dateInterval(of: .weekOfYear, for: now)?.start ?? now
+            let weekEnd = cal.date(byAdding: .day, value: 7, to: weekStart) ?? now
+            weekTodos = store.upcomingTodos.filter { $0.dueDate >= weekStart && $0.dueDate < weekEnd }
+        }
+        // 캐시가 신선하면 네트워크 호출 자체를 건너뜀 (탭 전환 시 깜빡임 방지).
+        if store.isCacheFresh && dashboard != nil {
+            isLoading = false
+            loadError = nil
+            return
+        }
+
+        // 2) 캐시가 없거나 stale 일 때만 백그라운드 fetch.
+        if dashboard == nil { isLoading = true }
         loadError = nil
         defer { isLoading = false }
-        // dashboard + courses + 이번 주 todos 를 병렬 fetch 후 한 번에 표시.
         async let dashTask = try? GwaTopHomeService.shared.fetchDashboard(upcomingLimit: 5)
         async let coursesTask = try? GwaTopCourseService.shared.fetchAll()
         async let todosTask: [GwaTopTodoDTO]? = {
             let cal = Calendar.current
             let now = Date()
-            // 이번 주 (월 ~ 일) 범위. firstWeekday 로컬에 맞춰 자동 처리.
             let weekStart = cal.dateInterval(of: .weekOfYear, for: now)?.start ?? now
             let weekEnd = cal.date(byAdding: .day, value: 7, to: weekStart) ?? now
             return try? await GwaTopTodoService.shared.fetchAll(start: weekStart, end: weekEnd)
@@ -153,7 +175,7 @@ struct GwaTopHomeView: View {
         if let list { courses = list }
         if let todos { weekTodos = todos }
 
-        if dash == nil && list == nil && todos == nil {
+        if dash == nil && list == nil && todos == nil && self.dashboard == nil {
             loadError = "데이터를 불러오지 못했어요. 잠시 후 다시 시도해주세요."
         }
     }

@@ -39,7 +39,12 @@ final class GwaTopAppDataStore: ObservableObject {
     @Published private(set) var courses: [GwaTopCourseDTO] = []
     @Published private(set) var semesters: [GwaTopSemesterDTO] = []
     @Published private(set) var upcomingTodos: [GwaTopTodoDTO] = []
-    @Published private(set) var calendarSummary: GwaTopCalendarSummary? = nil
+    /// 캘린더 탭이 사용 — 전체 학기 모든 schedule (date 필터 없음).
+    @Published private(set) var allSchedules: [GwaTopScheduleDTO] = []
+    /// 홈 탭이 사용 — 대시보드 (오늘/이번 주 진척, upcoming 일정 등).
+    @Published private(set) var dashboard: GwaTopHomeDashboardDTO? = nil
+    /// 학습 탭이 사용 — 과목별 파일 목록. 키: course.id
+    @Published private(set) var filesByCourse: [String: [GwaTopFileSummary]] = [:]
 
     /// 캐시 신선도 판단용. (Date(0) 이면 미설정.) 5분 이상 지났으면 화면 .task 에서 fresh fetch.
     @Published private(set) var lastRefreshedAt: Date = .distantPast
@@ -72,6 +77,11 @@ final class GwaTopAppDataStore: ObservableObject {
                 let list = try await GwaTopCourseService.shared.fetchAll()
                 self.courses = list
             },
+            Stage(label: "홈 화면 데이터 정리 중…") { [weak self] in
+                guard let self else { return }
+                let dash = try await GwaTopHomeService.shared.fetchDashboard(upcomingLimit: 5)
+                self.dashboard = dash
+            },
             Stage(label: "다가오는 할 일 정리 중…") { [weak self] in
                 guard let self else { return }
                 let cal = Calendar(identifier: .gregorian)
@@ -80,15 +90,40 @@ final class GwaTopAppDataStore: ObservableObject {
                 let list = try await GwaTopTodoService.shared.fetchAll(start: start, end: end)
                 self.upcomingTodos = list
             },
-            Stage(label: "이번 달 일정 가져오는 중…") { [weak self] in
+            Stage(label: "캘린더 일정 가져오는 중…") { [weak self] in
                 guard let self else { return }
-                let cal = Calendar(identifier: .gregorian)
-                let now = Date()
-                let monthStart = cal.dateInterval(of: .month, for: now)?.start ?? cal.startOfDay(for: now)
-                // 한 달 + 다음 달까지 (캘린더 좌우 스와이프 대비).
-                let end = cal.date(byAdding: .month, value: 2, to: monthStart) ?? monthStart.addingTimeInterval(60 * 86400)
-                let summary = try await GwaTopScheduleService.shared.fetchCalendarSummary(start: monthStart, end: end)
-                self.calendarSummary = summary
+                // 캘린더 뷰는 date 필터 없이 전체를 받는다 — 여기서도 동일하게 전체 prefetch.
+                let list = try await GwaTopScheduleService.shared.fetchAll()
+                self.allSchedules = list
+            },
+            Stage(label: "학습 자료 불러오는 중…") { [weak self] in
+                guard let self else { return }
+                // 과목별 파일 목록을 병렬 fetch. courses 가 prefetch 단계 순서상 먼저
+                // 끝나도 task group 동시 실행이라 아직 비어 있을 수 있음 → 빠르게 다시 가져온다.
+                let courses: [GwaTopCourseDTO]
+                if !self.courses.isEmpty {
+                    courses = self.courses
+                } else {
+                    courses = (try? await GwaTopCourseService.shared.fetchAll()) ?? []
+                }
+                if courses.isEmpty { return }
+                var collected: [String: [GwaTopFileSummary]] = [:]
+                await withTaskGroup(of: (String, [GwaTopFileSummary]?).self) { group in
+                    for c in courses {
+                        group.addTask {
+                            do {
+                                let list = try await GwaTopFileService.shared.fetchFiles(courseId: c.id)
+                                return (c.id, list)
+                            } catch {
+                                return (c.id, nil)
+                            }
+                        }
+                    }
+                    for await (cid, result) in group {
+                        if let result { collected[cid] = result }
+                    }
+                }
+                self.filesByCourse = collected
             },
         ]
     }
@@ -157,7 +192,9 @@ final class GwaTopAppDataStore: ObservableObject {
         courses = []
         semesters = []
         upcomingTodos = []
-        calendarSummary = nil
+        allSchedules = []
+        dashboard = nil
+        filesByCourse = [:]
         lastRefreshedAt = .distantPast
     }
 

@@ -270,6 +270,12 @@ struct GwaTopCalendarView: View {
     @MainActor
     private func loadCoursesIfNeeded(force: Bool = false) async {
         if !force, !courses.isEmpty { return }
+        // 스플래시 캐시 hydrate.
+        let store = GwaTopAppDataStore.shared
+        if !force, !store.courses.isEmpty {
+            courses = store.courses
+            if store.isCacheFresh { return }
+        }
         do {
             courses = try await GwaTopCourseService.shared.fetchAll()
         } catch {
@@ -280,7 +286,24 @@ struct GwaTopCalendarView: View {
 
     @MainActor
     private func reload(jumpToLatest: Bool = false) async {
-        isLoading = true
+        // 0) 스플래시 prefetch 캐시 hydrate — 깜빡임 제거. fresh 면 네트워크 호출 스킵.
+        let store = GwaTopAppDataStore.shared
+        if !store.allSchedules.isEmpty {
+            events = store.allSchedules.map { GwaTopCalendarEvent(dto: $0) }
+            if jumpToLatest {
+                jumpToFirstUpcomingOrAuto()
+            } else if !events.isEmpty && eventsInDisplayedMonth.isEmpty {
+                jumpToFirstUpcomingOrAuto()
+            }
+            if store.isCacheFresh && !jumpToLatest {
+                isLoading = false
+                loadErrorMessage = nil
+                return
+            }
+        }
+
+        // 캐시가 있으면 spinner 안 보여줌 — 이미 데이터가 차 있으니 백그라운드 갱신만.
+        if events.isEmpty { isLoading = true }
         loadErrorMessage = nil
         do {
             let dtos = try await GwaTopScheduleService.shared.fetchAll()

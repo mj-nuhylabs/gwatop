@@ -411,7 +411,13 @@ struct GwaTopAIStudyView: View {
     @MainActor
     private func loadCourses() async {
         guard !isLoadingCourses else { return }
-        isLoadingCourses = true
+        // 스플래시 캐시 hydrate — 깜빡임 없음.
+        let store = GwaTopAppDataStore.shared
+        if !store.courses.isEmpty {
+            courses = store.courses
+            if store.isCacheFresh { return }
+        }
+        if courses.isEmpty { isLoadingCourses = true }
         loadError = nil
         defer { isLoadingCourses = false }
         do {
@@ -426,8 +432,20 @@ struct GwaTopAIStudyView: View {
     @MainActor
     private func reloadAllFiles(silent: Bool = false) async {
         guard !courses.isEmpty else { return }
+        // 스플래시 캐시 hydrate — 깜빡임 없음.
+        let store = GwaTopAppDataStore.shared
+        if !store.filesByCourse.isEmpty {
+            for (cid, list) in store.filesByCourse {
+                filesByCourse[cid] = list
+            }
+            if store.isCacheFresh && !silent {
+                // 캐시 사용 → 로딩 인디케이터 안 띄움.
+                return
+            }
+        }
         if !silent {
-            loadingCourseIds = Set(courses.map(\.id))
+            // 캐시 없는 과목만 spinner — 이미 cached 면 inflight 표시 안 함.
+            loadingCourseIds = Set(courses.map(\.id).filter { filesByCourse[$0] == nil })
         }
         await withTaskGroup(of: (String, [GwaTopFileSummary]?).self) { group in
             for c in courses {
