@@ -296,6 +296,9 @@ struct GwaTopRichText: View {
     let fontSize: CGFloat
     let textColor: Color
     let accentColor: Color
+    /// true 면 WebView 가 직접 스크롤하며 부모 공간을 채운다(예: 전체화면 "크게 보기").
+    /// 자동 높이 측정에 의존하지 않으므로 아무리 긴 답변도 하단이 잘리지 않는다.
+    let scrolls: Bool
     /// WebView 가 JS scrollHeight 로 보고한 실제 높이 — SwiftUI 가 그대로 frame 에 반영해서
     /// 다음 형제 뷰(action bar / 다음 메시지)와 겹치지 않게 한다.
     @State private var measuredHeight: CGFloat = 24
@@ -304,23 +307,31 @@ struct GwaTopRichText: View {
         _ markdown: String,
         fontSize: CGFloat = 15,
         color: Color = .primary,
-        accent: Color = GwaTopHomeTheme.primary
+        accent: Color = GwaTopHomeTheme.primary,
+        scrolls: Bool = false
     ) {
         self.markdown = markdown
         self.fontSize = fontSize
         self.textColor = color
         self.accentColor = accent
+        self.scrolls = scrolls
     }
 
     var body: some View {
-        GwaTopRichTextWebView(
+        let web = GwaTopRichTextWebView(
             markdown: markdown,
             fontSize: fontSize,
             color: textColor,
             accent: accentColor,
+            scrolls: scrolls,
             measuredHeight: $measuredHeight
         )
-        .frame(height: measuredHeight)
+        // 스크롤 모드: 부모 공간을 그대로 채움(높이 고정 X). 인라인 모드: 측정 높이로 고정.
+        if scrolls {
+            web
+        } else {
+            web.frame(height: measuredHeight)
+        }
     }
 }
 
@@ -329,6 +340,7 @@ private struct GwaTopRichTextWebView: UIViewRepresentable {
     let fontSize: CGFloat
     let color: Color
     let accent: Color
+    var scrolls: Bool = false
     @Binding var measuredHeight: CGFloat
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -342,8 +354,9 @@ private struct GwaTopRichTextWebView: UIViewRepresentable {
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
-        webView.scrollView.isScrollEnabled = false
-        webView.scrollView.bounces = false
+        // 스크롤 모드면 WebView 가 직접 세로 스크롤 — 측정 높이에 의존하지 않아 잘림 없음.
+        webView.scrollView.isScrollEnabled = scrolls
+        webView.scrollView.bounces = scrolls
         webView.navigationDelegate = context.coordinator
         context.coordinator.webView = webView
         // 외부 링크는 사파리로.
@@ -363,7 +376,8 @@ private struct GwaTopRichTextWebView: UIViewRepresentable {
             markdown: markdown,
             fontSize: fontSize,
             color: color,
-            accent: accent
+            accent: accent,
+            scrolls: scrolls
         )
         // baseURL 을 cdn.jsdelivr.net 으로 설정 → KaTeX/marked CDN 캐시 활용.
         webView.loadHTMLString(html, baseURL: URL(string: "https://cdn.jsdelivr.net"))
@@ -451,7 +465,7 @@ private struct GwaTopRichTextWebView: UIViewRepresentable {
     }
 
     static func makeHTML(
-        markdown: String, fontSize: CGFloat, color: Color, accent: Color
+        markdown: String, fontSize: CGFloat, color: Color, accent: Color, scrolls: Bool = false
     ) -> String {
         let cssTextColor = cssColor(from: color)
         let cssAccent = cssColor(from: accent)
@@ -477,7 +491,11 @@ private struct GwaTopRichTextWebView: UIViewRepresentable {
                     word-break: keep-all;
                     overflow-wrap: anywhere;
                     max-width: 100%;
+                    /* 본문이 가로로 넘쳐 잘리지 않게 — 표/코드/수식은 각자 내부 스크롤. */
+                    overflow-x: hidden;
                 }
+                /* 스크롤 모드 하단 여백 — 끝에서 마지막 줄이 화면 끝에 붙지 않도록. */
+                body { padding-bottom: \(scrolls ? 40 : 0)px; }
                 /* 렌더 끝나기 전 raw 마크다운/HTML 이 잠깐 보이는 FOUC 차단.
                    marked + KaTeX 처리가 끝나면 JS 가 .ready 클래스를 추가하며 페이드인. */
                 #content { padding: 0; opacity: 0; transition: opacity 0.08s ease-out; }

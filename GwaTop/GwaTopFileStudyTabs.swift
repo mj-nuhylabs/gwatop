@@ -3094,21 +3094,17 @@ private struct GwaTopTutorEnlargedSheet: View {
         NavigationStack {
             ZStack {
                 GwaTopHomeTheme.background.ignoresSafeArea()
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        GwaTopRichText(
-                            message.body,
-                            fontSize: scaleFontSize,
-                            color: GwaTopHomeTheme.textPrimary,
-                            accent: GwaTopHomeTheme.primary
-                        )
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(16)
-                        .background(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    }
-                    .padding(16)
-                }
+                // WebView 가 직접 스크롤 → 답변이 아무리 길어도 하단이 잘리지 않음.
+                GwaTopRichText(
+                    message.body,
+                    fontSize: scaleFontSize,
+                    color: GwaTopHomeTheme.textPrimary,
+                    accent: GwaTopHomeTheme.primary,
+                    scrolls: true
+                )
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             .navigationTitle("AI 튜터 답변")
             .navigationBarTitleDisplayMode(.inline)
