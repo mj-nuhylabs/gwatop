@@ -623,7 +623,7 @@ components:
         id:          { type: string, format: uuid }
         course_id:   { type: string, format: uuid }
         course_name: { type: string }
-        course_color:{ type: string }
+        course_color: { type: string }
         title:       { type: string, example: "중간고사" }
         type:        { type: string, enum: [exam, assignment, lecture, event] }
         due_date:    { type: string, format: date-time }
@@ -684,7 +684,7 @@ components:
                 items: { type: string }
                 description: "multiple_choice일 때만 존재 (4개)"
               answer:     { type: string }
-              explanation:{ type: string }
+              explanation: { type: string }
 
     Flashcard:
       type: object

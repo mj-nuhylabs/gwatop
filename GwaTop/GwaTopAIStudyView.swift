@@ -28,6 +28,8 @@ struct GwaTopAIStudyView: View {
     @State private var searchText: String = ""
     /// 진행 중 파일이 있을 때 3초마다 자동 재조회 트리거.
     @State private var pollTick: Int = 0
+    /// 사용자가 접어둔 과목 id 집합. 기본은 펼침.
+    @State private var collapsedCourseIds: Set<String> = []
 
     /// 백엔드 처리 중인 상태값들. 이 중 하나라도 있으면 폴링 계속.
     private static let inProgressStatuses: Set<String> = [
@@ -147,28 +149,39 @@ struct GwaTopAIStudyView: View {
 
     private func courseCard(_ course: GwaTopCourseDTO) -> some View {
         let files = filesFor(course)
+        let isCollapsed = collapsedCourseIds.contains(course.id)
         return VStack(spacing: 0) {
-            courseHeader(course, fileCount: files.count)
-            if loadingCourseIds.contains(course.id) && files.isEmpty {
-                HStack(spacing: 8) {
-                    ProgressView().scaleEffect(0.8)
-                    Text("자료 불러오는 중…")
-                        .font(.gwaTopSystem(size: 12))
-                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
+            courseHeader(course, fileCount: files.count, isCollapsed: isCollapsed) {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    if isCollapsed {
+                        collapsedCourseIds.remove(course.id)
+                    } else {
+                        collapsedCourseIds.insert(course.id)
+                    }
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 20)
-            } else if files.isEmpty {
-                Text("업로드된 자료가 없어요.")
-                    .font(.gwaTopSystem(size: 12, weight: .medium))
-                    .foregroundStyle(GwaTopHomeTheme.textTertiary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 18)
-            } else {
-                VStack(spacing: 0) {
-                    ForEach(files) { f in
-                        Button { selectedFile = f } label: { fileRow(f) }
-                            .buttonStyle(.plain)
+            }
+            if !isCollapsed {
+                if loadingCourseIds.contains(course.id) && files.isEmpty {
+                    HStack(spacing: 8) {
+                        ProgressView().scaleEffect(0.8)
+                        Text("자료 불러오는 중…")
+                            .font(.gwaTopSystem(size: 12))
+                            .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 20)
+                } else if files.isEmpty {
+                    Text("업로드된 자료가 없어요.")
+                        .font(.gwaTopSystem(size: 12, weight: .medium))
+                        .foregroundStyle(GwaTopHomeTheme.textTertiary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 18)
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(files) { f in
+                            Button { selectedFile = f } label: { fileRow(f) }
+                                .buttonStyle(.plain)
+                        }
                     }
                 }
             }
@@ -176,25 +189,37 @@ struct GwaTopAIStudyView: View {
         .gwaTopCard(radius: 16)
     }
 
-    private func courseHeader(_ course: GwaTopCourseDTO, fileCount: Int) -> some View {
-        HStack(spacing: 10) {
-            Circle()
-                .fill(course.color.map(Color.gwaTopHex) ?? Color.gray.opacity(0.4))
-                .frame(width: 10, height: 10)
+    private func courseHeader(
+        _ course: GwaTopCourseDTO,
+        fileCount: Int,
+        isCollapsed: Bool,
+        onToggle: @escaping () -> Void
+    ) -> some View {
+        Button(action: onToggle) {
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(course.color.map(Color.gwaTopHex) ?? Color.gray.opacity(0.4))
+                    .frame(width: 10, height: 10)
 
-            Text(course.name.isEmpty ? "이름 없는 과목" : course.name)
-                .font(.gwaTopSystem(size: 16, weight: .bold))
-                .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                Text(course.name.isEmpty ? "이름 없는 과목" : course.name)
+                    .font(.gwaTopSystem(size: 16, weight: .bold))
+                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
 
-            Spacer()
+                Spacer()
 
-            Text("\(fileCount)개")
-                .font(.gwaTopSystem(size: 12, weight: .semibold))
-                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                Image(systemName: "chevron.down")
+                    .font(.gwaTopSystem(size: 12, weight: .bold))
+                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                    .rotationEffect(.degrees(isCollapsed ? -90 : 0))
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())   // 탭 영역은 유지, 원형 배경만 제거
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+            .padding(.bottom, isCollapsed ? 14 : (fileCount > 0 ? 10 : 12))
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 14)
-        .padding(.bottom, fileCount > 0 ? 10 : 12)
+        .buttonStyle(.plain)
     }
 
     // MARK: - File Row

@@ -443,7 +443,12 @@ struct GwaTopFlashcard: Identifiable, Codable, Equatable {
 
 extension Color {
     static func gwaTopHex(_ hex: String) -> Color {
-        let cleaned = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        // 1) 원색 팔레트로 저장된 기존 과목을 파스텔로 리매핑.
+        //    DB 마이그레이션 없이 표시 시점에만 변환하므로 백엔드 변경 불필요.
+        let upper = hex.uppercased()
+        let remapped = GwaTopVividToPastel[upper] ?? hex
+
+        let cleaned = remapped.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
         var int: UInt64 = 0
         Scanner(string: cleaned).scanHexInt64(&int)
 
@@ -457,9 +462,10 @@ extension Color {
             green = (int >> 8) & 0xFF
             blue = int & 0xFF
         default:
-            red = 59
-            green = 130
-            blue = 246
+            // fallback = pastel sky #8AB6F0 (GwaTopDefaultCourseColor)
+            red = 138
+            green = 182
+            blue = 240
         }
 
         return Color(

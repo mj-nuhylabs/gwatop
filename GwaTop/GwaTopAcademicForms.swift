@@ -100,9 +100,28 @@ enum GwaTopCourseFormMode {
     case edit(GwaTopCourseDTO)
 }
 
+// 과목 카드용 파스텔 팔레트.
+// 진행률 바·아이콘·% 텍스트에 그대로 쓰여도 충분히 가독성 있는 명도(약 70%)로 맞췄다.
+// 인덱스 0이 기본색이며, 모든 fallback("#4F8EF7", "#3B82F6") 도 이 값으로 매핑된다.
 let GwaTopCourseColorPalette: [String] = [
-    "#3B82F6", "#8B5CF6", "#F97316", "#10B981",
-    "#EF4444", "#F59E0B", "#EC4899", "#06B6D4",
+    "#8AB6F0", "#B5A0F0", "#F5B587", "#88D4B0",
+    "#F0A8A8", "#F0CC7E", "#F0A8CC", "#88D0DC",
+]
+
+let GwaTopDefaultCourseColor: String = GwaTopCourseColorPalette[0]  // #8AB6F0
+
+/// 구버전(원색) hex → 파스텔 hex 리매핑 테이블.
+/// 이미 DB에 저장된 과목도 클라이언트에서 파스텔로 보이도록 변환 시점에 끼워 넣는다.
+let GwaTopVividToPastel: [String: String] = [
+    "#3B82F6": "#8AB6F0",   // blue-500   → pastel sky
+    "#8B5CF6": "#B5A0F0",   // violet-500 → lavender
+    "#F97316": "#F5B587",   // orange-500 → peach
+    "#10B981": "#88D4B0",   // emerald-500→ mint
+    "#EF4444": "#F0A8A8",   // red-500    → coral
+    "#F59E0B": "#F0CC7E",   // amber-500  → buttercream
+    "#EC4899": "#F0A8CC",   // pink-500   → soft rose
+    "#06B6D4": "#88D0DC",   // cyan-500   → aqua
+    "#4F8EF7": "#8AB6F0",   // legacy default → pastel sky
 ]
 
 struct GwaTopCourseFormView: View {
@@ -116,7 +135,7 @@ struct GwaTopCourseFormView: View {
     @State private var selectedSemesterId: String? = nil
     @State private var name: String = ""
     @State private var professor: String = ""
-    @State private var color: String = "#3B82F6"
+    @State private var color: String = GwaTopDefaultCourseColor
 
     @State private var isSubmitting: Bool = false
     @State private var errorMessage: String? = nil
@@ -246,7 +265,7 @@ struct GwaTopCourseFormView: View {
             await MainActor.run {
                 self.name = course.name
                 self.professor = course.professor ?? ""
-                self.color = course.color ?? "#3B82F6"
+                self.color = course.color ?? GwaTopDefaultCourseColor
                 self.selectedSemesterId = course.semesterId
             }
         }

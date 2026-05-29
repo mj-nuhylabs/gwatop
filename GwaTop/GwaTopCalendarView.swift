@@ -410,26 +410,11 @@ struct GwaTopCalendarView: View {
 
     private var selectedDaySection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .bottom) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(selectedDateTitle)
-                        .font(.gwaTopSystem(size: 21, weight: .bold))
-                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                    Text("선택한 날짜의 일정")
-                        .font(.gwaTopSystem(size: 13, weight: .medium))
-                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                }
-
-                Spacer()
-
-                Text("\(selectedDateEvents.count)개")
-                    .font(.gwaTopSystem(size: 13, weight: .bold))
-                    .foregroundStyle(GwaTopHomeTheme.primary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(GwaTopHomeTheme.primary.opacity(0.10))
-                    .clipShape(Capsule())
-            }
+            // 헤더: 부제목("선택한 날짜의 일정") + 개수 캡슐 제거 — 날짜 타이틀만 노출
+            Text(selectedDateTitle)
+                .font(.gwaTopSystem(size: 21, weight: .bold))
+                .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             if selectedDateEvents.isEmpty {
                 VStack(spacing: 10) {
