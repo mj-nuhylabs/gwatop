@@ -211,11 +211,11 @@ struct GwaTopFileQuizTab: View {
             }
     }
 
-    /// 탭 진입 시 보여줄 인트로 + 페이지 범위 + 모드 선택 + 시작 버튼.
+    /// 탭 진입 시 보여줄 페이지 범위 + 모드 선택 + 시작 버튼.
+    /// "자료 기반 퀴즈" 인트로 설명 카드는 사용자 요청으로 제거 — 곧장 옵션부터 노출.
     private var launcherView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                introCard
                 GwaTopScopeSelector(scope: $scope)
                 modeSelector
                 Button {
@@ -353,21 +353,6 @@ struct GwaTopFileQuizTab: View {
             Text("AI가 퀴즈를 만드는 중이에요…")
                 .font(.gwaTopSystem(size: 15, weight: .semibold))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-
-    private var introCard: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("자료 기반 퀴즈")
-                .font(.gwaTopSystem(size: 17, weight: .bold))
-            Text("객관식 5~7개 + 주관식 2~3개를 자동으로 만들어드려요. 페이지 범위를 좁히면 더 정확합니다.")
-                .font(.gwaTopSystem(size: 14))
-                .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
