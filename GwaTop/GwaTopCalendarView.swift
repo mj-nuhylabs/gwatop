@@ -65,13 +65,13 @@ struct GwaTopCalendarView: View {
                     .ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    // 헤더 + 버튼은 제거 — 우하단 FAB 로 통일.
-                    GwaTopScreenHeader(title: selectedTopTab.label)
+                    // 헤더에 캘린더/시간표 미니멀 아이콘 토글 동거 — 별도 줄 제거.
+                    GwaTopScreenHeader(title: selectedTopTab.label) {
+                        topTabSwitcher
+                    }
 
                     ScrollView(showsIndicators: false) {
                         VStack(spacing: 16) {
-                            topTabSwitcher
-
                             if selectedTopTab == .calendar {
                                 calendarTabContent
                             } else {
@@ -171,9 +171,9 @@ struct GwaTopCalendarView: View {
     // MARK: - 상단 탭 전환
 
     private var topTabSwitcher: some View {
-        // 미니멀 아이콘 토글 — 좌측 정렬, 작은 정사각 아이콘 버튼.
-        // 선택: primary 코랄 / 비선택: surfaceMute 회색.
-        HStack(spacing: 6) {
+        // 미니멀 아이콘 토글 — 헤더 우측, 캘린더 텍스트와 같은 높이.
+        // 선택: primary 코랄 fill / 비선택: 배경 없음, 아이콘만.
+        HStack(spacing: 4) {
             ForEach(TopTab.allCases) { tab in
                 let isSelected = selectedTopTab == tab
                 Button {
@@ -187,14 +187,13 @@ struct GwaTopCalendarView: View {
                     Image(systemName: tab.icon)
                         .font(.gwaTopSystem(size: 15, weight: .bold))
                         .foregroundStyle(isSelected ? .white : GwaTopHomeTheme.textSecondary)
-                        .frame(width: 38, height: 38)
-                        .background(isSelected ? GwaTopHomeTheme.primary : GwaTopHomeTheme.surfaceMute)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .frame(width: 34, height: 34)
+                        .background(isSelected ? GwaTopHomeTheme.primary : Color.clear)
+                        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(tab.label)
             }
-            Spacer()
         }
         .padding(4)
         .background(Color.white.opacity(0.45))
