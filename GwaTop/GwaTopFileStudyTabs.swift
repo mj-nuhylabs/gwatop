@@ -1265,31 +1265,39 @@ struct GwaTopFileMindmapTab: View {
         NavigationStack {
             ZStack {
                 GwaTopHomeTheme.background.ignoresSafeArea()
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        if let err = error { GwaTopErrorBanner(message: err) }
-                        if let m = mindmap {
-                            GwaTopMindmapCanvas(mindmap: m)
-                                .frame(minHeight: 600)
-                            Text("드래그로 이동 · 우측 버튼 또는 핀치로 확대/축소 · 더블탭으로 초기화")
-                                .font(.gwaTopSystem(size: 13, weight: .semibold))
-                                .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                                .frame(maxWidth: .infinity)
-                            GwaTopRegenerateButton(isLoading: isGenerating) {
-                                Task { await generate(force: true) }
-                            }
-                        } else if isGenerating || isLoading {
-                            pendingCard
-                        } else {
-                            HStack(spacing: 10) {
-                                ProgressView()
-                                Text("준비 중…").font(.gwaTopSystem(size: 15, weight: .semibold))
-                                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                            }
-                            .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-                            .background(.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        }
+
+                if let m = mindmap {
+                    // 캔버스는 ScrollView 밖에서 전체 화면을 채워야 드래그/핀치가 동작.
+                    GwaTopMindmapCanvas(mindmap: m)
+                        .ignoresSafeArea(edges: .bottom)
+                    // 하단 힌트 — 캔버스 위 오버레이.
+                    VStack {
+                        Spacer()
+                        Text("드래그로 이동 · 핀치 또는 우측 버튼으로 확대/축소 · 더블탭으로 초기화")
+                            .font(.gwaTopSystem(size: 12, weight: .semibold))
+                            .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                            .padding(.horizontal, 14).padding(.vertical, 8)
+                            .background(.ultraThinMaterial, in: Capsule())
+                            .padding(.bottom, 18)
+                    }
+                    .allowsHitTesting(false)
+                } else if isGenerating || isLoading {
+                    pendingCard.padding(16)
+                } else {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("준비 중…").font(.gwaTopSystem(size: 15, weight: .semibold))
+                            .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                    }
+                    .padding(16)
+                    .background(GwaTopHomeTheme.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+
+                if let err = error {
+                    VStack {
+                        GwaTopErrorBanner(message: err)
+                        Spacer()
                     }
                     .padding(16)
                 }
@@ -1299,6 +1307,18 @@ struct GwaTopFileMindmapTab: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("닫기") { showingPlayer = false }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        Task { await generate(force: true) }
+                    } label: {
+                        if isGenerating {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                    }
+                    .disabled(isGenerating)
                 }
             }
         }

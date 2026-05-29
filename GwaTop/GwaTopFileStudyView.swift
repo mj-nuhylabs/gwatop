@@ -14,7 +14,9 @@ struct GwaTopFileStudyView: View {
     let file: GwaTopFileSummary
 
     enum Tab: String, CaseIterable, Identifiable {
-        case pdf, summary, quiz, flashcard, mindmap, memorize, topics, notes, tutor
+        // 탭 순서: PDF → 요약 → AI 튜터 → 퀴즈 → 플래시카드 → 마인드맵 → 암기 → 주요 주제 → 노트.
+        // AI 튜터를 요약 바로 뒤에 두어, 사용자가 요약 보고 곧장 후속 질문할 수 있게 동선 단축.
+        case pdf, summary, tutor, quiz, flashcard, mindmap, memorize, topics, notes
 
         var id: String { rawValue }
 
