@@ -54,7 +54,7 @@ def build_auto_todos(schedule: Schedule) -> list[dict]:
         due = schedule.due_date - timedelta(days=spec.days_before)
         todos.append(
             {
-                "title": f"{schedule.title} {spec.label} (D-{spec.days_before})",
+                "title": f"{schedule.title} {spec.label}",
                 "due_date": due,
                 "priority": spec.priority,
                 "course_id": schedule.course_id,

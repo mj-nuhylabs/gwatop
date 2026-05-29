@@ -54,7 +54,17 @@ final class GwaTopAppDataStore: ObservableObject {
         Date().timeIntervalSince(lastRefreshedAt) < 5 * 60
     }
 
-    private init() {}
+    private var cancellables = Set<AnyCancellable>()
+
+    private init() {
+        // 강의계획서 파싱이 끝나면(.syllabusParseCompleted) 중앙 캐시를 즉시 갱신한다.
+        // → 홈/과제/캘린더/학습 어떤 화면도 앱을 나갔다 오지 않고 바로 최신 데이터를 본다.
+        NotificationCenter.default.publisher(for: .syllabusParseCompleted)
+            .sink { [weak self] _ in
+                Task { @MainActor in await self?.refreshAfterSyllabusParse() }
+            }
+            .store(in: &cancellables)
+    }
 
     // MARK: - 진행 단계 정의
 
@@ -201,6 +211,47 @@ final class GwaTopAppDataStore: ObservableObject {
                 // 실패는 무시 — 다음 .task 진입 시 자체 재시도가 동작.
             }
         }
+    }
+
+    /// 강의계획서 파싱 완료 직후 호출 — 자동 생성된 과제/시험(todos)과 일정(schedules),
+    /// 파일 상태(parsed)를 모두 다시 받아 @Published 캐시를 갱신한다.
+    /// lastRefreshedAt 를 현재로 올려, 각 화면이 .task 진입 시 이 신선한 캐시를 그대로 쓴다.
+    func refreshAfterSyllabusParse() async {
+        let cal = Calendar(identifier: .gregorian)
+        let start = cal.startOfDay(for: Date())
+        let end = cal.date(byAdding: .day, value: 21, to: start) ?? start.addingTimeInterval(21 * 86400)
+
+        // 홈/할일/일정은 병렬로 다시 받는다 (실패한 항목만 건너뛰고 나머지는 갱신).
+        async let dashTask = try? GwaTopHomeService.shared.fetchDashboard(upcomingLimit: 5)
+        async let todosTask = try? GwaTopTodoService.shared.fetchAll(start: start, end: end)
+        async let schedulesTask = try? GwaTopScheduleService.shared.fetchAll()
+
+        let (dash, todos, schedules) = await (dashTask, todosTask, schedulesTask)
+        if let dash { self.dashboard = dash }
+        if let todos { self.upcomingTodos = todos }
+        if let schedules { self.allSchedules = schedules }
+
+        // 학습 자료(파일 상태 parsed) 도 과목별로 다시 받는다.
+        let courseList = self.courses.isEmpty
+            ? ((try? await GwaTopCourseService.shared.fetchAll()) ?? [])
+            : self.courses
+        if !courseList.isEmpty {
+            var collected: [String: [GwaTopFileSummary]] = [:]
+            await withTaskGroup(of: (String, [GwaTopFileSummary]?).self) { group in
+                for c in courseList {
+                    group.addTask {
+                        let list = try? await GwaTopFileService.shared.fetchFiles(courseId: c.id)
+                        return (c.id, list)
+                    }
+                }
+                for await (cid, result) in group {
+                    if let result { collected[cid] = result }
+                }
+            }
+            self.filesByCourse = collected
+        }
+
+        self.lastRefreshedAt = Date()
     }
 
     /// 로그아웃 시 캐시 초기화 — 다른 사용자가 같은 디바이스에 로그인해도 잔재가 안 보이게.

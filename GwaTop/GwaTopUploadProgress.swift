@@ -161,13 +161,22 @@ final class GwaTopUploadProgress: ObservableObject {
         let task = Task { [weak self] in
             guard let self else { return }
             do {
-                _ = try await GwaTopFileUploadService.shared.upload(
+                let fileId = try await GwaTopFileUploadService.shared.upload(
                     courseId: courseId, filename: filename,
                     fileType: fileType, data: data, isSyllabus: false,
                 )
                 if Task.isCancelled { return }
                 self.updateProgress(id: jobId, progress: 1.0)
                 self.setPhase(id: jobId, phase: .processing)
+                // ★ 학습 탭 즉시 갱신용 — S3 PUT + confirm 이 끝났으니 이 시점에
+                // GET /courses/{cid}/files 가 새 파일을 반환한다. 알림 즉시 post.
+                // 시트의 1.2초 타이머 reload 는 cache fresh 면 bail-out 되지만, 이 알림으로
+                // silent reload (cache bypass) 가 한 번 더 발동돼 새 자료가 확실히 노출된다.
+                NotificationCenter.default.post(
+                    name: .materialUploadCompleted,
+                    object: nil,
+                    userInfo: ["course_id": courseId, "file_id": fileId]
+                )
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
                 if Task.isCancelled { return }
                 self.setPhase(id: jobId, phase: .done)

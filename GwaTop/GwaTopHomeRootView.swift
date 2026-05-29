@@ -99,6 +99,7 @@ struct GwaTopHomeView: View {
                 courseId: course.id,
                 name: course.name.isEmpty ? "이름 없는 과목" : course.name,
                 professor: course.professor,
+                location: course.location,
                 classTimes: course.schedule ?? [],
                 progress: progress,
                 nextSchedule: nextSchedule,
@@ -130,6 +131,10 @@ struct GwaTopHomeView: View {
             }
             .navigationBarTitleDisplayMode(.inline)
             .task { if dashboard == nil { await load() } }
+            // 강의계획서 파싱 완료 → 자동 생성 과제/일정이 즉시 반영되도록 강제 새로고침.
+            .onReceive(NotificationCenter.default.publisher(for: .syllabusParseCompleted)) { _ in
+                Task { await load(force: true) }
+            }
             .toolbar {
                 // 추후 알림 기능 구현 시 toolbar 버튼 복구. 동작 없는 종 아이콘 + 가짜 빨간 점은 오해 소지가 있어 제거.
             }
@@ -138,7 +143,8 @@ struct GwaTopHomeView: View {
                     subject: subject,
                     upcoming: (dashboard?.upcomingTodos ?? [])
                         .filter { $0.courseId == subject.courseId }
-                        .sorted { $0.dueDate < $1.dueDate }
+                        .sorted { $0.dueDate < $1.dueDate },
+                    onSaved: { Task { await load(force: true) } }
                 )
                 .presentationDetents([.medium, .large])
             }
@@ -146,7 +152,7 @@ struct GwaTopHomeView: View {
     }
 
     @MainActor
-    private func load() async {
+    private func load(force: Bool = false) async {
         // 1) 스플래시 prefetch 결과를 우선 그대로 표시 — 깜빡임 제거.
         let store = GwaTopAppDataStore.shared
         if let cachedDash = store.dashboard {
@@ -164,7 +170,8 @@ struct GwaTopHomeView: View {
             weekTodos = store.upcomingTodos.filter { $0.dueDate >= weekStart && $0.dueDate < weekEnd }
         }
         // 캐시가 신선하면 네트워크 호출 자체를 건너뜀 (탭 전환 시 깜빡임 방지).
-        if store.isCacheFresh && dashboard != nil {
+        // force(파싱 완료 알림 등) 일 때는 무조건 네트워크에서 다시 받는다.
+        if !force && store.isCacheFresh && dashboard != nil {
             isLoading = false
             loadError = nil
             return
@@ -380,6 +387,8 @@ struct GwaTopSettingsView: View {
 
                             appearanceSelector
 
+                            GwaTopAppleCalendarSettingsRow()
+
                             GwaTopSettingsRow(iconName: "person.fill", title: "프로필 정보", value: user.displayName)
                             GwaTopSettingsRow(iconName: "envelope.fill", title: "이메일", value: user.email)
                             GwaTopSettingsRow(iconName: "key.fill", title: "인증 제공자", value: user.loginProvider)
@@ -486,6 +495,81 @@ struct GwaTopSettingsRow: View {
         .padding(14)
         .background(.white)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+}
+
+/// 설정 화면의 Apple 캘린더 연동 토글 행.
+/// 켜면 권한을 요청하고, 거부 상태면 시스템 설정으로 보내는 안내 alert 를 띄운다.
+struct GwaTopAppleCalendarSettingsRow: View {
+    @AppStorage(UserDefaults.gwaTopAppleCalendarEnabledKey) private var enabled: Bool = false
+    @ObservedObject private var svc = GwaTopAppleCalendarService.shared
+    @State private var showDeniedAlert = false
+
+    /// 실제로 "켜짐"으로 보이는 조건 — 사용자 토글 + 권한 보유 둘 다.
+    private var isOn: Bool { enabled && svc.hasAccess }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "calendar")
+                .font(.gwaTopSystem(size: 16, weight: .bold))
+                .foregroundStyle(GwaTopHomeTheme.primary)
+                .frame(width: 36, height: 36)
+                .background(GwaTopHomeTheme.primary.opacity(0.10))
+                .clipShape(Circle())
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Apple 캘린더 연동")
+                    .font(.gwaTopSystem(size: 15, weight: .bold))
+                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                Text(isOn ? "Apple 캘린더 일정을 함께 표시 중" : "기기의 Apple 캘린더 일정을 함께 표시")
+                    .font(.gwaTopSystem(size: 12, weight: .medium))
+                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+            }
+
+            Spacer()
+
+            Toggle("", isOn: Binding(
+                get: { isOn },
+                set: { newValue in
+                    if newValue {
+                        Task { await turnOn() }
+                    } else {
+                        enabled = false
+                    }
+                }
+            ))
+            .labelsHidden()
+            .tint(GwaTopHomeTheme.primary)
+        }
+        .padding(14)
+        .background(.white)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .alert("캘린더 접근 권한이 필요해요", isPresented: $showDeniedAlert) {
+            Button("설정으로 이동") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text("설정 > 과탑 > 캘린더 에서 권한을 허용해주세요.")
+        }
+    }
+
+    @MainActor
+    private func turnOn() async {
+        if svc.isDenied {
+            showDeniedAlert = true
+            return
+        }
+        if !svc.hasAccess {
+            let granted = await svc.requestAccess()
+            if !granted {
+                showDeniedAlert = svc.isDenied
+                return
+            }
+        }
+        enabled = true
     }
 }
 
@@ -638,8 +722,23 @@ struct GwaTopSubjectProgressCard: View {
 struct GwaTopSubjectDetailSheet: View {
     let subject: GwaTopSubject
     let upcoming: [GwaTopTodoDTO]
+    /// 저장 성공 후 호출 — 홈이 과목/일정을 다시 불러와 변경된 강의실을 반영.
+    var onSaved: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
+
+    /// 편집 중인 수업 시간(요일·시간·강의실). 저장 전까지 로컬에서만 변경.
+    @State private var editableTimes: [GwaTopClassTimeDTO]
+    @State private var isEditing = false
+    @State private var isSaving = false
+    @State private var saveError: String? = nil
+
+    init(subject: GwaTopSubject, upcoming: [GwaTopTodoDTO], onSaved: (() -> Void)? = nil) {
+        self.subject = subject
+        self.upcoming = upcoming
+        self.onSaved = onSaved
+        _editableTimes = State(initialValue: subject.classTimes)
+    }
 
     private static let dayOrder = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
     private static let dayLabels: [String: String] = [
@@ -648,7 +747,7 @@ struct GwaTopSubjectDetailSheet: View {
     ]
 
     private var sortedTimes: [GwaTopClassTimeDTO] {
-        subject.classTimes.sorted {
+        editableTimes.sorted {
             let a = Self.dayOrder.firstIndex(of: $0.day) ?? 99
             let b = Self.dayOrder.firstIndex(of: $1.day) ?? 99
             return a != b ? a < b : $0.startTime < $1.startTime
@@ -657,6 +756,17 @@ struct GwaTopSubjectDetailSheet: View {
 
     private func timeText(_ t: GwaTopClassTimeDTO) -> String {
         "\(Self.dayLabels[t.day] ?? t.day) \(t.startTime)–\(t.endTime)"
+    }
+
+    /// 해당 요일(슬롯)의 강의실. 슬롯 강의실이 비어 있으면 과목 전체 강의실로 폴백.
+    private func roomText(_ t: GwaTopClassTimeDTO) -> String? {
+        if let slot = t.location?.trimmingCharacters(in: .whitespacesAndNewlines), !slot.isEmpty {
+            return slot
+        }
+        if let course = subject.location?.trimmingCharacters(in: .whitespacesAndNewlines), !course.isEmpty {
+            return course
+        }
+        return nil
     }
 
     private func dDayText(_ date: Date) -> String {
@@ -729,34 +839,143 @@ struct GwaTopSubjectDetailSheet: View {
 
     private var classTimeSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("수업 시간")
-                .font(.gwaTopSystem(size: 18, weight: .heavy))
-                .foregroundStyle(GwaTopHomeTheme.textPrimary)
-
-            if sortedTimes.isEmpty {
-                Text("등록된 수업 시간이 없어요.")
-                    .font(.gwaTopSystem(size: 14, weight: .medium))
+            HStack {
+                Text("수업 시간 · 강의실")
+                    .font(.gwaTopSystem(size: 18, weight: .heavy))
+                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                Spacer()
+                if isEditing {
+                    Button("취소") {
+                        // 변경 폐기 후 원래 값으로 복원.
+                        editableTimes = subject.classTimes
+                        saveError = nil
+                        isEditing = false
+                    }
+                    .font(.gwaTopSystem(size: 14, weight: .bold))
                     .foregroundStyle(GwaTopHomeTheme.textSecondary)
-            } else {
-                ForEach(sortedTimes, id: \.self) { t in
-                    HStack(spacing: 12) {
-                        Image(systemName: "clock.fill")
+                } else {
+                    Button {
+                        isEditing = true
+                    } label: {
+                        Label("편집", systemImage: "pencil")
                             .font(.gwaTopSystem(size: 14, weight: .bold))
                             .foregroundStyle(subject.color)
-                            .frame(width: 30, height: 30)
-                            .background(subject.color.opacity(0.12))
-                            .clipShape(Circle())
-                        Text(timeText(t))
-                            .font(.gwaTopSystem(size: 15, weight: .semibold))
-                            .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                        Spacer()
                     }
                 }
+            }
+
+            if isEditing {
+                classTimeEditor
+            } else {
+                classTimeReadOnly
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
         .gwaTopCard(radius: 20)
+    }
+
+    @ViewBuilder
+    private var classTimeReadOnly: some View {
+        if sortedTimes.isEmpty {
+            Text("등록된 수업 시간이 없어요. '편집'으로 추가해보세요.")
+                .font(.gwaTopSystem(size: 14, weight: .medium))
+                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+        } else {
+            ForEach(sortedTimes, id: \.self) { t in
+                HStack(spacing: 12) {
+                    Image(systemName: "clock.fill")
+                        .font(.gwaTopSystem(size: 14, weight: .bold))
+                        .foregroundStyle(subject.color)
+                        .frame(width: 30, height: 30)
+                        .background(subject.color.opacity(0.12))
+                        .clipShape(Circle())
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(timeText(t))
+                            .font(.gwaTopSystem(size: 15, weight: .semibold))
+                            .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                        // 요일별 강의실 — 있으면 표시 (슬롯 → 과목 location 폴백).
+                        if let room = roomText(t) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "mappin.and.ellipse")
+                                    .font(.gwaTopSystem(size: 12, weight: .semibold))
+                                Text(room)
+                                    .font(.gwaTopSystem(size: 13, weight: .medium))
+                            }
+                            .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                        }
+                    }
+                    Spacer()
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var classTimeEditor: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // 요일마다 한 줄 — 요일/시간/강의실을 각각 수정. 같은 과목도 요일별 강의실 분리 가능.
+            ForEach(Array(editableTimes.enumerated()), id: \.offset) { idx, _ in
+                GwaTopClassTimeRow(
+                    time: $editableTimes[idx],
+                    onDelete: { editableTimes.remove(at: idx) }
+                )
+            }
+
+            Button {
+                editableTimes.append(
+                    GwaTopClassTimeDTO(day: "MON", startTime: "09:00", endTime: "10:30")
+                )
+            } label: {
+                Label("요일 추가", systemImage: "plus.circle.fill")
+                    .font(.gwaTopSystem(size: 14, weight: .bold))
+                    .foregroundStyle(subject.color)
+            }
+            .padding(.top, 2)
+
+            if let saveError {
+                Text(saveError)
+                    .font(.gwaTopSystem(size: 13, weight: .semibold))
+                    .foregroundStyle(GwaTopHomeTheme.danger)
+            }
+
+            Button {
+                Task { await saveTimes() }
+            } label: {
+                HStack(spacing: 6) {
+                    if isSaving { ProgressView().tint(.white) }
+                    Text(isSaving ? "저장 중…" : "저장")
+                        .font(.gwaTopSystem(size: 16, weight: .heavy))
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 48)
+                .background(subject.color)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .disabled(isSaving)
+            .padding(.top, 4)
+        }
+    }
+
+    @MainActor
+    private func saveTimes() async {
+        isSaving = true
+        saveError = nil
+        defer { isSaving = false }
+        do {
+            _ = try await GwaTopCourseService.shared.update(
+                id: subject.courseId,
+                schedule: editableTimes
+            )
+            // 캐시 무효화 + 과목 재조회 → 시간표 등 다른 화면도 갱신.
+            GwaTopAppDataStore.shared.invalidate()
+            GwaTopAppDataStore.shared.refreshCoursesInBackground()
+            onSaved?()
+            isEditing = false
+        } catch {
+            saveError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
     }
 
     private var upcomingSection: some View {
@@ -923,6 +1142,8 @@ struct GwaTopSubject: Identifiable {
     let courseId: String
     let name: String
     let professor: String?
+    /// 과목 전체 강의실 — 요일별(slot) 강의실이 비어 있을 때 폴백으로 표시.
+    let location: String?
     let classTimes: [GwaTopClassTimeDTO]
     let progress: CGFloat
     let nextSchedule: String

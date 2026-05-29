@@ -6,14 +6,18 @@
 import Foundation
 
 struct GwaTopClassTimeDTO: Codable, Equatable, Hashable {
-    let day: String        // MON/TUE/WED/THU/FRI/SAT/SUN
-    let startTime: String  // "HH:MM"
-    let endTime: String    // "HH:MM"
+    var day: String        // MON/TUE/WED/THU/FRI/SAT/SUN
+    var startTime: String  // "HH:MM"
+    var endTime: String    // "HH:MM"
+    /// 이 요일(슬롯) 전용 강의실. 요일마다 다른 강의실을 가질 수 있도록 슬롯 단위로 보관.
+    /// 비어 있으면 과목 전체 location(course.location) 으로 폴백해 표시한다.
+    var location: String?  // 예: "공학관 301호"
 
     enum CodingKeys: String, CodingKey {
         case day
         case startTime = "start_time"
         case endTime   = "end_time"
+        case location
     }
 }
 

@@ -36,8 +36,6 @@ struct GwaTopCalendarView: View {
     @AppStorage(UserDefaults.gwaTopAppleCalendarEnabledKey) private var appleCalendarEnabled: Bool = false
     /// Apple 캘린더에서 가져온 이벤트 — 서버 events 와는 별도 상태로 두고 표시 시점에 머지.
     @State private var appleEvents: [GwaTopCalendarEvent] = []
-    /// 권한 거부됐을 때 사용자에게 "설정 앱으로 가서 켜세요" 안내 alert.
-    @State private var showAppleCalendarDeniedAlert: Bool = false
     @ObservedObject private var appleCalSvc = GwaTopAppleCalendarService.shared
 
     /// 서버 일정 + Apple 일정 합본. 모든 monthGrid/eventsForDate 등이 이걸 본다.
@@ -50,6 +48,11 @@ struct GwaTopCalendarView: View {
 
     private var monthTitle: String {
         GwaTopDateFormatters.koYearMonth.string(from: displayedMonth)
+    }
+
+    /// 상단 헤더 타이틀 — 캘린더 탭은 표시 중인 월("2026년 6월"), 시간표 탭은 "시간표".
+    private var headerTitle: String {
+        selectedTopTab == .calendar ? monthTitle : selectedTopTab.label
     }
 
     private var monthDays: [GwaTopCalendarDay] {
@@ -83,8 +86,9 @@ struct GwaTopCalendarView: View {
 
                 VStack(spacing: 0) {
                     // 헤더에 캘린더/시간표 미니멀 아이콘 토글 동거 — 별도 줄 제거.
-                    GwaTopScreenHeader(title: selectedTopTab.label) {
-                        topTabSwitcher
+                    // 캘린더 탭에선 타이틀이 월 표시("2026년 6월")이고, 월 이동 화살표도 헤더로 올린다.
+                    GwaTopScreenHeader(title: headerTitle) {
+                        headerTrailing
                     }
 
                     ScrollView(showsIndicators: false) {
@@ -232,6 +236,41 @@ struct GwaTopCalendarView: View {
         }
     }
 
+    // MARK: - 상단 헤더 트레일링 (월 이동 + 탭 전환)
+
+    /// 캘린더 탭이면 월 이동 화살표를 같이 노출, 시간표 탭이면 탭 스위처만.
+    @ViewBuilder
+    private var headerTrailing: some View {
+        HStack(spacing: 6) {
+            if selectedTopTab == .calendar {
+                monthNavButtons
+            }
+            topTabSwitcher
+        }
+    }
+
+    /// 월 이전/다음 이동 화살표.
+    private var monthNavButtons: some View {
+        HStack(spacing: 2) {
+            Button {
+                moveMonth(by: -1)
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.gwaTopSystem(size: 14, weight: .bold))
+                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                    .frame(width: 30, height: 30)
+            }
+            Button {
+                moveMonth(by: 1)
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.gwaTopSystem(size: 14, weight: .bold))
+                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                    .frame(width: 30, height: 30)
+            }
+        }
+    }
+
     // MARK: - 상단 탭 전환
 
     private var topTabSwitcher: some View {
@@ -276,80 +315,11 @@ struct GwaTopCalendarView: View {
                 errorBanner(message: msg)
             }
 
-            appleCalendarToggleRow
-
+            // Apple 캘린더 연동 토글은 설정 화면으로 이동. (최초 로그인/회원가입 시 1회 안내)
             monthGrid
             // selectedDaySection 제거 — 일정은 셀 안 pill 로 직접 노출. tap 시 detail sheet.
             syllabusUploadCard
         }
-    }
-
-    /// Apple 캘린더 연동 on/off 토글 + 권한 안내.
-    /// - 켜져 있고 권한 OK → 작은 회색 칩, "연동 중 N개"
-    /// - 꺼져 있음 → 회색 outlined 버튼, "Apple 캘린더 연동하기"
-    /// - 권한 거부됨 → "설정에서 권한 켜기" alert
-    private var appleCalendarToggleRow: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "applelogo")
-                .font(.gwaTopSystem(size: 13, weight: .bold))
-            if appleCalendarEnabled && appleCalSvc.hasAccess {
-                Text("Apple 캘린더 연동 중 · \(appleEvents.count)개")
-                    .font(.gwaTopSystem(size: 13, weight: .heavy))
-                Spacer()
-                Button("끄기") {
-                    appleCalendarEnabled = false
-                    appleEvents = []
-                }
-                .font(.gwaTopSystem(size: 13, weight: .heavy))
-                .foregroundStyle(GwaTopHomeTheme.textSecondary)
-            } else {
-                Text("Apple 캘린더 연동하기")
-                    .font(.gwaTopSystem(size: 13, weight: .heavy))
-                Spacer()
-                Button("켜기") {
-                    Task { await toggleAppleCalendarOn() }
-                }
-                .font(.gwaTopSystem(size: 13, weight: .heavy))
-                .foregroundStyle(GwaTopHomeTheme.primary)
-            }
-        }
-        .foregroundStyle(GwaTopHomeTheme.textPrimary)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(Color.white)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(GwaTopHomeTheme.line, lineWidth: 1)
-        )
-        .alert("캘린더 접근 권한이 필요해요", isPresented: $showAppleCalendarDeniedAlert) {
-            Button("설정으로 이동") {
-                if let url = URL(string: UIApplication.openSettingsURLString) {
-                    UIApplication.shared.open(url)
-                }
-            }
-            Button("취소", role: .cancel) {}
-        } message: {
-            Text("설정 > 과탑 > 캘린더 에서 권한을 허용해주세요.")
-        }
-    }
-
-    /// 토글 켜기 — 권한 상태에 따라 분기.
-    @MainActor
-    private func toggleAppleCalendarOn() async {
-        if appleCalSvc.isDenied {
-            showAppleCalendarDeniedAlert = true
-            return
-        }
-        if !appleCalSvc.hasAccess {
-            let granted = await appleCalSvc.requestAccess()
-            if !granted {
-                showAppleCalendarDeniedAlert = appleCalSvc.isDenied
-                return
-            }
-        }
-        appleCalendarEnabled = true
-        await loadAppleEvents()
     }
 
     /// 현재 표시 월 ±2개월 범위의 Apple 일정 fetch.
@@ -522,37 +492,7 @@ struct GwaTopCalendarView: View {
 
     private var monthGrid: some View {
         VStack(spacing: 0) {
-            // 헤더: 월 + chevrons (카드 wrapper 제거 — 전면 노출)
-            HStack {
-                Text(monthTitle)
-                    .font(.system(size: 22, weight: .heavy, design: .rounded))
-                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
-
-                Image(systemName: "chevron.down")
-                    .font(.gwaTopSystem(size: 14, weight: .bold))
-                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
-
-                Spacer()
-
-                Button {
-                    moveMonth(by: -1)
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.gwaTopSystem(size: 14, weight: .bold))
-                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                        .frame(width: 32, height: 32)
-                }
-                Button {
-                    moveMonth(by: 1)
-                } label: {
-                    Image(systemName: "chevron.right")
-                        .font(.gwaTopSystem(size: 14, weight: .bold))
-                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                        .frame(width: 32, height: 32)
-                }
-            }
-            .padding(.bottom, 8)
-
+            // 월 표시("2026년 6월")와 이동 화살표는 상단 헤더로 이동했다.
             // 요일 헤더
             HStack(spacing: 0) {
                 ForEach(weekdaySymbols, id: \.self) { symbol in
