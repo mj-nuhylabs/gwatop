@@ -1,6 +1,7 @@
 """디바이스(APNs 푸시 토큰) 등록/해제 엔드포인트."""
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_current_user
@@ -41,7 +42,23 @@ async def register_device(
         platform=body.platform,
     )
     db.add(device)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # 동시 등록 race — 다른 요청이 같은 apns_token 을 먼저 insert 함.
+        # 그 row 를 재조회해 owner/플랫폼을 갱신한다 (디바이스 양도와 동일 처리).
+        await db.rollback()
+        existing = (
+            await db.execute(select(Device).where(Device.apns_token == body.apns_token))
+        ).scalar_one_or_none()
+        if existing is None:
+            raise
+        existing.user_id = current_user.id
+        existing.platform = body.platform
+        existing.last_seen_at = kst_now_naive()
+        await db.commit()
+        await db.refresh(existing)
+        return existing
     await db.refresh(device)
     return device
 

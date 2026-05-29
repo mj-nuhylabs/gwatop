@@ -110,7 +110,11 @@ async def confirm_upload(
     if not file_record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
 
-    extract_text_task.delay(str(file_id))
+    # 멱등성: status 는 uploading → processing → extracted → ... 로만 전진한다.
+    # 이미 confirm 되어 처리 단계로 넘어간 파일은 추출을 재트리거하지 않는다
+    # (중복 confirm 으로 동일 S3 객체를 다시 다운로드·추출하는 낭비 방지).
+    if file_record.status == "uploading":
+        extract_text_task.delay(str(file_id))
 
     return FileConfirmResponse(file=FileResponse.model_validate(file_record))
 
@@ -480,7 +484,7 @@ async def get_ai_content(
             AIContent.file_id == file_row.id,
             AIContent.content_type == content_type,
         ).order_by(AIContent.generated_at.desc())
-    )).scalar_one_or_none()
+    )).scalars().first()
 
     if row is None:
         # 아직 생성 전 상태. status로 클라이언트가 'AI가 작업 중이에요' 표시 가능.
