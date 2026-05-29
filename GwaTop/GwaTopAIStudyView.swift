@@ -451,19 +451,26 @@ struct GwaTopAIStudyView: View {
     @MainActor
     private func reloadAllFiles(silent: Bool = false) async {
         guard !courses.isEmpty else { return }
-        // 스플래시 캐시 hydrate — 깜빡임 없음.
         let store = GwaTopAppDataStore.shared
-        if !store.filesByCourse.isEmpty {
-            for (cid, list) in store.filesByCourse {
-                filesByCourse[cid] = list
-            }
-            if store.isCacheFresh && !silent {
-                // 캐시 사용 → 로딩 인디케이터 안 띄움.
-                return
-            }
-        }
+        // ── 캐시 hydrate ─────────────────────────────────────────────────────────────
+        // silent=false (.task / refreshable) — 사용자가 빈 화면을 보지 않게 캐시로 즉시 채움.
+        //   단, **이미 local 이 가지고 있는 과목은 건너뜀** — 그러지 않으면 polling 이후
+        //   silent reload 가 stale 캐시로 local 의 최신 데이터(방금 업로드한 파일, 진행중
+        //   status) 를 덮어써서 "파일이 사라졌다 나왔다" 깜빡임이 생긴다.
+        //   AppDataStore.filesByCourse 는 스플래시 prefetch 외엔 갱신 안 되는 1회성 캐시라
+        //   특히 위험.
+        // silent=true (업로드 완료 알림, polling) — 화면에 이미 표시 중인 데이터가 있으니
+        //   캐시 hydrate 단계 자체를 통째로 스킵하고 곧장 fresh fetch 로.
         if !silent {
-            // 캐시 없는 과목만 spinner — 이미 cached 면 inflight 표시 안 함.
+            if !store.filesByCourse.isEmpty {
+                for (cid, list) in store.filesByCourse where filesByCourse[cid] == nil {
+                    filesByCourse[cid] = list
+                }
+                if store.isCacheFresh {
+                    // 캐시가 신선하면 network round-trip 없이 종료. silent 경로엔 적용 안 함.
+                    return
+                }
+            }
             loadingCourseIds = Set(courses.map(\.id).filter { filesByCourse[$0] == nil })
         }
         await withTaskGroup(of: (String, [GwaTopFileSummary]?).self) { group in

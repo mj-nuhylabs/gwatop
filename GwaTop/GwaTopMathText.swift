@@ -323,79 +323,28 @@ struct GwaTopRichText: View {
     }
 
     var body: some View {
-        // 빠른 경로: 마크다운/수식 마커가 전혀 없는 평범한 단락이면 WebView 안 띄우고
-        // SwiftUI Text 로 즉시 렌더. WebView 로드 + JS 실행 시간을 0 으로 만들어
-        // 탭 진입 시 메시지가 "팍" 하고 떠오르는 깜빡임을 근본부터 제거.
-        // scrolls=true 인 "크게 보기" 모드는 WebView 가 직접 스크롤해야 하므로 예외.
-        if !scrolls && Self.canRenderAsPlainText(markdown) {
-            Text(markdown)
-                .font(.gwaTopSystem(size: fontSize, weight: .regular))
-                .foregroundStyle(textColor)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
+        // 항상 WebView 로 마크다운 + KaTeX 렌더. 이전에 평문 빠른 경로를 두려고 했지만
+        // `##` 헤더 / `**굵게**` / `- 리스트` 같은 잦은 마크다운 케이스에서 SwiftUI Text
+        // 로 잘못 빠지는 회귀가 있어 제거. 초기 깜빡임은 measuredHeight 추정으로 완화.
+        let web = GwaTopRichTextWebView(
+            markdown: markdown,
+            fontSize: fontSize,
+            color: textColor,
+            accent: accentColor,
+            scrolls: scrolls,
+            measuredHeight: $measuredHeight
+        )
+        if scrolls {
+            web
         } else {
-            let web = GwaTopRichTextWebView(
-                markdown: markdown,
-                fontSize: fontSize,
-                color: textColor,
-                accent: accentColor,
-                scrolls: scrolls,
-                measuredHeight: $measuredHeight
-            )
-            // 스크롤 모드: 부모 공간을 그대로 채움(높이 고정 X). 인라인 모드: 측정 높이로 고정.
-            if scrolls {
-                web
-            } else {
-                web.frame(height: measuredHeight)
-            }
+            web.frame(height: measuredHeight)
         }
-    }
-
-    // MARK: 빠른 경로 — 마크다운/수식 마커 감지
-
-    /// "굵게/리스트/헤더/링크/코드/수식 같은 마크다운 또는 LaTeX 신호가 하나도 없는가?"
-    /// 하나라도 있으면 false → marked.js + KaTeX 가 필요.
-    /// 보수적으로 False positive(잘못 plain 처리) 가능성은 거의 0 인 쪽으로 — `*`, `#`,
-    /// 백틱, `$`, `\\`, `[`, 리스트 prefix, quote prefix, 숫자 리스트 prefix 등 모두 잡음.
-    static func canRenderAsPlainText(_ s: String) -> Bool {
-        // KaTeX 신호
-        if s.contains("$") || s.contains("\\") { return false }
-        // 인라인 마크다운 마커
-        if s.contains("**") || s.contains("__") { return false }
-        if s.contains("`") { return false }     // 코드/인라인 코드
-        if s.contains("[") { return false }     // 링크 / 이미지
-        // 블록 마커 — 줄 시작 검사. trimmingCharacters 안 쓰고 직접 순회해서 비용 절약.
-        for rawLine in s.split(separator: "\n", omittingEmptySubsequences: false) {
-            // 선행 공백 스킵
-            var line = rawLine[...]
-            while let c = line.first, c == " " || c == "\t" { line = line.dropFirst() }
-            if line.isEmpty { continue }
-            // 헤더(`#`) / quote(`>`) / 리스트(`- `, `* `, `+ `)
-            let head = line.first!
-            if head == "#" || head == ">" { return false }
-            if head == "-" || head == "*" || head == "+" {
-                // 단독 `-`/`*` 는 마커가 아니라 텍스트일 수도 있지만, 보수적으로 컷.
-                let second = line.dropFirst().first
-                if second == " " || second == nil { return false }
-            }
-            // `1. `, `12. ` 같은 숫자 리스트
-            if head.isNumber {
-                var rest = line.dropFirst()
-                while let c = rest.first, c.isNumber { rest = rest.dropFirst() }
-                if rest.first == "." {
-                    let after = rest.dropFirst().first
-                    if after == " " { return false }
-                }
-            }
-            // 파이프 — 마크다운 표
-            if line.contains("|") { return false }
-        }
-        return true
     }
 
     /// 글자 수 기반 초기 높이 추정. WebView 측정값이 들어오기 전까지 임시 frame.
     /// 35자/줄 × (fontSize × 1.5 줄높이) + 패딩 12pt. 평균 한국어/영문 혼합 답변 기준.
+    /// 24pt 로 시작하면 측정 직후 24→실제(100~400)로 점프하면서 "팍" 깜빡임이 생기므로,
+    /// 글자수로 미리 근사해 점프 폭을 사람 눈에 안 보일 정도로 줄인다.
     static func estimateHeight(of markdown: String, fontSize: CGFloat) -> CGFloat {
         let count = markdown.count
         if count == 0 { return 24 }
