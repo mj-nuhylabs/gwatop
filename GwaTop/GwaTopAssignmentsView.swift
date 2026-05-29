@@ -266,13 +266,9 @@ struct GwaTopAssignmentsView: View {
 
         do {
             let dtos = try await GwaTopTodoService.shared.fetchAll(start: start, end: end)
-            // is_auto=true 항목 (시험/과제 D-N 사전 알림 todo) 은 리스트에서 숨김.
-            // 사용자가 매번 "퀴즈 1 복습 (D-3)" 같은 항목으로 리스트가 도배되는 걸 원치 않고,
-            // 이 알림은 백엔드/푸시 시스템에서 별도로 발송된다. 사용자가 직접 만든 todo (is_auto=false)
-            // 만 과제 리스트에 표시.
-            assignments = dtos
-                .filter { !$0.isAuto }
-                .map(GwaTopAssignment.init(dto:))
+            // is_auto=true (강의계획서 파싱 자동 생성) 도 함께 표시 — 홈 ToDo 와 동일 기준.
+            // 사용자가 직접 만든 항목과 시스템 자동 항목을 한 곳에서 모두 관리.
+            assignments = dtos.map(GwaTopAssignment.init(dto:))
         } catch {
             // SwiftUI 라이프사이클로 task가 취소된 경우는 무시 (이전 데이터 유지)
             if isCancellation(error) { return }
