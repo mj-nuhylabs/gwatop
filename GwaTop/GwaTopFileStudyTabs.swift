@@ -2514,16 +2514,22 @@ struct GwaTopFileTutorTab: View {
                     .defaultScrollAnchor(.bottom)
                     .onAppear {
                         // ScrollView 가 hasLoaded 이후 생성돼 messages.count onChange 가
-                        // 발동하지 않으므로, 등장 시 즉시 맨 아래로 점프.
+                        // 발동하지 않으므로, 등장 시 즉시 맨 아래로 점프 (애니메이션 없음 — 진입
+                        // 시 부드럽게 자리 잡도록).
                         proxy.scrollTo("__bottom", anchor: .bottom)
                     }
                     .onChange(of: messages.count) { _, _ in
-                        withAnimation { proxy.scrollTo("__bottom", anchor: .bottom) }
-                    }
-                    .onChange(of: streamingBody) { _, _ in
-                        withAnimation(.easeOut(duration: 0.15)) {
+                        // 새 메시지 추가 시 점프 — 애니메이션 빼서 깜빡임 최소.
+                        // 다음 RunLoop 에 스크롤해야 새 메시지의 height 측정이 끝난 뒤로 잡힘.
+                        DispatchQueue.main.async {
                             proxy.scrollTo("__bottom", anchor: .bottom)
                         }
+                    }
+                    .onChange(of: streamingBody) { _, _ in
+                        // 스트리밍 청크는 50~100ms 마다 들어와서 매번 withAnimation 을 걸면
+                        // 동시 다발 애니메이션이 겹치며 레이아웃이 "팍" 흔들린다.
+                        // 애니메이션 없이 직접 점프 — 사용자 눈엔 부드럽게 따라 내려가는 것처럼 보임.
+                        proxy.scrollTo("__bottom", anchor: .bottom)
                     }
                 }
                 .transition(.opacity)
@@ -3094,21 +3100,17 @@ private struct GwaTopTutorEnlargedSheet: View {
         NavigationStack {
             ZStack {
                 GwaTopHomeTheme.background.ignoresSafeArea()
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        GwaTopRichText(
-                            message.body,
-                            fontSize: scaleFontSize,
-                            color: GwaTopHomeTheme.textPrimary,
-                            accent: GwaTopHomeTheme.primary
-                        )
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(16)
-                        .background(GwaTopHomeTheme.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    }
-                    .padding(16)
-                }
+                // WebView 가 직접 스크롤 → 답변이 아무리 길어도 하단이 잘리지 않음.
+                GwaTopRichText(
+                    message.body,
+                    fontSize: scaleFontSize,
+                    color: GwaTopHomeTheme.textPrimary,
+                    accent: GwaTopHomeTheme.primary,
+                    scrolls: true
+                )
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             .navigationTitle("AI 튜터 답변")
             .navigationBarTitleDisplayMode(.inline)

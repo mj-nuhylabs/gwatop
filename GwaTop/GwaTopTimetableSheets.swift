@@ -339,6 +339,7 @@ struct GwaTopTimetableAddSheet: View {
     // 새 과목 모드용 입력값.
     @State private var newName: String = ""
     @State private var newProfessor: String = ""
+    @State private var newLocation: String = ""
     @State private var newColor: String = GwaTopCoursePalette[0]
 
     // 시간 입력
@@ -498,6 +499,13 @@ struct GwaTopTimetableAddSheet: View {
                 .padding(.vertical, 10)
                 .background(GwaTopHomeTheme.surface)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
+            fieldLabel("강의실 (선택)")
+            TextField("예: 공학관 301호", text: $newLocation)
+                .font(.gwaTopSystem(size: 15))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(GwaTopHomeTheme.surface)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
             fieldLabel("색상")
             HStack(spacing: 10) {
                 ForEach(GwaTopCoursePalette, id: \.self) { hex in
@@ -598,10 +606,13 @@ struct GwaTopTimetableAddSheet: View {
         error = nil
         isSubmitting = true
         defer { isSubmitting = false }
+        let trimmedLocation = newLocation.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 추가하는 슬롯(요일)에 강의실을 함께 저장 — 요일별 강의실 표시에 그대로 사용.
         let newSlot = GwaTopClassTimeDTO(
             day: day,
             startTime: gwaTopHHMM(from: startTime),
-            endTime: gwaTopHHMM(from: endTime)
+            endTime: gwaTopHHMM(from: endTime),
+            location: trimmedLocation.isEmpty ? nil : trimmedLocation
         )
         do {
             switch mode {
@@ -625,6 +636,7 @@ struct GwaTopTimetableAddSheet: View {
                     name: newName.trimmingCharacters(in: .whitespacesAndNewlines),
                     professor: newProfessor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : newProfessor,
                     color: newColor,
+                    location: trimmedLocation.isEmpty ? nil : trimmedLocation,
                     schedule: [newSlot]
                 )
             }
@@ -644,7 +656,7 @@ struct GwaTopTimetableAddSheet: View {
 
 // MARK: - 시간 슬롯 한 줄 — 요일 + 시작/종료 + 삭제
 
-private struct GwaTopClassTimeRow: View {
+struct GwaTopClassTimeRow: View {
     @Binding var time: GwaTopClassTimeDTO
     var onDelete: () -> Void
 
@@ -663,11 +675,8 @@ private struct GwaTopClassTimeRow: View {
             HStack(spacing: 6) {
                 ForEach(GwaTopDayLabels, id: \.code) { d in
                     Button {
-                        time = GwaTopClassTimeDTO(
-                            day: d.code,
-                            startTime: time.startTime,
-                            endTime: time.endTime
-                        )
+                        // 요일만 바꾸고 시간·강의실은 그대로 유지.
+                        time.day = d.code
                     } label: {
                         Text(d.label)
                             .font(.gwaTopSystem(size: 13, weight: .bold))
@@ -692,11 +701,7 @@ private struct GwaTopClassTimeRow: View {
                 DatePicker("", selection: $start, displayedComponents: .hourAndMinute)
                     .labelsHidden()
                     .onChange(of: start) { _, newValue in
-                        time = GwaTopClassTimeDTO(
-                            day: time.day,
-                            startTime: gwaTopHHMM(from: newValue),
-                            endTime: time.endTime
-                        )
+                        time.startTime = gwaTopHHMM(from: newValue)
                     }
                 Image(systemName: "arrow.right")
                     .font(.gwaTopSystem(size: 12, weight: .bold))
@@ -704,12 +709,21 @@ private struct GwaTopClassTimeRow: View {
                 DatePicker("", selection: $end, displayedComponents: .hourAndMinute)
                     .labelsHidden()
                     .onChange(of: end) { _, newValue in
-                        time = GwaTopClassTimeDTO(
-                            day: time.day,
-                            startTime: time.startTime,
-                            endTime: gwaTopHHMM(from: newValue)
-                        )
+                        time.endTime = gwaTopHHMM(from: newValue)
                     }
+            }
+            // 요일별 강의실 — 슬롯마다 개별 입력 (예: 월 공학관 301, 수 IT관 105).
+            HStack(spacing: 8) {
+                Image(systemName: "mappin.and.ellipse")
+                    .font(.gwaTopSystem(size: 13, weight: .semibold))
+                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                TextField("강의실 (예: 공학관 301호)", text: Binding(
+                    get: { time.location ?? "" },
+                    set: { time.location = $0.isEmpty ? nil : $0 }
+                ))
+                .font(.gwaTopSystem(size: 14, weight: .medium))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled(true)
             }
         }
         .padding(12)

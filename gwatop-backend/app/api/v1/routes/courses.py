@@ -83,7 +83,11 @@ async def update_course(
 ):
     course = await owned_course(course_id, current_user, db)
 
-    for field, value in body.model_dump(exclude_none=True).items():
+    # exclude_unset: 클라이언트가 "보낸" 필드만 반영한다.
+    # exclude_none 을 쓰면 강의실/교수 등을 빈 값(null)으로 지울 수 없어
+    # "수정이 반영되지 않는" 문제가 생긴다. unset 기준이면 명시적으로 보낸 값은
+    # null 이라도 그대로 적용되고, 아예 안 보낸 필드만 건드리지 않는다.
+    for field, value in body.model_dump(exclude_unset=True).items():
         setattr(course, field, value)
 
     await db.commit()

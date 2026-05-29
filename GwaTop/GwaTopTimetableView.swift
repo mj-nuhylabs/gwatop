@@ -137,6 +137,11 @@ struct GwaTopTimetableView: View {
 
     private func courseBlock(_ block: TimetableBlock) -> some View {
         let color = block.course.color.map(Color.gwaTopHex) ?? GwaTopHomeTheme.primary
+        // 슬롯(요일)별 강의실 우선, 없으면 과목 전체 강의실로 폴백.
+        let slotRoom = block.location?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let location = slotRoom.isEmpty
+            ? (block.course.location?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+            : slotRoom
         let content = VStack(alignment: .leading, spacing: 2) {
             Text(block.course.name)
                 .font(.gwaTopSystem(size: 11, weight: .bold))
@@ -148,6 +153,19 @@ struct GwaTopTimetableView: View {
                     .font(.gwaTopSystem(size: 9, weight: .medium))
                     .foregroundStyle(.white.opacity(0.85))
                     .lineLimit(1)
+            }
+            // 강의실 — 블록 하단. 핀 아이콘 + 텍스트로 시각적으로 한 줄에 압축.
+            // 짧은 블록(30분짜리)에선 Spacer 가 먼저 collapse 되고 location 만 남음.
+            if !location.isEmpty {
+                HStack(spacing: 2) {
+                    Image(systemName: "mappin.circle.fill")
+                        .font(.gwaTopSystem(size: 8, weight: .bold))
+                    Text(location)
+                        .font(.gwaTopSystem(size: 9, weight: .medium))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .foregroundStyle(.white.opacity(0.9))
             }
             Spacer(minLength: 0)
         }
@@ -233,7 +251,8 @@ struct GwaTopTimetableView: View {
                     course: c,
                     day: ct.day.uppercased(),
                     startMin: start,
-                    endMin: end
+                    endMin: end,
+                    location: ct.location
                 )
             }
         }
@@ -279,6 +298,8 @@ private struct TimetableBlock: Identifiable {
     let day: String
     let startMin: Int
     let endMin: Int
+    /// 이 슬롯(요일)의 강의실. 비어 있으면 표시 시 course.location 으로 폴백.
+    let location: String?
 }
 
 // MARK: - 간단한 FlowHStack (Legend 줄바꿈)

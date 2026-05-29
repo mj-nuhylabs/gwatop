@@ -653,6 +653,10 @@ enum GwaTopClassificationSource {
 extension Notification.Name {
     /// 강의계획서 파싱이 끝났음을 알리는 알림. userInfo["file_id"] = String.
     static let syllabusParseCompleted = Notification.Name("GwaTopSyllabusParseCompleted")
+    /// 일반 강의 자료 업로드 (syllabus 아님) 의 S3 PUT + confirm 이 끝났음을 알린다.
+    /// 학습 탭이 구독해서 즉시 fileByCourse 갱신 → 방금 올린 자료가 바로 목록에 보이게.
+    /// userInfo["course_id"] = String, userInfo["file_id"] = String.
+    static let materialUploadCompleted = Notification.Name("GwaTopMaterialUploadCompleted")
 }
 
 /// 강의계획서 파싱 진행 상태를 백그라운드에서 추적하는 글로벌 ObservableObject.

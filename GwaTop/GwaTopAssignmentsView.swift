@@ -115,6 +115,10 @@ struct GwaTopAssignmentsView: View {
             .task {
                 if assignments.isEmpty { await load() }
             }
+            // 강의계획서 파싱 완료 → 자동 생성 과제가 즉시 목록에 반영되도록 강제 새로고침.
+            .onReceive(NotificationCenter.default.publisher(for: .syllabusParseCompleted)) { _ in
+                Task { await load(force: true) }
+            }
         }
     }
 
@@ -240,14 +244,19 @@ struct GwaTopAssignmentsView: View {
     }
 
     @MainActor
-    private func load() async {
-        // 0) 스플래시 prefetch 캐시 hydrate — 깜빡임 제거.
+    private func load(force: Bool = false) async {
+        // 과제탭은 홈 ToDo 리스트와 "완전히 동일한" 항목을 보여줘야 한다.
+        // 홈은 GET /v1/home/dashboard 의 upcoming_todos 를 렌더하는데, 과제탭이 예전엔
+        // GET /v1/todos?start=오늘 을 따로 호출해서 마감 지난(overdue) 과제가 전부 빠졌다.
+        // → 소스를 dashboard.upcoming_todos 로 통일해 항상 홈과 같은 항목을 표시한다.
+        // (과제탭은 풀 리스트이므로 limit 을 넉넉히 줘 홈의 항목을 모두 포함한다.)
         let store = GwaTopAppDataStore.shared
-        if !store.upcomingTodos.isEmpty {
-            assignments = store.upcomingTodos
-                .filter { !$0.isAuto }
-                .map(GwaTopAssignment.init(dto:))
-            if store.isCacheFresh {
+
+        // 0) 스플래시 prefetch 캐시 hydrate — 깜빡임 제거. 홈과 같은 dashboard 캐시 사용.
+        if let cachedTodos = store.dashboard?.upcomingTodos, !cachedTodos.isEmpty {
+            assignments = cachedTodos.map(GwaTopAssignment.init(dto:))
+            // force(파싱 완료 알림 등) 일 때는 캐시를 건너뛰고 무조건 네트워크에서 다시 받는다.
+            if !force && store.isCacheFresh {
                 isLoading = false
                 loadError = nil
                 return
@@ -258,17 +267,9 @@ struct GwaTopAssignmentsView: View {
         loadError = nil
         defer { isLoading = false }
 
-        // 기본: "이번 주 + 다음 2주" 까지 (시험 D-14 todo가 포함될 수 있도록)
-        let now = Date()
-        let cal = Calendar(identifier: .gregorian)
-        let start = cal.startOfDay(for: now)
-        let end = cal.date(byAdding: .day, value: 21, to: start) ?? start.addingTimeInterval(21 * 86400)
-
         do {
-            let dtos = try await GwaTopTodoService.shared.fetchAll(start: start, end: end)
-            // is_auto=true (강의계획서 파싱 자동 생성) 도 함께 표시 — 홈 ToDo 와 동일 기준.
-            // 사용자가 직접 만든 항목과 시스템 자동 항목을 한 곳에서 모두 관리.
-            assignments = dtos.map(GwaTopAssignment.init(dto:))
+            let dash = try await GwaTopHomeService.shared.fetchDashboard(upcomingLimit: 100)
+            assignments = dash.upcomingTodos.map(GwaTopAssignment.init(dto:))
         } catch {
             // SwiftUI 라이프사이클로 task가 취소된 경우는 무시 (이전 데이터 유지)
             if isCancellation(error) { return }

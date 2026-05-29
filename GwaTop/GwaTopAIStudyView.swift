@@ -105,7 +105,9 @@ struct GwaTopAIStudyView: View {
             }
             .sheet(isPresented: $showUploadSheet) {
                 GwaTopMaterialUploadSheet(onUploadCompleted: {
-                    Task { await reloadAllFiles() }
+                    // silent=true 로 호출해서 cache fresh bail-out 우회 + 스피너 안 띄움
+                    // (사용자는 상단 진행 카드를 보고 있음).
+                    Task { await reloadAllFiles(silent: true) }
                 })
                 .presentationDetents([.large])
             }
@@ -116,6 +118,12 @@ struct GwaTopAIStudyView: View {
             // 강의계획서 파싱 완료 → 백엔드가 신규 과목을 추가했을 수 있음 → 강제 재조회.
             .onReceive(NotificationCenter.default.publisher(for: .syllabusParseCompleted)) { _ in
                 Task { await loadAll() }
+            }
+            // 일반 자료 업로드의 S3 PUT + confirm 이 끝나면 즉시 재조회. 시트의 1.2초 후
+            // reload 는 S3 PUT 이 길면 confirm 전이라 file row 가 안 보일 수 있는데,
+            // 이 알림은 진짜 등록 시점에 발동돼서 새 자료가 확실히 목록에 들어온다.
+            .onReceive(NotificationCenter.default.publisher(for: .materialUploadCompleted)) { _ in
+                Task { await reloadAllFiles(silent: true) }
             }
         }
     }

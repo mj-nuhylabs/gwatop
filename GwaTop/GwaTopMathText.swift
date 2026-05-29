@@ -296,31 +296,115 @@ struct GwaTopRichText: View {
     let fontSize: CGFloat
     let textColor: Color
     let accentColor: Color
+    /// true 면 WebView 가 직접 스크롤하며 부모 공간을 채운다(예: 전체화면 "크게 보기").
+    /// 자동 높이 측정에 의존하지 않으므로 아무리 긴 답변도 하단이 잘리지 않는다.
+    let scrolls: Bool
     /// WebView 가 JS scrollHeight 로 보고한 실제 높이 — SwiftUI 가 그대로 frame 에 반영해서
     /// 다음 형제 뷰(action bar / 다음 메시지)와 겹치지 않게 한다.
-    @State private var measuredHeight: CGFloat = 24
+    ///
+    /// 초기값은 글자 수 기반 추정 — 기본 24pt 로 시작하면 WebView 측정 직후 24→실제(100~400)
+    /// 로 점프하면서 탭 진입 시 "팍" 깜빡임이 생긴다. 글자수로 미리 근사하면 점프 폭이 작아져
+    /// 사람 눈에 거의 안 보임. 측정값이 들어오면 그 값으로 자연스럽게 보정.
+    @State private var measuredHeight: CGFloat
 
     init(
         _ markdown: String,
         fontSize: CGFloat = 15,
         color: Color = .primary,
-        accent: Color = GwaTopHomeTheme.primary
+        accent: Color = GwaTopHomeTheme.primary,
+        scrolls: Bool = false
     ) {
         self.markdown = markdown
         self.fontSize = fontSize
         self.textColor = color
         self.accentColor = accent
+        self.scrolls = scrolls
+        _measuredHeight = State(initialValue: Self.estimateHeight(of: markdown, fontSize: fontSize))
     }
 
     var body: some View {
-        GwaTopRichTextWebView(
-            markdown: markdown,
-            fontSize: fontSize,
-            color: textColor,
-            accent: accentColor,
-            measuredHeight: $measuredHeight
-        )
-        .frame(height: measuredHeight)
+        // 빠른 경로: 마크다운/수식 마커가 전혀 없는 평범한 단락이면 WebView 안 띄우고
+        // SwiftUI Text 로 즉시 렌더. WebView 로드 + JS 실행 시간을 0 으로 만들어
+        // 탭 진입 시 메시지가 "팍" 하고 떠오르는 깜빡임을 근본부터 제거.
+        // scrolls=true 인 "크게 보기" 모드는 WebView 가 직접 스크롤해야 하므로 예외.
+        if !scrolls && Self.canRenderAsPlainText(markdown) {
+            Text(markdown)
+                .font(.gwaTopSystem(size: fontSize, weight: .regular))
+                .foregroundStyle(textColor)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        } else {
+            let web = GwaTopRichTextWebView(
+                markdown: markdown,
+                fontSize: fontSize,
+                color: textColor,
+                accent: accentColor,
+                scrolls: scrolls,
+                measuredHeight: $measuredHeight
+            )
+            // 스크롤 모드: 부모 공간을 그대로 채움(높이 고정 X). 인라인 모드: 측정 높이로 고정.
+            if scrolls {
+                web
+            } else {
+                web.frame(height: measuredHeight)
+            }
+        }
+    }
+
+    // MARK: 빠른 경로 — 마크다운/수식 마커 감지
+
+    /// "굵게/리스트/헤더/링크/코드/수식 같은 마크다운 또는 LaTeX 신호가 하나도 없는가?"
+    /// 하나라도 있으면 false → marked.js + KaTeX 가 필요.
+    /// 보수적으로 False positive(잘못 plain 처리) 가능성은 거의 0 인 쪽으로 — `*`, `#`,
+    /// 백틱, `$`, `\\`, `[`, 리스트 prefix, quote prefix, 숫자 리스트 prefix 등 모두 잡음.
+    static func canRenderAsPlainText(_ s: String) -> Bool {
+        // KaTeX 신호
+        if s.contains("$") || s.contains("\\") { return false }
+        // 인라인 마크다운 마커
+        if s.contains("**") || s.contains("__") { return false }
+        if s.contains("`") { return false }     // 코드/인라인 코드
+        if s.contains("[") { return false }     // 링크 / 이미지
+        // 블록 마커 — 줄 시작 검사. trimmingCharacters 안 쓰고 직접 순회해서 비용 절약.
+        for rawLine in s.split(separator: "\n", omittingEmptySubsequences: false) {
+            // 선행 공백 스킵
+            var line = rawLine[...]
+            while let c = line.first, c == " " || c == "\t" { line = line.dropFirst() }
+            if line.isEmpty { continue }
+            // 헤더(`#`) / quote(`>`) / 리스트(`- `, `* `, `+ `)
+            let head = line.first!
+            if head == "#" || head == ">" { return false }
+            if head == "-" || head == "*" || head == "+" {
+                // 단독 `-`/`*` 는 마커가 아니라 텍스트일 수도 있지만, 보수적으로 컷.
+                let second = line.dropFirst().first
+                if second == " " || second == nil { return false }
+            }
+            // `1. `, `12. ` 같은 숫자 리스트
+            if head.isNumber {
+                var rest = line.dropFirst()
+                while let c = rest.first, c.isNumber { rest = rest.dropFirst() }
+                if rest.first == "." {
+                    let after = rest.dropFirst().first
+                    if after == " " { return false }
+                }
+            }
+            // 파이프 — 마크다운 표
+            if line.contains("|") { return false }
+        }
+        return true
+    }
+
+    /// 글자 수 기반 초기 높이 추정. WebView 측정값이 들어오기 전까지 임시 frame.
+    /// 35자/줄 × (fontSize × 1.5 줄높이) + 패딩 12pt. 평균 한국어/영문 혼합 답변 기준.
+    static func estimateHeight(of markdown: String, fontSize: CGFloat) -> CGFloat {
+        let count = markdown.count
+        if count == 0 { return 24 }
+        let charsPerLine = 35
+        let estimatedLines = max(1, (count + charsPerLine - 1) / charsPerLine)
+        // 명시적 줄바꿈도 한 줄로 카운트.
+        let explicitLines = markdown.reduce(into: 0) { $0 += ($1 == "\n" ? 1 : 0) }
+        let totalLines = estimatedLines + explicitLines
+        return CGFloat(totalLines) * fontSize * 1.5 + 12
     }
 }
 
@@ -329,6 +413,7 @@ private struct GwaTopRichTextWebView: UIViewRepresentable {
     let fontSize: CGFloat
     let color: Color
     let accent: Color
+    var scrolls: Bool = false
     @Binding var measuredHeight: CGFloat
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -342,8 +427,9 @@ private struct GwaTopRichTextWebView: UIViewRepresentable {
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
-        webView.scrollView.isScrollEnabled = false
-        webView.scrollView.bounces = false
+        // 스크롤 모드면 WebView 가 직접 세로 스크롤 — 측정 높이에 의존하지 않아 잘림 없음.
+        webView.scrollView.isScrollEnabled = scrolls
+        webView.scrollView.bounces = scrolls
         webView.navigationDelegate = context.coordinator
         context.coordinator.webView = webView
         // 외부 링크는 사파리로.
@@ -363,7 +449,8 @@ private struct GwaTopRichTextWebView: UIViewRepresentable {
             markdown: markdown,
             fontSize: fontSize,
             color: color,
-            accent: accent
+            accent: accent,
+            scrolls: scrolls
         )
         // baseURL 을 cdn.jsdelivr.net 으로 설정 → KaTeX/marked CDN 캐시 활용.
         webView.loadHTMLString(html, baseURL: URL(string: "https://cdn.jsdelivr.net"))
@@ -451,7 +538,7 @@ private struct GwaTopRichTextWebView: UIViewRepresentable {
     }
 
     static func makeHTML(
-        markdown: String, fontSize: CGFloat, color: Color, accent: Color
+        markdown: String, fontSize: CGFloat, color: Color, accent: Color, scrolls: Bool = false
     ) -> String {
         let cssTextColor = cssColor(from: color)
         let cssAccent = cssColor(from: accent)
@@ -477,7 +564,11 @@ private struct GwaTopRichTextWebView: UIViewRepresentable {
                     word-break: keep-all;
                     overflow-wrap: anywhere;
                     max-width: 100%;
+                    /* 본문이 가로로 넘쳐 잘리지 않게 — 표/코드/수식은 각자 내부 스크롤. */
+                    overflow-x: hidden;
                 }
+                /* 스크롤 모드 하단 여백 — 끝에서 마지막 줄이 화면 끝에 붙지 않도록. */
+                body { padding-bottom: \(scrolls ? 40 : 0)px; }
                 /* 렌더 끝나기 전 raw 마크다운/HTML 이 잠깐 보이는 FOUC 차단.
                    marked + KaTeX 처리가 끝나면 JS 가 .ready 클래스를 추가하며 페이드인. */
                 #content { padding: 0; opacity: 0; transition: opacity 0.08s ease-out; }
