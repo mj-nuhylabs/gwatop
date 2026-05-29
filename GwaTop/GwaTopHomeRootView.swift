@@ -180,44 +180,16 @@ struct GwaTopHomeView: View {
         let percent = Int((rate * 100).rounded())
         let examCount = (dashboard?.todaySchedules ?? []).filter { $0.type == "exam" }.count
 
-        // 카드 높이를 약 2/3 로 축소 — 폰트/링/패딩 전반 다운스케일.
-        return VStack(spacing: 10) {
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("이번 주 학습 현황")
-                        .font(.gwaTopSystem(size: 15, weight: .bold))
-                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
+        // 좌: 제목만 / 우: 남은 할 일 칩 한 개. 진행률 ring, 서브 카피, 다른 stat 제거.
+        return HStack(spacing: 12) {
+            Text("이번 주 학습 현황")
+                .font(.gwaTopSystem(size: 15, weight: .bold))
+                .foregroundStyle(GwaTopHomeTheme.textPrimary)
 
-                    Text("이번 주 할 일 \(total)개 중 \(done)개 완료")
-                        .font(.gwaTopSystem(size: 11, weight: .medium))
-                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                }
+            Spacer()
 
-                Spacer()
-
-                ZStack {
-                    Circle()
-                        .stroke(GwaTopHomeTheme.primary.opacity(0.18), lineWidth: 5)
-                        .frame(width: 48, height: 48)
-
-                    Circle()
-                        .trim(from: 0, to: rate)
-                        .stroke(GwaTopHomeTheme.primary, style: StrokeStyle(lineWidth: 5, lineCap: .round))
-                        .frame(width: 48, height: 48)
-                        .rotationEffect(.degrees(-90))
-                        .animation(.spring(response: 0.5), value: rate)
-
-                    Text("\(percent)%")
-                        .font(.gwaTopSystem(size: 11, weight: .heavy))
-                        .foregroundStyle(GwaTopHomeTheme.primary)
-                }
-            }
-
-            HStack(spacing: 7) {
-                GwaTopStatCard(title: "남은 할 일", value: "\(remaining)", unit: "개")
-                GwaTopStatCard(title: "오늘 시험", value: "\(examCount)", unit: "개")
-                GwaTopStatCard(title: "완료율", value: "\(percent)", unit: "%")
-            }
+            GwaTopStatCard(title: "남은 할 일", value: "\(remaining)", unit: "개")
+                .frame(maxWidth: 110)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
