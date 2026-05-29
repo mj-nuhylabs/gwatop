@@ -40,7 +40,7 @@ struct GwaTopAcademicManagementView: View {
                     NavigationLink {
                         GwaTopCourseListView(
                             semester: semester,
-                            courses: courses.filter { $0.semesterId == semester.id },
+                            courses: $courses,
                             onChanged: { Task { await reload() } }
                         )
                     } label: {
@@ -155,19 +155,26 @@ struct GwaTopAcademicManagementView: View {
 
 struct GwaTopCourseListView: View {
     let semester: GwaTopSemesterDTO
-    @State var courses: [GwaTopCourseDTO]
+    // 부모의 전체 courses 배열에 바인딩한다 — 스냅샷(@State)이면 부모 reload 후
+    // 자식 화면이 stale 해져 외부 변경이 반영되지 않는다.
+    @Binding var courses: [GwaTopCourseDTO]
     var onChanged: () -> Void = {}
 
     @State private var errorMessage: String? = nil
 
+    // 이 학기에 속한 과목만, 이름순으로 추린 표시용 파생값.
+    private var semesterCourses: [GwaTopCourseDTO] {
+        courses.filter { $0.semesterId == semester.id }.sorted { $0.name < $1.name }
+    }
+
     var body: some View {
         List {
-            if courses.isEmpty {
+            if semesterCourses.isEmpty {
                 Text("이 학기에 등록된 과목이 없습니다.")
                     .font(.gwaTopSystem(size: 14))
                     .foregroundStyle(.secondary)
             }
-            ForEach(courses) { course in
+            ForEach(semesterCourses) { course in
                 NavigationLink {
                     GwaTopCourseFormView(
                         mode: .edit(course),
