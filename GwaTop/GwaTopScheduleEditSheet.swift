@@ -87,10 +87,34 @@ struct GwaTopScheduleEditSheet: View {
 
                     VStack(alignment: .leading, spacing: 6) {
                         label("제목")
-                        TextField("예: 중간고사, 보고서 제출", text: $title)
-                            .padding(14)
-                            .background(.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        // 점선 스티치 박스로 "여기에 적을 수 있어요" 신호를 시각화.
+                        // 메모 필드와 동일한 톤(coral primary) 으로 통일감 유지. 입력이 시작되면
+                        // 점선이 자연스럽게 실선으로 전환 — 활성 상태 강조.
+                        HStack(spacing: 8) {
+                            Image(systemName: "pencil.line")
+                                .font(.gwaTopSystem(size: 13, weight: .semibold))
+                                .foregroundStyle(
+                                    title.isEmpty
+                                    ? GwaTopHomeTheme.primary.opacity(0.55)
+                                    : GwaTopHomeTheme.primary
+                                )
+                            TextField("예: 중간고사, 보고서 제출", text: $title)
+                                .font(.gwaTopSystem(size: 16, weight: .semibold))
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 14)
+                        .background(GwaTopHomeTheme.surface)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .strokeBorder(
+                                    GwaTopHomeTheme.primary.opacity(title.isEmpty ? 0.30 : 0.5),
+                                    style: StrokeStyle(
+                                        lineWidth: title.isEmpty ? 1.2 : 1.4,
+                                        dash: title.isEmpty ? [5, 4] : []
+                                    )
+                                )
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
 
                     VStack(alignment: .leading, spacing: 6) {
