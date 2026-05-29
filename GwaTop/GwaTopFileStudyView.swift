@@ -590,93 +590,41 @@ struct GwaTopFileSummaryTab: View {
     @State private var isRegenerating = false
     @State private var errorMessage: String? = nil
     @State private var pollCount = 0
-    @State private var showingPlayer = false
 
     var body: some View {
-        launcherView
-            .fullScreenCover(isPresented: $showingPlayer) { playerView }
-    }
-
-    private var launcherView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                introCard
-                Button {
-                    showingPlayer = true
-                    Task { await load() }
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "doc.text.magnifyingglass")
-                        Text("요약 보기").font(.gwaTopSystem(size: 17, weight: .bold))
+                if isLoading && summary == nil {
+                    pendingCard("요약을 불러오는 중…")
+                } else if status == "pending" {
+                    pendingCard("AI가 자료를 분석해 요약을 만들고 있어요. 잠시만 기다려주세요.")
+                } else if let err = errorMessage {
+                    errorBanner(err)
+                } else if let s = summary {
+                    headlineCard(s)
+                    keyPointsCard(s)
+                    if !s.sections.isEmpty {
+                        sectionsCard(s)
                     }
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity).frame(height: 52)
-                    .background(GwaTopHomeTheme.primary)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    if !s.studyTip.isEmpty {
+                        studyTipCard(s)
+                    }
+                    regenerateButton
                 }
             }
             .padding(16)
         }
-    }
-
-    private var introCard: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("AI 요약")
-                .font(.gwaTopSystem(size: 13, weight: .bold))
-                .foregroundStyle(GwaTopHomeTheme.primary)
-            Text("자료를 한 줄 요약 + 핵심 포인트 + 섹션별로 정리해드려요.")
-                .font(.gwaTopSystem(size: 16, weight: .bold))
-                .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-            Text("PDF 전체를 빠르게 훑어볼 때 유용해요.")
-                .font(.gwaTopSystem(size: 14))
-                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+        // 요약 탭 진입 시 버튼 없이 바로 요약을 불러온다.
+        .task {
+            if summary == nil && !isLoading {
+                await load()
+            }
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-
-    private var playerView: some View {
-        NavigationStack {
-            ZStack {
-                GwaTopHomeTheme.background.ignoresSafeArea()
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        if isLoading && summary == nil {
-                            pendingCard("요약을 불러오는 중…")
-                        } else if status == "pending" {
-                            pendingCard("AI가 자료를 분석해 요약을 만들고 있어요. 잠시만 기다려주세요.")
-                        } else if let err = errorMessage {
-                            errorBanner(err)
-                        } else if let s = summary {
-                            headlineCard(s)
-                            keyPointsCard(s)
-                            if !s.sections.isEmpty {
-                                sectionsCard(s)
-                            }
-                            if !s.studyTip.isEmpty {
-                                studyTipCard(s)
-                            }
-                            regenerateButton
-                        }
-                    }
-                    .padding(16)
-                }
-            }
-            .navigationTitle("요약")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("닫기") { showingPlayer = false }
-                }
-            }
-            .task(id: pollCount) {
-                if pollCount > 0 && summary == nil {
-                    try? await Task.sleep(nanoseconds: 4_000_000_000)
-                    await load(silent: true)
-                }
+        // pending(생성 중)이면 4초 후 백그라운드 재조회 — 완료되면 자동 표시.
+        .task(id: pollCount) {
+            if pollCount > 0 && summary == nil {
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                await load(silent: true)
             }
         }
     }

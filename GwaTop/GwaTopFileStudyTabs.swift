@@ -2471,6 +2471,12 @@ struct GwaTopFileTutorTab: View {
 
     /// 진행 중인 AI 응답의 누적 텍스트 (스트리밍 도중 렌더).
     @State private var streamingBody: String = ""
+    /// WebView 가 실제로 렌더하는 텍스트 — streamingBody 의 throttle 본.
+    /// 매 청크마다 reload 하면 깜빡이므로, `##` 새 섹션 등장 또는 700ms 경과 시에만 동기화.
+    /// 사용자 눈엔 섹션 단위로 디자인이 입혀지는 모습으로 보임.
+    @State private var renderedStreamingBody: String = ""
+    /// 마지막 renderedStreamingBody 갱신 시각 — throttle 판단용.
+    @State private var lastStreamingRenderAt: Date = .distantPast
     /// 응답 생성 시작 시각 (경과 시간 표시용).
     @State private var sendStartedAt: Date? = nil
     /// 1초마다 tick — 경과시간 갱신 trigger.
@@ -2764,16 +2770,19 @@ struct GwaTopFileTutorTab: View {
                 .clipShape(Circle())
             VStack(alignment: .leading, spacing: 8) {
                 thinkingHeader
-                if !streamingBody.isEmpty {
-                    // 스트리밍 중에는 WebView 를 리로드하면 매 청크마다 깜빡이고 글자가 겹쳐 보임.
-                    // 가벼운 SwiftUI Text 로 즉시 표시하고, 완료된 메시지(`.done`)는 어차피
-                    // messages 배열에 append 되어 assistantBubble 의 GwaTopRichText 로 다시 렌더된다.
-                    Text(streamingBody)
-                        .font(.gwaTopSystem(size: 15))
-                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
+                if !renderedStreamingBody.isEmpty {
+                    // 스트리밍 중에도 styled WebView (마크다운 + KaTeX) 로 표시 — 사용자가
+                    // 답변 디자인을 끝나서야 보지 않고 섹션이 만들어질 때마다 입혀지는 걸 본다.
+                    // 매 청크마다 reload 하면 깜빡임이 심하므로, commitRenderedBody() 가
+                    // `##` 헤더 신규 등장 또는 700ms 경과 시에만 renderedStreamingBody 를
+                    // 갱신해서 WebView reload 빈도를 통제.
+                    GwaTopRichText(
+                        renderedStreamingBody,
+                        fontSize: 15,
+                        color: GwaTopHomeTheme.textPrimary,
+                        accent: GwaTopHomeTheme.primary
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .padding(.horizontal, 12).padding(.vertical, 9)
@@ -2942,6 +2951,31 @@ struct GwaTopFileTutorTab: View {
         } catch { if !isCancellation(error) { self.error = error.localizedDescription } }
     }
 
+    /// streamingBody 가 바뀔 때 renderedStreamingBody 도 갱신할지 판단.
+    /// 규칙:
+    ///   1) 첫 청크 — 즉시 (사용자가 "아무것도 없음" 화면에서 답이 시작되는 걸 봐야 함)
+    ///   2) `##` 헤더가 새로 등장 — 즉시 (사용자가 명시한 "섹션 단위 디자인 전환")
+    ///   3) 그 외엔 700ms throttle — WebView reload 빈도 통제로 깜빡임 최소화.
+    @MainActor
+    private func commitRenderedBody() {
+        if renderedStreamingBody.isEmpty {
+            renderedStreamingBody = streamingBody
+            lastStreamingRenderAt = Date()
+            return
+        }
+        let prevHeadings = renderedStreamingBody.components(separatedBy: "## ").count
+        let nowHeadings = streamingBody.components(separatedBy: "## ").count
+        if nowHeadings > prevHeadings {
+            renderedStreamingBody = streamingBody
+            lastStreamingRenderAt = Date()
+            return
+        }
+        if Date().timeIntervalSince(lastStreamingRenderAt) >= 0.7 {
+            renderedStreamingBody = streamingBody
+            lastStreamingRenderAt = Date()
+        }
+    }
+
     @MainActor
     private func send() async {
         let q = input.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2952,11 +2986,14 @@ struct GwaTopFileTutorTab: View {
         attachedImages = []
         isSending = true
         streamingBody = ""
+        renderedStreamingBody = ""
+        lastStreamingRenderAt = .distantPast
         sendStartedAt = Date()
         elapsedTick = 1
         defer {
             isSending = false
             streamingBody = ""
+            renderedStreamingBody = ""
             sendStartedAt = nil
         }
 
@@ -2994,10 +3031,16 @@ struct GwaTopFileTutorTab: View {
                     }
                 case .start:
                     streamingBody = ""
+                    renderedStreamingBody = ""
+                    lastStreamingRenderAt = .distantPast
                 case .delta(let chunk):
                     receivedAnyDelta = true
                     streamingBody += chunk
+                    commitRenderedBody()
                 case .done(let m):
+                    // 마지막 한 번 더 동기화 — streamingRow 의 styled 뷰가 곧 사라지고
+                    // assistantBubble 로 교체되는데, 그 직전 시점까지 가장 최근 내용이 떠 있게.
+                    renderedStreamingBody = m.body
                     messages.append(m)
                 case .error(let msg):
                     self.error = msg

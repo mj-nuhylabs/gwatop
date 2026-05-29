@@ -10,13 +10,6 @@ struct GwaTopMainTabView: View {
 
     @State private var selectedTab: GwaTopTab = .home
 
-    // MARK: - Apple 캘린더 1회 안내
-    /// 최초 로그인/회원가입 후 한 번만 "Apple 캘린더 연동할까요?" 안내를 띄우기 위한 플래그.
-    /// 이후엔 설정 화면에서 켜고 끌 수 있다.
-    @AppStorage("gwaTopAppleCalendarPrompted") private var promptedAppleCalendar: Bool = false
-    @AppStorage(UserDefaults.gwaTopAppleCalendarEnabledKey) private var appleCalendarEnabled: Bool = false
-    @State private var showAppleCalendarPrompt = false
-
     var body: some View {
         TabView(selection: $selectedTab) {
             GwaTopHomeView(user: user)
@@ -65,26 +58,7 @@ struct GwaTopMainTabView: View {
                 .tag(GwaTopTab.admin)
         }
         .tint(GwaTopHomeTheme.primary)
-        .task {
-            // 최초 1회만 — 탭 전환 직후 alert 충돌을 피하려고 살짝 지연 후 표시.
-            guard !promptedAppleCalendar else { return }
-            try? await Task.sleep(nanoseconds: 700_000_000)
-            showAppleCalendarPrompt = true
-        }
-        .alert("Apple 캘린더 연동", isPresented: $showAppleCalendarPrompt) {
-            Button("연동하기") {
-                promptedAppleCalendar = true
-                Task {
-                    let granted = await GwaTopAppleCalendarService.shared.requestAccess()
-                    if granted { appleCalendarEnabled = true }
-                }
-            }
-            Button("나중에", role: .cancel) {
-                promptedAppleCalendar = true
-            }
-        } message: {
-            Text("기기의 Apple 캘린더 일정을 과탑 캘린더에 함께 표시할까요? 설정에서 언제든 켜고 끌 수 있어요.")
-        }
+        // Apple 캘린더 연동은 로그인 직후 안내하지 않고, 설정 화면의 토글에서만 켜고 끈다.
     }
 }
 
