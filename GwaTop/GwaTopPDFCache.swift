@@ -90,12 +90,24 @@ final class GwaTopPDFCache: ObservableObject {
                 self.downloadTasks[fileId] = nil
             }
             do {
+                // 0) 디스크 캐시 우선 — presign/다운로드 없이 즉시 복원.
+                //    메모리 캐시는 앱 재실행·메모리 경고·TTL 정리로 비지만, 디스크는 남아 있어
+                //    같은 PDF 재진입 시 네트워크 왕복 없이 바로 표시된다.
+                if let cached = await Self.readDiskAsync(fileId) {
+                    if Task.isCancelled { return }
+                    if let doc = PDFDocument(data: cached) {
+                        self.documents[fileId] = doc
+                        return
+                    }
+                }
                 let info = try await GwaTopFileService.shared.presignedDownloadURL(fileId: fileId)
                 guard let url = URL(string: info.url) else { return }
                 let data = try await downloadResumable(fileId: fileId, url: url)
                 if Task.isCancelled { return }
                 if let doc = PDFDocument(data: data) {
                     self.documents[fileId] = doc
+                    // 다음 진입을 위해 디스크에 저장 (백그라운드, UI 비차단).
+                    await Self.writeDiskAsync(fileId, data)
                 }
             } catch {
                 // 로딩 실패는 silent — PDF 탭이 자기 상태로 재시도하면 됨.
@@ -174,6 +186,37 @@ final class GwaTopPDFCache: ObservableObject {
         evictionTasks.values.forEach { $0.cancel() }
         evictionTasks.removeAll()
         suspensionCount = 0
+    }
+
+    // MARK: - 디스크 캐시
+
+    /// Caches/gwatop_pdf/ — OS 가 저장공간 부족 시 자동 정리하므로 별도 만료 로직 불필요.
+    private nonisolated static func diskCacheDir() -> URL {
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let dir = base.appendingPathComponent("gwatop_pdf", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private nonisolated static func diskURL(for fileId: String) -> URL {
+        // fileId 는 UUID 라 경로 구분자가 없지만 방어적으로 치환.
+        let safe = fileId.replacingOccurrences(of: "/", with: "_")
+        return diskCacheDir().appendingPathComponent("\(safe).pdf")
+    }
+
+    /// 디스크 읽기를 백그라운드 스레드에서 수행 (MainActor 비차단). Data 는 Sendable.
+    private nonisolated static func readDiskAsync(_ fileId: String) async -> Data? {
+        await Task.detached(priority: .userInitiated) {
+            try? Data(contentsOf: diskURL(for: fileId), options: .mappedIfSafe)
+        }.value
+    }
+
+    /// 디스크 쓰기를 백그라운드 스레드에서 수행.
+    private nonisolated static func writeDiskAsync(_ fileId: String, _ data: Data) async {
+        await Task.detached(priority: .utility) {
+            try? data.write(to: diskURL(for: fileId), options: .atomic)
+        }.value
     }
 
     // MARK: - Private

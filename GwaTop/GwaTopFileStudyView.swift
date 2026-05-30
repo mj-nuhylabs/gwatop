@@ -94,8 +94,9 @@ struct GwaTopFileStudyView: View {
 
                 // 2) 사용자 첫 화면(요약 탭)이 자체 .task 로 summary HTTP 호출 중.
                 //    PDF 다운로드(보통 1~5MB)가 같이 시작하면 대역폭 경쟁으로 요약 표시가 늦어짐.
-                //    2초 양보 → summary HTTP (수 KB)가 먼저 완료될 시간 확보.
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                //    요약 응답은 수 KB라 사실상 즉시 끝나므로 2초 양보는 과했고 PDF 표시만 늦췄다.
+                //    짧게 0.3초만 양보해 요약 GET 이 먼저 출발하게 하고 PDF 다운로드를 빨리 시작한다.
+                try? await Task.sleep(nanoseconds: 300_000_000)
 
                 // 3) PDF 백그라운드 다운로드 → PDF 탭 누르는 시점엔 캐시 hit.
                 //    퀴즈/플래시카드 등 생성 탭이 generate 호출 시 자동으로 suspend → resume.
@@ -620,10 +621,14 @@ struct GwaTopFileSummaryTab: View {
                 await load()
             }
         }
-        // pending(생성 중)이면 4초 후 백그라운드 재조회 — 완료되면 자동 표시.
+        // pending(생성 중)이면 백그라운드 재조회 — 완료되면 자동 표시.
+        // 백엔드가 요약을 분류와 병렬로 미리 만들기 때문에 대부분 첫 load 에서 바로 뜨지만,
+        // 그 직전 짧은 구간에 들어오면 "처리 중"이 잠깐 보인다. 처음 몇 번은 1.2초 간격으로
+        // 빠르게 재조회해 깜빡임을 거의 없애고, 이후엔 3초로 백오프해 서버 부하를 줄인다.
         .task(id: pollCount) {
             if pollCount > 0 && summary == nil {
-                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                let delay: UInt64 = pollCount <= 5 ? 1_200_000_000 : 3_000_000_000
+                try? await Task.sleep(nanoseconds: delay)
                 await load(silent: true)
             }
         }
