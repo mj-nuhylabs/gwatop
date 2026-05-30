@@ -358,6 +358,8 @@ struct GwaTopHomeView: View {
 struct GwaTopSettingsView: View {
     let user: GwaTopSignedInUser
     var onLogout: (() -> Void)?
+    /// 관리자 여부 — true 면 설정에 "관리자" 링크 노출. (별도 탭 대신 여기로 옮겨 More 래퍼 방지)
+    var isAdmin: Bool = false
 
     @AppStorage("gw_appearance") private var appearanceRaw: String = GwaTopAppearance.system.rawValue
     private var appearance: GwaTopAppearance {
@@ -373,63 +375,79 @@ struct GwaTopSettingsView: View {
                 VStack(spacing: 0) {
                     GwaTopScreenHeader(title: "설정")
 
-                    VStack(spacing: 20) {
-                        GwaTopUserAvatar(user: user, size: 76)
-                            .padding(.top, 18)
+                    // 내용이 길어 화면을 넘칠 수 있으므로 ScrollView 로 감싼다.
+                    // 하단 패딩으로 로그아웃 버튼이 탭바에 가려지지 않게 충분히 띄운다.
+                    ScrollView(showsIndicators: false) {
+                        VStack(spacing: 20) {
+                            GwaTopUserAvatar(user: user, size: 76)
+                                .padding(.top, 18)
 
-                        VStack(spacing: 8) {
-                            Text(user.displayName)
-                                .font(.system(size: 25, weight: .heavy, design: .rounded))
-                                .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                            VStack(spacing: 8) {
+                                Text(user.displayName)
+                                    .font(.system(size: 25, weight: .heavy, design: .rounded))
+                                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
 
-                            Text(user.email)
-                                .font(.gwaTopSystem(size: 15, weight: .medium))
-                                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                                Text(user.email)
+                                    .font(.gwaTopSystem(size: 15, weight: .medium))
+                                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
 
-                            Text("로그인 방식: \(user.loginProvider)")
-                                .font(.gwaTopSystem(size: 13, weight: .bold))
-                                .foregroundStyle(GwaTopHomeTheme.primary)
-                                .padding(.top, 2)
-                        }
-
-                        VStack(spacing: 12) {
-                            NavigationLink {
-                                GwaTopAcademicManagementView()
-                            } label: {
-                                GwaTopSettingsRow(
-                                    iconName: "book.closed.fill",
-                                    title: "학기 / 과목 관리",
-                                    value: "추가, 수정, 삭제"
-                                )
+                                Text("로그인 방식: \(user.loginProvider)")
+                                    .font(.gwaTopSystem(size: 13, weight: .bold))
+                                    .foregroundStyle(GwaTopHomeTheme.primary)
+                                    .padding(.top, 2)
                             }
-                            .buttonStyle(.plain)
 
-                            appearanceSelector
+                            VStack(spacing: 12) {
+                                NavigationLink {
+                                    GwaTopMyDataManagementView()
+                                } label: {
+                                    GwaTopSettingsRow(
+                                        iconName: "folder.fill",
+                                        title: "내 자료 관리",
+                                        value: "학기·과목, 업로드 자료"
+                                    )
+                                }
+                                .buttonStyle(.plain)
 
-                            GwaTopAppleCalendarSettingsRow()
+                                appearanceSelector
 
-                            GwaTopSettingsRow(iconName: "person.fill", title: "프로필 정보", value: user.displayName)
-                            GwaTopSettingsRow(iconName: "envelope.fill", title: "이메일", value: user.email)
-                            GwaTopSettingsRow(iconName: "key.fill", title: "인증 제공자", value: user.loginProvider)
+                                GwaTopAppleCalendarSettingsRow()
+
+                                GwaTopSettingsRow(iconName: "person.fill", title: "프로필 정보", value: user.displayName)
+                                GwaTopSettingsRow(iconName: "envelope.fill", title: "이메일", value: user.email)
+                                GwaTopSettingsRow(iconName: "key.fill", title: "인증 제공자", value: user.loginProvider)
+
+                                if isAdmin {
+                                    NavigationLink {
+                                        GwaTopAdminView()
+                                    } label: {
+                                        GwaTopSettingsRow(
+                                            iconName: "lock.shield.fill",
+                                            title: "관리자",
+                                            value: "테스트 도구"
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.top, 12)
+
+                            Button {
+                                onLogout?()
+                            } label: {
+                                Text("로그아웃")
+                                    .font(.gwaTopSystem(size: 16, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 54)
+                                    .background(GwaTopHomeTheme.danger)
+                                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            }
+                            .padding(.top, 10)
                         }
-                        .padding(.top, 12)
-
-                        Button {
-                            onLogout?()
-                        } label: {
-                            Text("로그아웃")
-                                .font(.gwaTopSystem(size: 16, weight: .bold))
-                                .foregroundStyle(.white)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 54)
-                                .background(GwaTopHomeTheme.danger)
-                                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                        }
-                        .padding(.top, 10)
-
-                        Spacer()
+                        .padding(.horizontal, 22)
+                        .padding(.bottom, 120)   // 하단 탭바 가림 방지 여유
                     }
-                    .padding(.horizontal, 22)
                 }
             }
             .toolbar(.hidden, for: .navigationBar)

@@ -357,6 +357,11 @@ actor GwaTopFileService {
         )
     }
 
+    /// 업로드한 파일(강의계획서/학습자료) 삭제. 표준 REST 경로 DELETE /v1/files/{id}.
+    func delete(fileId: String) async throws {
+        try await GwaTopAPIClient.shared.deleteNoContent("/v1/files/\(fileId)")
+    }
+
     /// 학습 탭 PDF 보기 — S3 presigned GET URL.
     func presignedDownloadURL(fileId: String) async throws -> GwaTopPresignedDownload {
         try await GwaTopAPIClient.shared.get("/v1/files/\(fileId)/presigned-download")

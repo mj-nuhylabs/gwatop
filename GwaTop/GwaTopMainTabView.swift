@@ -9,6 +9,11 @@ struct GwaTopMainTabView: View {
     var onLogout: (() -> Void)? = nil
 
     @State private var selectedTab: GwaTopTab = .home
+    /// 현재 사용자가 백엔드 ADMIN_EMAILS 화이트리스트에 포함될 때만 true.
+    /// admin 엔드포인트를 한 번 가볍게 호출해서 성공 여부로 판별한다.
+    /// 관리자 화면은 별도 탭이 아니라 "설정" 안의 링크로 노출 → 탭은 항상 5개로 고정되어
+    /// iOS 의 "More" 래퍼(겹치는 < 뒤로가기 2개 + 하단 탭바 침범)가 생기지 않는다.
+    @State private var isAdmin = false
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -40,25 +45,27 @@ struct GwaTopMainTabView: View {
                 }
                 .tag(GwaTopTab.tasks)
 
-            GwaTopSettingsView(user: user, onLogout: onLogout)
+            // 관리자 화면은 설정 안의 링크로 들어간다 (탭을 5개로 유지해 More 래퍼 방지).
+            GwaTopSettingsView(user: user, onLogout: onLogout, isAdmin: isAdmin)
                 .tabItem {
                     Image(systemName: "gearshape.fill")
                     Text("설정")
                 }
                 .tag(GwaTopTab.settings)
-
-            // 출시 전 테스트용 임시 탭. 백엔드의 ADMIN_EMAILS 화이트리스트로 게이트되며,
-            // 현재 사용자가 admin 이 아니면 화면 안에서 "권한 없음" 메시지가 나온다.
-            // 출시 직전에 이 탭과 GwaTopAdminView/Service 를 함께 제거하면 됨.
-            GwaTopAdminView()
-                .tabItem {
-                    Image(systemName: "lock.shield.fill")
-                    Text("관리자")
-                }
-                .tag(GwaTopTab.admin)
         }
         .tint(GwaTopHomeTheme.primary)
         // Apple 캘린더 연동은 로그인 직후 안내하지 않고, 설정 화면의 토글에서만 켜고 끈다.
+        .task { await detectAdmin() }
+    }
+
+    /// admin overview 를 가볍게 한 번 호출해 성공하면 관리자 탭을 노출한다.
+    /// 비관리자/게스트는 404·403 등으로 실패하므로 탭이 그대로 숨겨진다.
+    @MainActor
+    private func detectAdmin() async {
+        guard !isAdmin else { return }
+        if (try? await GwaTopAdminService.shared.fetchOverview()) != nil {
+            isAdmin = true
+        }
     }
 }
 
