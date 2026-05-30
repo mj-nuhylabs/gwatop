@@ -91,10 +91,9 @@ struct GwaTopCalendarView: View {
 
                 VStack(spacing: 0) {
                     // 헤더에 캘린더/시간표 미니멀 아이콘 토글 동거 — 별도 줄 제거.
-                    // 캘린더 탭에선 타이틀이 월 표시("2026년 6월")이고, 월 이동 화살표도 헤더로 올린다.
-                    GwaTopScreenHeader(title: headerTitle) {
-                        headerTrailing
-                    }
+                    // 캘린더 탭: 타이틀이 월 표시("2026년 6월") + 월 이동 화살표.
+                    // 시간표 탭: "시간표" 옆에 학기 드롭다운(업로드한 학기만).
+                    headerBar
 
                     ScrollView(showsIndicators: false) {
                         VStack(spacing: 16) {
@@ -245,6 +244,64 @@ struct GwaTopCalendarView: View {
 
     /// 캘린더 탭이면 월 이동 화살표를 같이 노출, 시간표 탭이면 탭 스위처만.
     @ViewBuilder
+    /// 상단 헤더 한 줄. 캘린더 탭은 월 타이틀, 시간표 탭은 "시간표 + 학기 드롭다운".
+    private var headerBar: some View {
+        HStack(alignment: .center) {
+            if selectedTopTab == .timetable {
+                HStack(spacing: 8) {
+                    Text("시간표")
+                        .font(.gwaTopSystem(size: 26, weight: .heavy))
+                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                    timetableSemesterMenu
+                }
+            } else {
+                Text(headerTitle)
+                    .font(.gwaTopSystem(size: 26, weight: .heavy))
+                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
+            }
+            Spacer()
+            headerTrailing
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 6)
+    }
+
+    /// "시간표" 옆 작은 학기 드롭다운 — 시간표 데이터(스케줄)가 있는 학기만 노출.
+    @ViewBuilder
+    private var timetableSemesterMenu: some View {
+        let sems = timetableSemesters
+        if !sems.isEmpty {
+            let currentName = sems.first(where: { $0.id == effectiveTimetableSemesterId })?.name
+                ?? sems.first?.name ?? "학기"
+            Menu {
+                ForEach(sems) { s in
+                    Button {
+                        timetableSemesterId = s.id
+                    } label: {
+                        if s.id == effectiveTimetableSemesterId {
+                            Label(s.name, systemImage: "checkmark")
+                        } else {
+                            Text(s.name)
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 3) {
+                    Text(currentName)
+                        .font(.gwaTopSystem(size: 13, weight: .bold))
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.gwaTopSystem(size: 9, weight: .bold))
+                }
+                .foregroundStyle(GwaTopHomeTheme.primary)
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(GwaTopHomeTheme.primary.opacity(0.10))
+                .clipShape(Capsule())
+            }
+        }
+    }
+
     private var headerTrailing: some View {
         HStack(spacing: 6) {
             if selectedTopTab == .calendar {
@@ -386,67 +443,75 @@ struct GwaTopCalendarView: View {
                 errorBanner(message: msg)
             }
 
-            timetableSemesterPicker
-
             GwaTopTimetableView(
                 courses: timetableFilteredCourses,
                 onSelectCourse: { course in
                     timetableEditingCourse = course
+                },
+                onResolveConflict: { keep, removeFrom, day, slotStart, slotEnd in
+                    resolveTimetableConflict(
+                        keep: keep, removeFrom: removeFrom,
+                        day: day, slotStartMin: slotStart, slotEndMin: slotEnd
+                    )
                 }
             )
         }
     }
 
-    /// 시간표에서 선택 가능한 학기 목록 (스플래시 캐시).
+    /// 시간표 드롭다운에 노출할 학기 — **시간표 데이터(스케줄)가 있는 학기만**.
+    /// 즉 사용자가 강의계획서를 올려 수업 시간이 생긴 학기들만. 최신(시작일) 순.
     private var timetableSemesters: [GwaTopSemesterDTO] {
-        GwaTopAppDataStore.shared.semesters
+        let semIdsWithSchedule = Set(
+            courses.filter { !($0.schedule ?? []).isEmpty }.map(\.semesterId)
+        )
+        return GwaTopAppDataStore.shared.semesters
+            .filter { semIdsWithSchedule.contains($0.id) }
+            .sorted { $0.startDate > $1.startDate }
     }
 
-    /// 실제로 보여줄 학기 id — 사용자가 고른 것 > 활성 학기 > 첫 학기.
+    /// 실제로 보여줄 학기 id — 사용자가 고른 것 > 활성(업로드된 것 중) > 첫 번째.
     private var effectiveTimetableSemesterId: String? {
-        timetableSemesterId
-            ?? timetableSemesters.first(where: { $0.isActive })?.id
-            ?? timetableSemesters.first?.id
+        let sems = timetableSemesters
+        if let chosen = timetableSemesterId, sems.contains(where: { $0.id == chosen }) {
+            return chosen
+        }
+        return sems.first(where: { $0.isActive })?.id ?? sems.first?.id
     }
 
-    /// 선택 학기의 과목만. 학기 정보가 아예 없으면 전체 표시 (폴백).
+    /// 선택 학기의 과목만. 시간표 데이터가 있는 학기가 하나도 없으면 전체 표시 (폴백).
     private var timetableFilteredCourses: [GwaTopCourseDTO] {
         guard let sid = effectiveTimetableSemesterId else { return courses }
         return courses.filter { $0.semesterId == sid }
     }
 
-    /// 학기 2개 이상일 때만 학기 선택 드롭다운 노출 — 1개 이하면 고를 게 없으니 숨김.
-    @ViewBuilder
-    private var timetableSemesterPicker: some View {
-        let sems = timetableSemesters
-        if sems.count >= 2 {
-            let currentName = sems.first(where: { $0.id == effectiveTimetableSemesterId })?.name ?? "학기 선택"
-            Menu {
-                ForEach(sems) { s in
-                    Button {
-                        timetableSemesterId = s.id
-                    } label: {
-                        if s.id == effectiveTimetableSemesterId {
-                            Label(s.name, systemImage: "checkmark")
-                        } else {
-                            Text(s.name)
-                        }
-                    }
+    /// 겹침 해소 — keep 수업은 그대로 두고, removeFrom 수업의 충돌 슬롯만 제거 후 서버 반영.
+    private func resolveTimetableConflict(
+        keep: GwaTopCourseDTO,
+        removeFrom: GwaTopCourseDTO,
+        day: String,
+        slotStartMin: Int,
+        slotEndMin: Int
+    ) {
+        let startHHMM = String(format: "%02d:%02d", slotStartMin / 60, slotStartMin % 60)
+        let endHHMM = String(format: "%02d:%02d", slotEndMin / 60, slotEndMin % 60)
+        // removeFrom 의 schedule 에서 (요일 + 시작/종료가 일치하는) 충돌 슬롯만 뺀다.
+        let newSchedule = (removeFrom.schedule ?? []).filter { ct in
+            !(ct.day.uppercased() == day.uppercased()
+              && ct.startTime == startHHMM
+              && ct.endTime == endHHMM)
+        }
+        Task {
+            do {
+                _ = try await GwaTopCourseService.shared.update(
+                    id: removeFrom.id, schedule: newSchedule
+                )
+                GwaTopAppDataStore.shared.refreshCoursesInBackground()
+                await loadCoursesIfNeeded(force: true)
+            } catch {
+                await MainActor.run {
+                    loadErrorMessage = (error as? LocalizedError)?.errorDescription
+                        ?? error.localizedDescription
                 }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "calendar")
-                        .font(.gwaTopSystem(size: 13, weight: .bold))
-                    Text(currentName)
-                        .font(.gwaTopSystem(size: 14, weight: .bold))
-                    Image(systemName: "chevron.down")
-                        .font(.gwaTopSystem(size: 11, weight: .bold))
-                    Spacer()
-                }
-                .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                .padding(.horizontal, 14).padding(.vertical, 10)
-                .background(GwaTopHomeTheme.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
         }
     }
