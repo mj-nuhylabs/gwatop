@@ -86,6 +86,55 @@ struct GwaTopMathText: View {
     }
 }
 
+// MARK: - 번들 내장 웹 에셋 (CDN 의존 완전 제거 — 오프라인에서도 100% 렌더)
+
+/// marked.js·KaTeX·폰트를 앱 번들(WebAssets/)에서 읽어 HTML 에 인라인한다.
+/// 네트워크/CDN 과 무관하게 항상 렌더되며, 앱 시작 후 한 번만 로드/가공해 재사용한다.
+enum GwaTopWebAssets {
+    /// KaTeX 폰트 파일명 — katex.min.css 가 fonts/NAME.woff2 로 참조하는 20종.
+    private static let katexFontNames = [
+        "KaTeX_AMS-Regular", "KaTeX_Caligraphic-Bold", "KaTeX_Caligraphic-Regular",
+        "KaTeX_Fraktur-Bold", "KaTeX_Fraktur-Regular", "KaTeX_Main-Bold",
+        "KaTeX_Main-BoldItalic", "KaTeX_Main-Italic", "KaTeX_Main-Regular",
+        "KaTeX_Math-BoldItalic", "KaTeX_Math-Italic", "KaTeX_SansSerif-Bold",
+        "KaTeX_SansSerif-Italic", "KaTeX_SansSerif-Regular", "KaTeX_Script-Regular",
+        "KaTeX_Size1-Regular", "KaTeX_Size2-Regular", "KaTeX_Size3-Regular",
+        "KaTeX_Size4-Regular", "KaTeX_Typewriter-Regular",
+    ]
+
+    static let markedJS: String = loadTextAsset("marked.min", "js")
+    static let katexJS: String = loadTextAsset("katex.min", "js")
+    static let autoRenderJS: String = loadTextAsset("auto-render.min", "js")
+    /// 폰트를 base64 data URI 로 인라인한 KaTeX CSS — fonts/ 경로·baseURL 의존을 없앤다.
+    static let katexCSSInlined: String = makeInlinedKatexCSS()
+
+    /// 번들에서 텍스트 에셋(JS/CSS)을 읽어온다. </script> 조기 종료 방지를 위해 이스케이프.
+    private static func loadTextAsset(_ name: String, _ ext: String) -> String {
+        guard let url = Bundle.main.url(forResource: name, withExtension: ext),
+              let s = try? String(contentsOf: url, encoding: .utf8) else {
+            return ""
+        }
+        return s.replacingOccurrences(of: "</script>", with: "<\\/script>")
+    }
+
+    /// katex.min.css 의 fonts/NAME.woff2 참조를 번들 폰트의 base64 data URI 로 치환.
+    private static func makeInlinedKatexCSS() -> String {
+        guard let url = Bundle.main.url(forResource: "katex.min", withExtension: "css"),
+              var css = try? String(contentsOf: url, encoding: .utf8) else {
+            return ""
+        }
+        for font in katexFontNames {
+            guard let furl = Bundle.main.url(forResource: font, withExtension: "woff2"),
+                  let data = try? Data(contentsOf: furl) else { continue }
+            css = css.replacingOccurrences(
+                of: "fonts/\(font).woff2",
+                with: "data:font/woff2;base64,\(data.base64EncodedString())"
+            )
+        }
+        return css
+    }
+}
+
 // MARK: - WKWebView 기반 KaTeX 렌더러
 
 struct GwaTopKaTeXWebView: UIViewRepresentable {
@@ -125,7 +174,8 @@ struct GwaTopKaTeXWebView: UIViewRepresentable {
         context.coordinator.lastLoadKey = key
 
         let html = Self.makeHTML(text: text, fontSize: fontSize, weight: weight, color: color)
-        webView.loadHTMLString(html, baseURL: URL(string: "https://cdn.jsdelivr.net"))
+        // 모든 에셋(KaTeX·폰트)이 HTML 안에 인라인되어 외부 네트워크가 필요 없다.
+        webView.loadHTMLString(html, baseURL: nil)
     }
 
     /// SwiftUI 에 자동 높이 보고. parent 의 measuredHeight 에 반영되어 frame 조정.
@@ -189,33 +239,10 @@ struct GwaTopKaTeXWebView: UIViewRepresentable {
         <html>
         <head>
             <meta name="viewport" content="width=device-width, initial-scale=1">
-            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
-            <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
-            <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
-                onload="renderMathInElement(document.body, {
-                    delimiters: [
-                        {left: '$$', right: '$$', display: true},
-                        {left: '$', right: '$', display: false},
-                        {left: '\\\\(', right: '\\\\)', display: false},
-                        {left: '\\\\[', right: '\\\\]', display: true}
-                    ],
-                    throwOnError: false,
-                });
-                // 렌더 완료 후 inline 수식이 컨테이너 폭을 넘으면 스크롤 가능한 wrapper 로 감싸기.
-                requestAnimationFrame(function() {
-                    document.querySelectorAll('.katex:not(.katex-display .katex)').forEach(function(el) {
-                        if (el.scrollWidth > el.clientWidth + 1) {
-                            var wrap = document.createElement('span');
-                            wrap.className = 'katex-inline-scroll';
-                            el.parentNode.insertBefore(wrap, el);
-                            wrap.appendChild(el);
-                        }
-                    });
-                    // 높이 재측정.
-                    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.heightCallback) {
-                        window.webkit.messageHandlers.heightCallback.postMessage(document.body.scrollHeight);
-                    }
-                });"></script>
+            <!-- CDN 제거: KaTeX·폰트를 앱 번들에서 인라인 → 네트워크와 무관하게 항상 렌더 -->
+            <style>\(GwaTopWebAssets.katexCSSInlined)</style>
+            <script>\(GwaTopWebAssets.katexJS)</script>
+            <script>\(GwaTopWebAssets.autoRenderJS)</script>
             <style>
                 html, body {
                     margin: 0;
@@ -260,7 +287,38 @@ struct GwaTopKaTeXWebView: UIViewRepresentable {
                 .katex .mfrac, .katex .msqrt { white-space: normal; }
             </style>
         </head>
-        <body>\(escaped)</body>
+        <body>\(escaped)
+            <script>
+                // 엔진(KaTeX)이 번들에서 인라인되어 즉시 사용 가능 → 바로 수식 렌더.
+                if (window.renderMathInElement) {
+                    try {
+                        renderMathInElement(document.body, {
+                            delimiters: [
+                                {left: '$$', right: '$$', display: true},
+                                {left: '$', right: '$', display: false},
+                                {left: '\\\\(', right: '\\\\)', display: false},
+                                {left: '\\\\[', right: '\\\\]', display: true}
+                            ],
+                            throwOnError: false,
+                        });
+                    } catch (e) { /* ignore */ }
+                }
+                // 렌더 후 inline 수식이 컨테이너 폭을 넘으면 스크롤 가능한 wrapper 로 감싸기.
+                requestAnimationFrame(function() {
+                    document.querySelectorAll('.katex:not(.katex-display .katex)').forEach(function(el) {
+                        if (el.scrollWidth > el.clientWidth + 1) {
+                            var wrap = document.createElement('span');
+                            wrap.className = 'katex-inline-scroll';
+                            el.parentNode.insertBefore(wrap, el);
+                            wrap.appendChild(el);
+                        }
+                    });
+                    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.heightCallback) {
+                        window.webkit.messageHandlers.heightCallback.postMessage(document.body.scrollHeight);
+                    }
+                });
+            </script>
+        </body>
         </html>
         """
     }
@@ -401,8 +459,8 @@ private struct GwaTopRichTextWebView: UIViewRepresentable {
             accent: accent,
             scrolls: scrolls
         )
-        // baseURL 을 cdn.jsdelivr.net 으로 설정 → KaTeX/marked CDN 캐시 활용.
-        webView.loadHTMLString(html, baseURL: URL(string: "https://cdn.jsdelivr.net"))
+        // 모든 에셋(marked·KaTeX·폰트)이 HTML 안에 인라인되어 외부 네트워크가 필요 없다.
+        webView.loadHTMLString(html, baseURL: nil)
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler, WKUIDelegate {
@@ -498,10 +556,11 @@ private struct GwaTopRichTextWebView: UIViewRepresentable {
         <html>
         <head>
             <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
-            <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
-            <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
-            <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+            <!-- CDN 제거: marked·KaTeX·폰트를 앱 번들에서 인라인 → 네트워크와 무관하게 항상 렌더 -->
+            <style>\(GwaTopWebAssets.katexCSSInlined)</style>
+            <script>\(GwaTopWebAssets.markedJS)</script>
+            <script>\(GwaTopWebAssets.katexJS)</script>
+            <script>\(GwaTopWebAssets.autoRenderJS)</script>
             <style>
                 html, body {
                     margin: 0; padding: 0;
@@ -591,53 +650,82 @@ private struct GwaTopRichTextWebView: UIViewRepresentable {
             <div id="content"></div>
             <script>
                 const RAW_MD = `\(md)`;
-                function render() {
-                    try {
-                        // marked: GFM, breaks(줄바꿈 그대로), no mangle.
-                        if (window.marked) {
-                            marked.use({ gfm: true, breaks: true });
-                            document.getElementById('content').innerHTML = marked.parse(RAW_MD);
-                        } else {
-                            // marked 로드 실패 시 plain text 폴백
-                            const pre = document.createElement('pre');
-                            pre.textContent = RAW_MD;
-                            document.getElementById('content').appendChild(pre);
-                        }
-                    } catch (e) {
-                        const pre = document.createElement('pre');
-                        pre.textContent = RAW_MD;
-                        document.getElementById('content').appendChild(pre);
-                    }
-                    if (window.renderMathInElement) {
-                        try {
-                            renderMathInElement(document.body, {
-                                delimiters: [
-                                    {left: '$$', right: '$$', display: true},
-                                    {left: '$', right: '$', display: false},
-                                    {left: '\\\\(', right: '\\\\)', display: false},
-                                    {left: '\\\\[', right: '\\\\]', display: true}
-                                ],
-                                throwOnError: false,
-                            });
-                        } catch (e) { /* ignore */ }
-                    }
-                    // 렌더 끝났음을 표시 → CSS 가 opacity 0 → 1 로 페이드인.
-                    document.getElementById('content').classList.add('ready');
-                    reportHeight();
-                }
+
                 function reportHeight() {
                     const h = document.body.scrollHeight;
                     if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.heightCallback) {
                         window.webkit.messageHandlers.heightCallback.postMessage(h);
                     }
                 }
-                // CDN 비동기 로딩이 늦을 수 있어, 모든 스크립트 로드 후 render.
-                function tryRender() {
-                    if (document.readyState === 'complete') { render(); }
-                    else { window.addEventListener('load', render); }
+
+                // CDN(marked.js)이 막히거나 실패해도 헤딩/볼드/리스트가 스타일링되도록
+                // 의존성 없는 경량 마크다운 폴백. (정규식·역슬래시 없이 순수 문자열 처리)
+                function basicMarkdown(src) {
+                    var NL = String.fromCharCode(10);
+                    var lines = src.split(NL);
+                    var html = '';
+                    var inUL = false, inOL = false;
+                    function closeLists() { if (inUL) { html += '</ul>'; inUL = false; } if (inOL) { html += '</ol>'; inOL = false; } }
+                    function esc(s) { return s.split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;'); }
+                    function inline(t) {
+                        t = esc(t);
+                        var p = t.split('**'), o = '';
+                        for (var i = 0; i < p.length; i++) { o += (i % 2 === 1) ? '<strong>' + p[i] + '</strong>' : p[i]; }
+                        var c = o.split('`'), o2 = '';
+                        for (var j = 0; j < c.length; j++) { o2 += (j % 2 === 1) ? '<code>' + c[j] + '</code>' : c[j]; }
+                        return o2;
+                    }
+                    for (var k = 0; k < lines.length; k++) {
+                        var line = lines[k];
+                        var L = 0; while (L < line.length && line.charAt(L) === ' ') L++;
+                        var body = line.slice(L);
+                        while (body.length && body.charAt(body.length - 1) === ' ') body = body.slice(0, -1);
+                        if (body.length === 0) { closeLists(); continue; }
+                        var hl = 0; while (hl < body.length && body.charAt(hl) === '#') hl++;
+                        if (hl >= 1 && hl <= 4 && body.charAt(hl) === ' ') { closeLists(); html += '<h' + hl + '>' + inline(body.slice(hl + 1)) + '</h' + hl + '>'; continue; }
+                        if ((body.charAt(0) === '-' || body.charAt(0) === '*') && body.charAt(1) === ' ') { if (inOL) { html += '</ol>'; inOL = false; } if (!inUL) { html += '<ul>'; inUL = true; } html += '<li>' + inline(body.slice(2)) + '</li>'; continue; }
+                        var d = 0; while (d < body.length && body.charAt(d) >= '0' && body.charAt(d) <= '9') d++;
+                        if (d > 0 && body.charAt(d) === '.' && body.charAt(d + 1) === ' ') { if (inUL) { html += '</ul>'; inUL = false; } if (!inOL) { html += '<ol>'; inOL = true; } html += '<li>' + inline(body.slice(d + 2)) + '</li>'; continue; }
+                        if (body === '---' || body === '***') { closeLists(); html += '<hr>'; continue; }
+                        closeLists(); html += '<p>' + inline(body) + '</p>';
+                    }
+                    closeLists();
+                    return html;
                 }
-                tryRender();
-                // 이미지/폰트가 늦게 로드되며 높이 변할 때마다 보고.
+
+                function paintMarkdown() {
+                    var el = document.getElementById('content');
+                    try {
+                        if (window.marked) { marked.use({ gfm: true, breaks: true }); el.innerHTML = marked.parse(RAW_MD); }
+                        else { el.innerHTML = basicMarkdown(RAW_MD); }
+                    } catch (e) { el.innerHTML = basicMarkdown(RAW_MD); }
+                    el.classList.add('ready');  // CSS opacity 0 → 1 페이드인
+                    reportHeight();
+                }
+
+                function renderMath() {
+                    if (!window.renderMathInElement) return false;
+                    try {
+                        renderMathInElement(document.body, {
+                            delimiters: [
+                                {left: '$$', right: '$$', display: true},
+                                {left: '$', right: '$', display: false},
+                                {left: '\\\\(', right: '\\\\)', display: false},
+                                {left: '\\\\[', right: '\\\\]', display: true}
+                            ],
+                            throwOnError: false,
+                        });
+                    } catch (e) { /* ignore */ }
+                    return true;
+                }
+
+                // 엔진(marked·KaTeX)이 번들에서 인라인되어 동기적으로 즉시 사용 가능 → 바로 렌더.
+                // (만에 하나 에셋이 비어 window.marked 가 없으면 paintMarkdown 이 basicMarkdown 으로 폴백)
+                paintMarkdown();
+                renderMath();
+                reportHeight();
+
+                // 폰트 적용 등으로 높이 변할 때마다 보고.
                 new ResizeObserver(() => reportHeight()).observe(document.body);
             </script>
         </body>
