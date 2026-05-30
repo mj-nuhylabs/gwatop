@@ -168,8 +168,8 @@ final class GwaTopUploadProgress: ObservableObject {
                 if Task.isCancelled { return }
                 self.updateProgress(id: jobId, progress: 1.0)
                 self.setPhase(id: jobId, phase: .processing)
-                // ★ 학습 탭 즉시 갱신용 — S3 PUT + confirm 이 끝났으니 이 시점에
-                // GET /courses/{cid}/files 가 새 파일을 반환한다. 알림 즉시 post.
+                // ★ 1차 알림 — S3 PUT + confirm 이 끝났으니 이 시점에 GET /courses/{cid}/files
+                // 가 새 파일을 반환한다. 알림 즉시 post → 학습 탭에 새 파일이 "처리 중" 으로 등장.
                 // 시트의 1.2초 타이머 reload 는 cache fresh 면 bail-out 되지만, 이 알림으로
                 // silent reload (cache bypass) 가 한 번 더 발동돼 새 자료가 확실히 노출된다.
                 NotificationCenter.default.post(
@@ -177,9 +177,26 @@ final class GwaTopUploadProgress: ObservableObject {
                     object: nil,
                     userInfo: ["course_id": courseId, "file_id": fileId]
                 )
-                try? await Task.sleep(nanoseconds: 1_500_000_000)
+
+                // 백엔드 분류 완료 시점을, 뷰와 무관한 이 task 가 직접 감지한다.
+                // (상세 화면이 학습 목록을 가려 목록 자체 폴링이 멈춰도 여기선 계속 폴링)
+                let finalStatus = await GwaTopFileUploadService.shared
+                    .waitForMaterialSettled(fileId: fileId)
                 if Task.isCancelled { return }
-                self.setPhase(id: jobId, phase: .done)
+
+                // ★ 2차 알림 — 분류가 끝났으니 목록을 한 번 더 받아 행을 "준비 완료" 로 갱신.
+                // 이 알림 덕분에 사용자가 앱을 재시작하지 않아도 곧바로 "준비 완료" 가 표시된다.
+                NotificationCenter.default.post(
+                    name: .materialUploadCompleted,
+                    object: nil,
+                    userInfo: ["course_id": courseId, "file_id": fileId]
+                )
+
+                if finalStatus == "failed" {
+                    self.fail(id: jobId, message: "파일 분석에 실패했어요. 다시 시도해 주세요.")
+                } else {
+                    self.setPhase(id: jobId, phase: .done)
+                }
             } catch {
                 if Task.isCancelled { return }
                 let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription

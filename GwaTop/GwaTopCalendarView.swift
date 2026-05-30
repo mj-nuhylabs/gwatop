@@ -30,6 +30,8 @@ struct GwaTopCalendarView: View {
     // 시간표 시트 상태 — 탭 시 선택된 과목, + 버튼 시 추가 시트 노출.
     @State private var timetableEditingCourse: GwaTopCourseDTO? = nil
     @State private var showingTimetableAddSheet: Bool = false
+    // 캘린더 탭 FAB(+) 스피드다이얼 펼침 상태 — 구글 캘린더식 "강의계획서 업로드 / 일정 추가".
+    @State private var isFabExpanded: Bool = false
 
     /// 강의계획서 파싱 진행 상태 — 배너 표시 + 완료 시 자동 reload 용.
     @ObservedObject private var syllabusWatcher = GwaTopSyllabusWatcher.shared
@@ -107,29 +109,52 @@ struct GwaTopCalendarView: View {
                     }
                 }
 
-                // FAB — 우하단 검은 원형 +
-                // 현재 탭에 맞춰 추가 시트를 띄움 (feat/hyunnow 로직 통합).
-                // - 캘린더: 새 일정 시트
-                // - 시간표: 에브리타임 스타일 시간표 추가 시트
-                Button {
-                    if selectedTopTab == .timetable {
-                        showingTimetableAddSheet = true
-                    } else {
-                        showingCreateSheet = true
+                // 펼쳐졌을 때 바깥을 탭하면 닫히도록 투명 레이어 — 화면은 어둡게 하지 않음.
+                if isFabExpanded {
+                    Color.clear
+                        .ignoresSafeArea()
+                        .contentShape(Rectangle())
+                        .onTapGesture { collapseFab() }
+                }
+
+                // FAB(+) — 구글 캘린더식 스피드다이얼.
+                // - 캘린더: 탭하면 "강의계획서 업로드 / 일정 추가" 가 펼쳐짐 (+ → ×)
+                // - 시간표: 탭하면 곧장 시간표 추가 시트 (펼침 없음)
+                VStack(alignment: .trailing, spacing: 14) {
+                    if isFabExpanded {
+                        fabActionPill(icon: "doc.badge.arrow.up.fill", label: "강의계획서 업로드") {
+                            collapseFab()
+                            showUploadPreview = true
+                        }
+                        fabActionPill(icon: "calendar.badge.plus", label: "일정 추가") {
+                            collapseFab()
+                            showingCreateSheet = true
+                        }
                     }
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.gwaTopSystem(size: 22, weight: .heavy))
-                        .foregroundStyle(.white)
-                        .frame(width: 56, height: 56)
-                        .background(GwaTopHomeTheme.primary)
-                        .clipShape(Circle())
-                        .shadow(color: GwaTopHomeTheme.primary.opacity(0.30), radius: 14, x: 0, y: 6)
+
+                    Button {
+                        if selectedTopTab == .timetable {
+                            showingTimetableAddSheet = true
+                        } else {
+                            withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                                isFabExpanded.toggle()
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.gwaTopSystem(size: 22, weight: .heavy))
+                            .foregroundStyle(.white)
+                            .rotationEffect(.degrees(isFabExpanded ? 45 : 0))
+                            .frame(width: 56, height: 56)
+                            .background(GwaTopHomeTheme.primary)
+                            .clipShape(Circle())
+                            .shadow(color: GwaTopHomeTheme.primary.opacity(0.30), radius: 14, x: 0, y: 6)
+                    }
+                    .accessibilityLabel(isFabExpanded ? "닫기" : "추가")
                 }
                 .padding(.trailing, 22)
                 .padding(.bottom, 22)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                .allowsHitTesting(true)
             }
             .toolbar(.hidden, for: .navigationBar)
             .sheet(item: $selectedEvent) { event in
@@ -221,6 +246,10 @@ struct GwaTopCalendarView: View {
             // 표시 월이 바뀌면 Apple 일정 새 윈도우로 다시 fetch.
             .onChange(of: displayedMonth) { _, _ in
                 Task { await loadAppleEvents() }
+            }
+            // 시간표 탭으로 전환하면 펼쳐둔 FAB 메뉴는 닫는다 (시간표 FAB 는 단일 동작).
+            .onChange(of: selectedTopTab) { _, _ in
+                isFabExpanded = false
             }
             // 사용자가 Apple 캘린더 앱에서 일정 추가/수정/삭제하면 EventKit 이 알림 → 자동 재로드.
             .onChange(of: appleCalSvc.changeCounter) { _, _ in
@@ -321,8 +350,41 @@ struct GwaTopCalendarView: View {
             // Apple 캘린더 연동 토글은 설정 화면으로 이동. (최초 로그인/회원가입 시 1회 안내)
             monthGrid
             // selectedDaySection 제거 — 일정은 셀 안 pill 로 직접 노출. tap 시 detail sheet.
-            syllabusUploadCard
+            // 강의계획서 업로드 / 일정 추가 진입은 우하단 FAB(+) 스피드다이얼로 이동.
         }
+    }
+
+    // MARK: - FAB 스피드다이얼
+
+    /// 펼침 메뉴를 애니메이션과 함께 접는다.
+    private func collapseFab() {
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+            isFabExpanded = false
+        }
+    }
+
+    /// 스피드다이얼 액션 한 개 — 아이콘 + 라벨 캡슐. 딤 배경 위에 떠 보이도록 그림자 포함.
+    private func fabActionPill(
+        icon: String, label: String, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.gwaTopSystem(size: 16, weight: .bold))
+                    .foregroundStyle(GwaTopHomeTheme.primary)
+                    .frame(width: 22)
+                Text(label)
+                    .font(.gwaTopSystem(size: 15, weight: .bold))
+                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .background(GwaTopHomeTheme.surface)
+            .clipShape(Capsule())
+            .shadow(color: .black.opacity(0.16), radius: 10, x: 0, y: 4)
+        }
+        .buttonStyle(.plain)
+        .transition(.scale(scale: 0.85, anchor: .bottomTrailing).combined(with: .opacity))
     }
 
     /// 현재 표시 월 ±2개월 범위의 Apple 일정 fetch.
@@ -656,41 +718,6 @@ struct GwaTopCalendarView: View {
         .padding(14)
         .background(GwaTopHomeTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-
-    private var syllabusUploadCard: some View {
-        Button {
-            showUploadPreview = true
-        } label: {
-            HStack(spacing: 13) {
-                Image(systemName: "doc.badge.arrow.up.fill")
-                    .font(.gwaTopSystem(size: 19, weight: .bold))
-                    .foregroundStyle(GwaTopHomeTheme.primary)
-                    .frame(width: 46, height: 46)
-                    .background(GwaTopHomeTheme.primary.opacity(0.10))
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("강의계획서 업로드")
-                        .font(.gwaTopSystem(size: 17, weight: .heavy))
-                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
-
-                    Text("PDF/이미지를 AI가 분석해 일정을 자동 등록하는 흐름입니다")
-                        .font(.gwaTopSystem(size: 13, weight: .medium))
-                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                        .lineLimit(2)
-                }
-
-                Spacer()
-
-                Image(systemName: "chevron.right")
-                    .font(.gwaTopSystem(size: 13, weight: .bold))
-                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
-            }
-            .padding(16)
-            .gwaTopCard(radius: 22)
-        }
-        .buttonStyle(.plain)
     }
 
     private var selectedDateTitle: String {

@@ -183,6 +183,44 @@ actor GwaTopFileUploadService {
         return (false, lastStatus, lastErr ?? "타임아웃 (\(timeoutSeconds)초)", lastCount)
     }
 
+    /// 일반 강의 자료(비-syllabus)의 백엔드 처리가 끝났는지(분류 완료/실패) 폴링.
+    /// 학습 탭 행이 "처리 중" → "준비 완료" 로 바뀌는 시점을, 뷰 생명주기와 무관한
+    /// 업로드 task 가 직접 감지하기 위한 용도. (상세 화면이 목록을 가려 목록 자체
+    /// 폴링이 멈춰도 여기서 완료를 잡아낸다.)
+    /// - Returns: 마지막으로 관찰된 status (예: "classified", "unclassified", "failed").
+    func waitForMaterialSettled(
+        fileId: String,
+        timeoutSeconds: Int = 120,
+        pollIntervalSeconds: Double = 2.0
+    ) async -> String {
+        // 아직 처리 중인 상태들. 이 집합을 벗어나면(classified/unclassified/failed 등) 종료.
+        // GwaTopAIStudyView.inProgressStatuses 와 동일하게 유지한다.
+        let inProgress: Set<String> = [
+            "pending", "uploading", "processing", "extracting",
+            "extracted", "parsing", "classifying"
+        ]
+        let maxAttempts = max(1, Int(Double(timeoutSeconds) / pollIntervalSeconds))
+        let pollNs = UInt64(pollIntervalSeconds * 1_000_000_000)
+
+        var lastStatus = "processing"
+        for _ in 0..<maxAttempts {
+            if Task.isCancelled { return lastStatus }
+            do {
+                let debug: GwaTopFileDebugResponse = try await GwaTopAPIClient.shared.get(
+                    "/v1/files/\(fileId)/debug"
+                )
+                lastStatus = debug.file.status
+                if !inProgress.contains(debug.file.status) {
+                    return lastStatus   // 종료 상태 도달 (분류 완료/실패 등)
+                }
+            } catch {
+                // 일시적 네트워크 에러는 무시하고 다음 폴 때 재시도.
+            }
+            try? await Task.sleep(nanoseconds: pollNs)
+        }
+        return lastStatus
+    }
+
     private static func contentType(for fileType: String) -> String {
         switch fileType {
         case "pdf":   return "application/pdf"

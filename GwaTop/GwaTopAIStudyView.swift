@@ -114,7 +114,12 @@ struct GwaTopAIStudyView: View {
                 .presentationDetents([.large])
             }
             // 문서 클릭 → 전체화면 새 창에서 학습 탭 진행.
-            .fullScreenCover(item: $selectedFile) { f in
+            // onDismiss: 상세 화면을 닫고 돌아오면 최신 상태로 silent reload. 상세를 보는
+            // 동안 백엔드가 분류를 끝냈으면 행이 곧바로 "준비 완료" 로 바뀐다. (cache fresh
+            // bail-out 을 우회하는 silent reload 라, 진행 중이면 폴링도 다시 가동된다.)
+            .fullScreenCover(item: $selectedFile, onDismiss: {
+                Task { await reloadAllFiles(silent: true) }
+            }) { f in
                 GwaTopFileStudyView(file: f)
             }
             // 강의계획서 파싱 완료 → 백엔드가 신규 과목을 추가했을 수 있음 → 강제 재조회.

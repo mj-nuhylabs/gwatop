@@ -36,7 +36,7 @@ struct GwaTopMainTabView: View {
             GwaTopAssignmentsView()
                 .tabItem {
                     Image(systemName: "checklist")
-                    Text("과제")
+                    Text("Todo")
                 }
                 .tag(GwaTopTab.tasks)
 

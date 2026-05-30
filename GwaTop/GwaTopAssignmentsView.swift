@@ -13,6 +13,8 @@ struct GwaTopAssignmentsView: View {
     @State private var togglingIds: Set<String> = []
     /// 접힌 과목 그룹의 course.id 집합. 기본값 비어 있음(모두 펼침).
     @State private var collapsedCourseIds: Set<String> = []
+    /// 필터 선택 언더라인 슬라이드 애니메이션용 네임스페이스.
+    @Namespace private var filterNamespace
 
     /// priority 정렬 가중치 (high가 먼저)
     private static func priorityWeight(_ p: GwaTopAssignmentPriority) -> Int {
@@ -60,19 +62,6 @@ struct GwaTopAssignmentsView: View {
         }
     }
 
-    private var completedCount: Int {
-        assignments.filter(\.isCompleted).count
-    }
-
-    private var completionRate: Double {
-        guard !assignments.isEmpty else { return 0 }
-        return Double(completedCount) / Double(assignments.count)
-    }
-
-    private var urgentCount: Int {
-        assignments.filter { !$0.isCompleted && $0.priority == .high }.count
-    }
-
     var body: some View {
         NavigationStack {
             ZStack {
@@ -80,14 +69,12 @@ struct GwaTopAssignmentsView: View {
                     .ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    GwaTopScreenHeader(title: "과제")
+                    GwaTopScreenHeader(title: "Todo")
 
                     ScrollView(showsIndicators: false) {
                         VStack(spacing: 18) {
-                            headerCard
-                                .padding(.top, 6)
-
                             filterSegment
+                                .padding(.top, 6)
 
                             if let err = loadError {
                                 errorState(err)
@@ -122,14 +109,14 @@ struct GwaTopAssignmentsView: View {
         }
     }
 
-    /// 과목별 그룹 섹션. 헤더 탭 → 접기/펴기 토글.
+    /// 과목별 그룹 섹션 — 과목 헤더와 그 과목의 과제들을 "하나의 카드"로 묶는다.
+    /// 헤더 탭 → 접기/펴기 토글. 카드 테두리는 과목 색으로 옅게 틴트.
     @ViewBuilder
     private func courseGroupSection(_ group: GwaTopAssignmentCourseGroup) -> some View {
         let isCollapsed = collapsedCourseIds.contains(group.course.id)
-        VStack(spacing: 12) {
+        VStack(spacing: 0) {
             Button {
                 // 펴기/접기는 부드러운 ease-in-out — spring은 콘텐츠가 튕기는 느낌을 만든다.
-                // 화면 위 바깥에서 슬라이드 끌어오는 .move(edge:.top) 도 제거 — 단순 fade로 충분.
                 withAnimation(.easeInOut(duration: 0.22)) {
                     if isCollapsed {
                         collapsedCourseIds.remove(group.course.id)
@@ -143,18 +130,26 @@ struct GwaTopAssignmentsView: View {
             .buttonStyle(.plain)
 
             if !isCollapsed {
-                VStack(spacing: 12) {
+                // 같은 카드 안에서 헤더 → 헤어라인 → 과제 행 순으로 쌓는다.
+                // 각 행 앞에 인셋 구분선을 둬 헤더/행, 행/행 사이를 분리.
+                VStack(spacing: 0) {
                     ForEach(group.assignments) { assignment in
-                        GwaTopAssignmentCard(
+                        Divider()
+                            .background(GwaTopHomeTheme.line)
+                            .padding(.horizontal, 16)
+
+                        GwaTopAssignmentRow(
                             assignment: assignment,
                             onToggle: { toggleAssignment(assignment) }
                         )
+                        .padding(16)
                     }
                 }
                 // 슬라이드 in/out 제거 → 자연스러운 fade. 위에서 떨어지는 듯한 튕김 현상 해소.
                 .transition(.opacity)
             }
         }
+        .gwaTopCard(radius: 24, lineColor: group.course.color.opacity(0.18), lineWidth: 1)
     }
 
     private func courseGroupHeader(_ group: GwaTopAssignmentCourseGroup, isCollapsed: Bool) -> some View {
@@ -192,14 +187,10 @@ struct GwaTopAssignmentsView: View {
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
                 .rotationEffect(.degrees(isCollapsed ? -90 : 0))
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(GwaTopHomeTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(group.course.color.opacity(0.18), lineWidth: 1)
-        )
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        // Spacer 영역까지 포함해 헤더 전체가 접기/펴기 탭 영역이 되도록.
+        .contentShape(Rectangle())
     }
 
     private var loadingState: some View {
@@ -294,79 +285,39 @@ struct GwaTopAssignmentsView: View {
         }
     }
 
-    private var headerCard: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 7) {
-                    Text("이번 주 할 일")
-                        .font(.system(size: 24, weight: .heavy, design: .rounded))
-                        .foregroundStyle(.white)
-
-                    Text("마감이 가까운 과제부터 차근차근 처리해요")
-                        .font(.gwaTopSystem(size: 14, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.84))
-                }
-
-                Spacer()
-
-                VStack(spacing: 2) {
-                    Text("\(Int(completionRate * 100))%")
-                        .font(.system(size: 22, weight: .heavy, design: .rounded))
-                        .foregroundStyle(.white)
-                    Text("완료율")
-                        .font(.gwaTopSystem(size: 11, weight: .bold))
-                        .foregroundStyle(.white.opacity(0.76))
-                }
-                .frame(width: 72, height: 72)
-                .background(.white.opacity(0.16))
-                .clipShape(Circle())
-            }
-
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(.white.opacity(0.22))
-
-                    Capsule()
-                        .fill(.white)
-                        .frame(width: max(0, proxy.size.width * completionRate))
-                }
-            }
-            .frame(height: 9)
-
-            HStack(spacing: 10) {
-                GwaTopAssignmentHeaderMetric(title: "전체", value: "\(assignments.count)", unit: "개")
-                GwaTopAssignmentHeaderMetric(title: "완료", value: "\(completedCount)", unit: "개")
-                GwaTopAssignmentHeaderMetric(title: "높음", value: "\(urgentCount)", unit: "개")
-            }
-        }
-        .padding(20)
-        .background(GwaTopHomeTheme.primary)
-        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-    }
-
+    /// 초미니멀 필터 — 알약/테두리/채움 없이 텍스트만, 화면 가로 중앙에 묶어서 배치.
+    /// 선택 항목은 굵게 + 아래 얇은 코랄 언더라인. (Spacer 없이 intrinsic 폭 → 부모가 중앙 정렬)
     private var filterSegment: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 32) {
             ForEach(GwaTopAssignmentFilter.allCases) { filter in
+                let isSelected = selectedFilter == filter
                 Button {
-                    withAnimation(.spring(response: 0.25, dampingFraction: 0.86)) {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                         selectedFilter = filter
                     }
                 } label: {
-                    Text(filter.title)
-                        .font(.gwaTopSystem(size: 14, weight: .bold))
-                        .foregroundStyle(selectedFilter == filter ? .white : GwaTopHomeTheme.textSecondary)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 42)
-                        .background(selectedFilter == filter ? GwaTopHomeTheme.primary : GwaTopHomeTheme.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 15, style: .continuous)
-                                .strokeBorder(selectedFilter == filter ? .clear : GwaTopHomeTheme.line, lineWidth: 1)
-                        )
+                    VStack(spacing: 6) {
+                        Text(filter.title)
+                            .font(.gwaTopSystem(size: 15, weight: isSelected ? .heavy : .semibold))
+                            .foregroundStyle(isSelected ? GwaTopHomeTheme.textPrimary : GwaTopHomeTheme.textTertiary)
+
+                        // 선택 언더라인 — 미선택 칸은 같은 높이의 투명 막대로 자리만 유지(레이아웃 점프 방지).
+                        Group {
+                            if isSelected {
+                                Capsule()
+                                    .fill(GwaTopHomeTheme.primary)
+                                    .matchedGeometryEffect(id: "filterUnderline", in: filterNamespace)
+                            } else {
+                                Capsule().fill(.clear)
+                            }
+                        }
+                        .frame(height: 2.5)
+                    }
                 }
+                .buttonStyle(.plain)
             }
         }
+        .frame(maxWidth: .infinity)
     }
 
     private var emptyState: some View {
@@ -444,74 +395,39 @@ private enum GwaTopAssignmentFilter: String, CaseIterable, Identifiable {
     }
 }
 
-private struct GwaTopAssignmentHeaderMetric: View {
-    let title: String
-    let value: String
-    let unit: String
-
-    var body: some View {
-        VStack(spacing: 4) {
-            Text(title)
-                .font(.gwaTopSystem(size: 11, weight: .bold))
-                .foregroundStyle(.white.opacity(0.72))
-
-            HStack(alignment: .firstTextBaseline, spacing: 2) {
-                Text(value)
-                    .font(.system(size: 18, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.white)
-                Text(unit)
-                    .font(.gwaTopSystem(size: 10, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.84))
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
-        .background(.white.opacity(0.14))
-        .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
-    }
-}
-
-private struct GwaTopAssignmentCard: View {
+/// 과목 그룹 카드 안에 들어가는 과제 한 줄. 자체 카드 chrome 없이 행(row) 으로만 동작한다.
+/// (과목명 배지는 카드 헤더와 중복이라 제거 — 우선순위 배지만 남김.)
+private struct GwaTopAssignmentRow: View {
     let assignment: GwaTopAssignment
     let onToggle: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 13) {
                 Button(action: onToggle) {
                     ZStack {
                         Circle()
                             .fill(assignment.isCompleted ? GwaTopHomeTheme.success : assignment.course.color.opacity(0.12))
-                            .frame(width: 42, height: 42)
+                            .frame(width: 40, height: 40)
 
                         Image(systemName: assignment.isCompleted ? "checkmark" : "circle")
-                            .font(.gwaTopSystem(size: 16, weight: .bold))
+                            .font(.gwaTopSystem(size: 15, weight: .bold))
                             .foregroundStyle(assignment.isCompleted ? .white : assignment.course.color)
                     }
                 }
                 .buttonStyle(.plain)
 
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 7) {
-                        Text(assignment.course.name)
-                            .font(.gwaTopSystem(size: 12, weight: .bold))
-                            .foregroundStyle(assignment.course.color)
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 5)
-                            .background(assignment.course.color.opacity(0.10))
-                            .clipShape(Capsule())
-
-                        Text(assignment.priority.displayTitle)
-                            .font(.gwaTopSystem(size: 12, weight: .bold))
-                            .foregroundStyle(assignment.priority.color)
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 5)
-                            .background(assignment.priority.color.opacity(0.10))
-                            .clipShape(Capsule())
-                    }
+                    Text(assignment.priority.displayTitle)
+                        .font(.gwaTopSystem(size: 12, weight: .bold))
+                        .foregroundStyle(assignment.priority.color)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(assignment.priority.color.opacity(0.10))
+                        .clipShape(Capsule())
 
                     Text(assignment.title)
-                        .font(.gwaTopSystem(size: 17, weight: .heavy))
+                        .font(.gwaTopSystem(size: 16, weight: .heavy))
                         .foregroundStyle(GwaTopHomeTheme.textPrimary)
                         .strikethrough(assignment.isCompleted, color: GwaTopHomeTheme.textSecondary)
 
@@ -534,9 +450,6 @@ private struct GwaTopAssignmentCard: View {
                     .background((assignment.isCompleted ? GwaTopHomeTheme.success : assignment.priority.color).opacity(0.10))
                     .clipShape(Capsule())
             }
-
-            Divider()
-                .background(GwaTopHomeTheme.line)
 
             HStack(spacing: 12) {
                 Label(assignment.dueDateText, systemImage: "clock.fill")
@@ -567,8 +480,6 @@ private struct GwaTopAssignmentCard: View {
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
         }
-        .padding(16)
-        .gwaTopCard(radius: 24)
     }
 }
 
