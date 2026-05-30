@@ -24,14 +24,17 @@ from app.schemas.syllabus import ParsedWeek
 logger = logging.getLogger(__name__)
 
 
+PAGE_SEPARATOR = "\n\n\f\n\n"
+
+
 def extract_text_from_pdf_bytes(data: bytes) -> str:
     with fitz.open(stream=data, filetype="pdf") as doc:
-        return "\n\n".join(page.get_text("text") for page in doc)
+        return PAGE_SEPARATOR.join(page.get_text("text") for page in doc)
 
 
 def extract_text_from_pdf_path(path: str) -> str:
     with fitz.open(path) as doc:
-        return "\n\n".join(page.get_text("text") for page in doc)
+        return PAGE_SEPARATOR.join(page.get_text("text") for page in doc)
 
 
 # ---------- 강의계획서 LLM 파싱용 전처리 ----------

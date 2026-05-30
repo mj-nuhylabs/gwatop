@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import uuid
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -27,8 +28,10 @@ from app.models.schedule import Schedule
 from app.models.semester import Semester
 from app.models.todo import Todo
 from app.models.user import User
+from app.services import s3
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
+logger = logging.getLogger(__name__)
 
 
 # ---------- 게이트 ----------
@@ -335,6 +338,12 @@ async def admin_list_todos(
 async def _delete_files_by_ids(session: AsyncSession, file_ids: list[uuid.UUID]) -> int:
     if not file_ids:
         return 0
+    rows = (await session.execute(select(File.s3_key).where(File.id.in_(file_ids)))).scalars().all()
+    for key in rows:
+        try:
+            s3.delete_object(key)
+        except Exception:
+            logger.warning("S3 객체 삭제 실패 key=%s", key, exc_info=True)
     result = await session.execute(delete(File).where(File.id.in_(file_ids)))
     return int(result.rowcount or 0)
 
@@ -480,17 +489,19 @@ async def admin_full_reset(
         todos_n = int(r.rowcount or 0)
         r = await db.execute(delete(Schedule).where(Schedule.course_id.in_(course_ids)))
         sched_n = int(r.rowcount or 0)
-        r = await db.execute(delete(File).where(File.course_id.in_(course_ids)))
-        files_n = int(r.rowcount or 0)
+        file_ids = (await db.execute(
+            select(File.id).where(File.course_id.in_(course_ids))
+        )).scalars().all()
+        files_n = await _delete_files_by_ids(db, list(file_ids))
 
     # course 미할당 syllabus (uploaded_by_user_id만 있는 것)
-    r = await db.execute(
-        delete(File).where(
+    standalone_file_ids = (await db.execute(
+        select(File.id).where(
             File.uploaded_by_user_id == user_id,
             File.course_id.is_(None),
         )
-    )
-    files_n += int(r.rowcount or 0)
+    )).scalars().all()
+    files_n += await _delete_files_by_ids(db, list(standalone_file_ids))
 
     courses_reset = 0
     if course_ids:

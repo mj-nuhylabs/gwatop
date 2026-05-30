@@ -26,9 +26,6 @@ struct GwaTopSignUpView: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    @AppStorage("accessToken")  private var accessToken:  String = ""
-    @AppStorage("refreshToken") private var refreshToken: String = ""
-
     @State private var name: String = ""
     @State private var email: String = ""
     @State private var emailCode: String = ""
@@ -397,8 +394,10 @@ struct GwaTopSignUpView: View {
                     loginProvider: "email"
                 )
 
-                accessToken  = authResponse.accessToken
-                refreshToken = authResponse.refreshToken
+                GwaTopAuthTokenStore.save(
+                    accessToken: authResponse.accessToken,
+                    refreshToken: authResponse.refreshToken
+                )
                 onSignUpSuccess(signedInUser)
             } catch {
                 errorMessage = error.localizedDescription

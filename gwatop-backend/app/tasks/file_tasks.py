@@ -152,6 +152,12 @@ async def _run_extract(file_id: str, SessionLocal) -> None:
         if file_row is None:
             logger.warning("extract_text: file %s not found", file_id)
             return
+        if file_row.status not in ("pending", "uploading"):
+            logger.info(
+                "extract_text: skip file=%s status=%s (already dispatched)",
+                file_id, file_row.status,
+            )
+            return
 
         file_row.status = "processing"
         file_row.parse_error = None
@@ -299,6 +305,9 @@ async def _run_parse_syllabus(file_id: str, SessionLocal) -> None:
         file_row = await _load_file(session, UUID(file_id))
         if file_row is None:
             logger.warning("parse_syllabus: file %s not found", file_id)
+            return
+        if file_row.status in ("parsing", "parsed"):
+            logger.info("parse_syllabus: skip file=%s status=%s", file_id, file_row.status)
             return
 
         if not file_row.extracted_text:

@@ -589,8 +589,13 @@ def slice_text_by_pages(extracted_text: str, page_range: str | None) -> str:
     if not page_range or not page_range.strip():
         return extracted_text
 
-    # 단순 split (TODO: 더 신뢰성 있는 per-page 저장 도입)
-    pages = extracted_text.split("\n\n")
+    # 신규 추출 데이터는 form-feed 페이지 구분자를 사용한다. 기존 데이터는 하위호환으로
+    # 예전 휴리스틱을 유지한다.
+    pages = (
+        [p.strip() for p in extracted_text.split("\f")]
+        if "\f" in extracted_text
+        else extracted_text.split("\n\n")
+    )
     if not pages:
         return extracted_text
 

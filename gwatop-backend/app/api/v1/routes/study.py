@@ -13,7 +13,7 @@ import re
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, delete, select
@@ -211,7 +211,7 @@ async def study_generate_ai_content(
             )
         ).order_by(AIContent.generated_at.desc())
     )).scalars().first()
-    if existing is not None and not req.force:
+    if existing is not None and not req.force and not req.exclude_questions:
         return {
             "file_id": str(file_id),
             "content_type": content_type,
@@ -626,6 +626,7 @@ def _tutor_message_to_dict(m: TutorMessage) -> dict[str, Any]:
 @router.get("/files/{file_id}/tutor/messages")
 async def list_tutor_messages(
     file_id: uuid.UUID,
+    limit: int = Query(200, ge=1, le=500),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[dict[str, Any]]:
@@ -634,8 +635,9 @@ async def list_tutor_messages(
         select(TutorMessage).where(
             TutorMessage.file_id == file_id,
             TutorMessage.user_id == current_user.id,
-        ).order_by(TutorMessage.created_at.asc())
+        ).order_by(TutorMessage.created_at.desc()).limit(limit)
     )).scalars().all()
+    rows = list(reversed(rows))
     return [_tutor_message_to_dict(m) for m in rows]
 
 
@@ -679,13 +681,14 @@ async def ask_tutor_endpoint(
     await db.refresh(user_msg)
 
     # 2) 히스토리 로드 (이번 user_msg 제외).
-    history_rows = (await db.execute(
+    history_rows_desc = (await db.execute(
         select(TutorMessage).where(
             TutorMessage.file_id == file_id,
             TutorMessage.user_id == current_user.id,
             TutorMessage.id != user_msg.id,
-        ).order_by(TutorMessage.created_at.asc())
+        ).order_by(TutorMessage.created_at.desc()).limit(8)
     )).scalars().all()
+    history_rows = list(reversed(history_rows_desc))
     history = [(m.role, m.body) for m in history_rows]
 
     # 3) GPT 호출
@@ -764,13 +767,14 @@ async def ask_tutor_stream_endpoint(
     await db.commit()
     await db.refresh(user_msg)
 
-    history_rows = (await db.execute(
+    history_rows_desc = (await db.execute(
         select(TutorMessage).where(
             TutorMessage.file_id == file_id,
             TutorMessage.user_id == current_user.id,
             TutorMessage.id != user_msg.id,
-        ).order_by(TutorMessage.created_at.asc())
+        ).order_by(TutorMessage.created_at.desc()).limit(8)
     )).scalars().all()
+    history_rows = list(reversed(history_rows_desc))
     history = [(m.role, m.body) for m in history_rows]
 
     # 스트림 코루틴 안에서 사용할 값들 (Depends 의 db 는 여기서 끝나므로 별도 세션 새로 연다).

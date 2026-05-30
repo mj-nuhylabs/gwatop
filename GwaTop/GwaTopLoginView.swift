@@ -11,8 +11,6 @@ import GoogleSignIn
 struct GwaTopLoginView: View {
     var onLoginSuccess: (GwaTopSignedInUser) -> Void = { _ in }
 
-    @AppStorage("accessToken")  private var accessToken:  String = ""
-    @AppStorage("refreshToken") private var refreshToken: String = ""
     /// 로그인 유지 체크 여부 — true 일 때만 앱 재실행 시 자동 로그인.
     @AppStorage("keepSignedIn") private var keepSignedIn: Bool = true
 
@@ -205,8 +203,10 @@ struct GwaTopLoginView: View {
                     loginProvider: "email"
                 )
 
-                accessToken  = authResponse.accessToken
-                refreshToken = authResponse.refreshToken
+                GwaTopAuthTokenStore.save(
+                    accessToken: authResponse.accessToken,
+                    refreshToken: authResponse.refreshToken
+                )
                 onLoginSuccess(signedInUser)
             } catch {
                 errorMessage = error.localizedDescription
@@ -247,8 +247,10 @@ struct GwaTopLoginView: View {
                     loginProvider: "google"
                 )
 
-                accessToken  = authResponse.accessToken
-                refreshToken = authResponse.refreshToken
+                GwaTopAuthTokenStore.save(
+                    accessToken: authResponse.accessToken,
+                    refreshToken: authResponse.refreshToken
+                )
                 onLoginSuccess(signedInUser)
 
             } catch let error as GIDSignInError where error.code == .canceled {

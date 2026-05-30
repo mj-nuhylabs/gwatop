@@ -4,11 +4,12 @@
 //
 //  공통 백엔드 호출 헬퍼.
 //  - baseURL은 한 곳에서 관리 (EC2 IP 변경 시 여기만 고치면 됨)
-//  - @AppStorage("accessToken")의 JWT를 Bearer로 자동 부착
+//  - Keychain에 저장된 JWT를 Bearer로 자동 부착
 //  - JSON 인코딩/디코딩 (snake_case + ISO8601 with fractional seconds)
 //
 
 import Foundation
+import Security
 
 enum GwaTopAPIError: LocalizedError {
     case invalidURL
@@ -51,6 +52,92 @@ enum GwaTopAPIError: LocalizedError {
     }
 }
 
+enum GwaTopAuthTokenStore {
+    private static let service = "com.gwatop.auth"
+    private static let accessAccount = "accessToken"
+    private static let refreshAccount = "refreshToken"
+
+    static func save(accessToken: String, refreshToken: String) {
+        store(accessToken, account: accessAccount)
+        store(refreshToken, account: refreshAccount)
+        clearLegacyDefaults()
+    }
+
+    static func replaceAccessToken(_ token: String) {
+        store(token, account: accessAccount)
+        UserDefaults.standard.removeObject(forKey: accessAccount)
+    }
+
+    static func currentAccessToken() -> String? {
+        token(account: accessAccount) ?? migrateLegacyToken(key: accessAccount, account: accessAccount)
+    }
+
+    static func currentRefreshToken() -> String? {
+        token(account: refreshAccount) ?? migrateLegacyToken(key: refreshAccount, account: refreshAccount)
+    }
+
+    static func clear() {
+        delete(account: accessAccount)
+        delete(account: refreshAccount)
+        clearLegacyDefaults()
+    }
+
+    private static func store(_ value: String, account: String) {
+        guard let data = value.data(using: .utf8) else { return }
+        delete(account: account)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            kSecValueData as String: data
+        ]
+        SecItemAdd(query as CFDictionary, nil)
+    }
+
+    private static func token(account: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecReturnData as String: true
+        ]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status == errSecSuccess,
+              let data = item as? Data,
+              let value = String(data: data, encoding: .utf8),
+              !value.isEmpty
+        else {
+            return nil
+        }
+        return value
+    }
+
+    private static func delete(account: String) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+
+    private static func migrateLegacyToken(key: String, account: String) -> String? {
+        let legacy = UserDefaults.standard.string(forKey: key) ?? ""
+        guard !legacy.isEmpty else { return nil }
+        store(legacy, account: account)
+        UserDefaults.standard.removeObject(forKey: key)
+        return legacy
+    }
+
+    private static func clearLegacyDefaults() {
+        UserDefaults.standard.removeObject(forKey: accessAccount)
+        UserDefaults.standard.removeObject(forKey: refreshAccount)
+    }
+}
+
 /// SwiftUI의 `.task` modifier는 view가 사라지거나 ID가 바뀔 때 진행 중인 Task를 자동
 /// 취소한다. URLSession이나 Swift Concurrency가 던지는 cancellation 에러를 일반 에러로
 /// 취급하면 "연동 오류"처럼 잘못 표시되므로, 호출 측에서 이 헬퍼로 한 번 걸러낸다.
@@ -73,14 +160,22 @@ func isCancellation(_ error: Error) -> Bool {
 }
 
 enum GwaTopAPI {
-    // EC2 us-east-1 인스턴스에 Elastic IP 3.221.89.155 영구 할당 (2026-05-25).
-    // 이제 인스턴스 stop/start 시에도 IP 와 hostname 모두 고정.
-    // Info.plist ATS 예외는 *.compute-1.amazonaws.com wildcard 라 자동 매칭됨.
-    static let baseURL: String = "http://ec2-3-221-89-155.compute-1.amazonaws.com:8000"
+    static let baseURL: String = {
+        if let raw = Bundle.main.object(forInfoDictionaryKey: "GwaTopAPIBaseURL") as? String {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            }
+        }
+        #if DEBUG
+        return "http://localhost:8000"
+        #else
+        return "https://api.gwatop.com"
+        #endif
+    }()
 
     static func currentAccessToken() -> String? {
-        let t = UserDefaults.standard.string(forKey: "accessToken") ?? ""
-        return t.isEmpty ? nil : t
+        GwaTopAuthTokenStore.currentAccessToken()
     }
 
     static func makeJSONDecoder() -> JSONDecoder {
@@ -156,6 +251,24 @@ actor GwaTopAPIClient {
     private let session: URLSession
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
+
+    private struct RefreshRequestBody: Encodable {
+        let refreshToken: String
+
+        enum CodingKeys: String, CodingKey {
+            case refreshToken = "refresh_token"
+        }
+    }
+
+    private struct RefreshResponseBody: Decodable {
+        let accessToken: String
+        let expiresIn: Int
+
+        enum CodingKeys: String, CodingKey {
+            case accessToken = "access_token"
+            case expiresIn = "expires_in"
+        }
+    }
 
     init(session: URLSession = .shared) {
         self.session = session
@@ -420,7 +533,10 @@ actor GwaTopAPIClient {
         return req
     }
 
-    private func perform<Response: Decodable>(_ req: URLRequest) async throws -> Response {
+    private func perform<Response: Decodable>(
+        _ req: URLRequest,
+        allowRefresh: Bool = true
+    ) async throws -> Response {
         let started = Date()
         let data: Data
         let resp: URLResponse
@@ -441,6 +557,13 @@ actor GwaTopAPIClient {
             throw GwaTopAPIError.server(-1, "Invalid response")
         }
         if http.statusCode == 401 {
+            if allowRefresh, let refreshed = try? await refreshAccessToken(), refreshed {
+                var retry = req
+                if let token = GwaTopAPI.currentAccessToken() {
+                    retry.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                    return try await perform(retry, allowRefresh: false)
+                }
+            }
             Self.broadcastUnauthorized()
             throw GwaTopAPIError.unauthorized
         }
@@ -462,5 +585,29 @@ actor GwaTopAPIClient {
             if let d = json["detail"] as? [String: Any], let m = d["message"] as? String { return m }
         }
         return nil
+    }
+
+    private func refreshAccessToken() async throws -> Bool {
+        guard let refreshToken = GwaTopAuthTokenStore.currentRefreshToken(),
+              !refreshToken.isEmpty,
+              let url = URL(string: GwaTopAPI.baseURL + "/v1/auth/refresh")
+        else {
+            return false
+        }
+
+        var req = URLRequest(url: url, timeoutInterval: 15)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.httpBody = try encoder.encode(RefreshRequestBody(refreshToken: refreshToken))
+
+        let (data, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            GwaTopAuthTokenStore.clear()
+            return false
+        }
+        let body = try decoder.decode(RefreshResponseBody.self, from: data)
+        GwaTopAuthTokenStore.replaceAccessToken(body.accessToken)
+        return true
     }
 }

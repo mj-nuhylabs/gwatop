@@ -55,6 +55,31 @@ def _validate_upload(body: PresignedUrlRequest) -> None:
         )
 
 
+def _verify_uploaded_object(file_record: File) -> None:
+    """S3 업로드 완료 후 실제 객체 크기/Content-Type을 재검증한다."""
+    try:
+        meta = s3.head_object(file_record.s3_key)
+    except Exception:
+        logger.exception("S3 object head 실패 file=%s key=%s", file_record.id, file_record.s3_key)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="업로드된 파일을 확인할 수 없어요. 업로드를 다시 시도해 주세요.",
+        )
+
+    size = int(meta.get("ContentLength") or 0)
+    if size <= 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="업로드된 파일이 비어 있어요.")
+    if size > settings.MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="업로드된 파일이 허용 크기를 초과했어요.")
+    if file_record.size_bytes is not None and size != file_record.size_bytes:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="업로드된 파일 크기가 요청 정보와 일치하지 않아요.")
+
+    expected = CONTENT_TYPES.get(file_record.file_type)
+    actual = (meta.get("ContentType") or "").split(";", 1)[0].strip().lower()
+    if expected and actual and actual != expected.lower():
+        raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="업로드된 파일 형식이 요청 정보와 일치하지 않아요.")
+
+
 @router.post("/courses/{course_id}/files/presigned-url", response_model=PresignedUrlResponse, status_code=status.HTTP_201_CREATED)
 async def get_presigned_url(
     course_id: uuid.UUID,
@@ -116,6 +141,7 @@ async def confirm_upload(
     # ⚠️ presigned-url 생성 시 초기 status 는 "pending" — "uploading" 만 보면 일반 자료가
     #    영영 추출되지 않으니 둘 다 포함해야 한다.
     if file_record.status in ("pending", "uploading"):
+        _verify_uploaded_object(file_record)
         extract_text_task.delay(str(file_id))
 
     return FileConfirmResponse(file=FileResponse.model_validate(file_record))
@@ -194,7 +220,9 @@ async def confirm_syllabus_upload(
             detail="이 엔드포인트는 강의계획서 전용입니다. /v1/courses/.../confirm 을 사용하세요.",
         )
 
-    extract_text_task.delay(str(file_id))
+    if file_record.status in ("pending", "uploading"):
+        _verify_uploaded_object(file_record)
+        extract_text_task.delay(str(file_id))
     return FileConfirmResponse(file=FileResponse.model_validate(file_record))
 
 
@@ -269,7 +297,9 @@ async def confirm_auto_upload(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="이 엔드포인트는 자동 분류 업로드 전용입니다.",
         )
-    extract_text_task.delay(str(file_id))
+    if file_record.status in ("pending", "uploading"):
+        _verify_uploaded_object(file_record)
+        extract_text_task.delay(str(file_id))
     return FileConfirmResponse(file=FileResponse.model_validate(file_record))
 
 
@@ -470,43 +500,6 @@ async def get_presigned_download(
     return {"url": url, "expires_in": 3600, "filename": file_row.filename}
 
 
-@router.get("/files/{file_id}/ai-contents/{content_type}")
-async def get_ai_content(
-    file_id: uuid.UUID,
-    content_type: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    """AI 생성 콘텐츠 조회. content_type = summary | quiz | flashcard | …"""
-    from app.models.ai_content import AIContent
-
-    file_row, _ = await owned_file(file_id, current_user, db)
-    row = (await db.execute(
-        select(AIContent).where(
-            AIContent.file_id == file_row.id,
-            AIContent.content_type == content_type,
-        ).order_by(AIContent.generated_at.desc())
-    )).scalars().first()
-
-    if row is None:
-        # 아직 생성 전 상태. status로 클라이언트가 'AI가 작업 중이에요' 표시 가능.
-        return {
-            "file_id": str(file_id),
-            "content_type": content_type,
-            "status": "pending",
-            "content": None,
-            "file_status": file_row.status,
-        }
-
-    return {
-        "file_id": str(file_id),
-        "content_type": content_type,
-        "status": "ready",
-        "content": row.content,
-        "generated_at": row.generated_at.isoformat(),
-    }
-
-
 @router.post("/files/{file_id}/ai-contents/{content_type}/regenerate", status_code=status.HTTP_202_ACCEPTED)
 async def regenerate_ai_content(
     file_id: uuid.UUID,
@@ -519,6 +512,12 @@ async def regenerate_ai_content(
     from sqlalchemy import delete
     from app.tasks.file_tasks import generate_summary_task
 
+    if content_type != "summary":
+        raise HTTPException(
+            status_code=400,
+            detail=f"{content_type} 재생성은 /generate force=true 경로를 사용하세요.",
+        )
+
     file_row, _ = await owned_file(file_id, current_user, db)
     await db.execute(
         delete(AIContent).where(
@@ -528,11 +527,5 @@ async def regenerate_ai_content(
     )
     await db.commit()
 
-    if content_type == "summary":
-        generate_summary_task.delay(str(file_id))
-    else:
-        raise HTTPException(
-            status_code=400,
-            detail=f"{content_type} 재생성은 아직 지원되지 않습니다. 곧 추가될 예정.",
-        )
+    generate_summary_task.delay(str(file_id))
     return {"file_id": str(file_id), "content_type": content_type, "status": "queued"}
