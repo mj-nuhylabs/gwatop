@@ -123,8 +123,13 @@ struct GwaTopAIStudyView: View {
                 GwaTopFileStudyView(file: f)
             }
             // 강의계획서 파싱 완료 → 백엔드가 신규 과목을 추가했을 수 있음 → 강제 재조회.
+            // force=true 로 캐시(신선 플래그) bail-out 을 우회해야 신규 과목이 즉시 뜬다.
+            // store 의 디바운스(0.4s) refresh 를 기다리지 않고 학습 탭이 직접 fresh fetch.
             .onReceive(NotificationCenter.default.publisher(for: .syllabusParseCompleted)) { _ in
-                Task { await loadAll() }
+                Task {
+                    await loadCourses(force: true)
+                    await reloadAllFiles(silent: true)
+                }
             }
             // 일반 자료 업로드의 S3 PUT + confirm 이 끝나면 즉시 재조회. 시트의 1.2초 후
             // reload 는 S3 PUT 이 길면 confirm 전이라 file row 가 안 보일 수 있는데,
@@ -434,12 +439,14 @@ struct GwaTopAIStudyView: View {
         await reloadAllFiles()
     }
 
+    /// force=true 면 캐시 신선도와 무관하게 항상 fresh fetch.
+    /// (강의계획서 파싱 후 신규 과목을 즉시 반영하기 위해 — store 캐시가 fresh 로 찍혀 있어도 우회)
     @MainActor
-    private func loadCourses() async {
+    private func loadCourses(force: Bool = false) async {
         guard !isLoadingCourses else { return }
         // 스플래시 캐시 hydrate — 깜빡임 없음.
         let store = GwaTopAppDataStore.shared
-        if !store.courses.isEmpty {
+        if !force, !store.courses.isEmpty {
             courses = store.courses
             if store.isCacheFresh { return }
         }

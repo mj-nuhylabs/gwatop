@@ -225,20 +225,23 @@ final class GwaTopAppDataStore: ObservableObject {
         let start = cal.startOfDay(for: Date())
         let end = cal.date(byAdding: .day, value: 21, to: start) ?? start.addingTimeInterval(21 * 86400)
 
-        // 홈/할일/일정은 병렬로 다시 받는다 (실패한 항목만 건너뛰고 나머지는 갱신).
+        // 과목/홈/할일/일정을 병렬로 다시 받는다 (실패한 항목만 건너뛰고 나머지는 갱신).
+        // ★ 과목 목록을 반드시 다시 받는다 — 강의계획서 파싱은 신규 과목을 자동 생성할 수
+        //   있는데, 이걸 빼먹으면 lastRefreshedAt 만 갱신돼 캐시는 "fresh" 인데 courses 는
+        //   stale → 학습/홈 탭에 신규 과목이 안 뜬다.
+        async let coursesTask = try? GwaTopCourseService.shared.fetchAll()
         async let dashTask = try? GwaTopHomeService.shared.fetchDashboard(upcomingLimit: 5)
         async let todosTask = try? GwaTopTodoService.shared.fetchAll(start: start, end: end)
         async let schedulesTask = try? GwaTopScheduleService.shared.fetchAll()
 
-        let (dash, todos, schedules) = await (dashTask, todosTask, schedulesTask)
+        let (freshCourses, dash, todos, schedules) = await (coursesTask, dashTask, todosTask, schedulesTask)
+        if let freshCourses { self.courses = freshCourses }
         if let dash { self.dashboard = dash }
         if let todos { self.upcomingTodos = todos }
         if let schedules { self.allSchedules = schedules }
 
-        // 학습 자료(파일 상태 parsed) 도 과목별로 다시 받는다.
-        let courseList = self.courses.isEmpty
-            ? ((try? await GwaTopCourseService.shared.fetchAll()) ?? [])
-            : self.courses
+        // 학습 자료(파일 상태 parsed) 도 과목별로 다시 받는다. (위에서 갱신한 신규 과목 포함)
+        let courseList = self.courses
         if !courseList.isEmpty {
             var collected: [String: [GwaTopFileSummary]] = [:]
             await withTaskGroup(of: (String, [GwaTopFileSummary]?).self) { group in
