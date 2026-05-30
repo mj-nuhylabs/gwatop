@@ -277,12 +277,8 @@ struct GwaTopCalendarView: View {
     private var headerBar: some View {
         HStack(alignment: .center) {
             if selectedTopTab == .timetable {
-                HStack(spacing: 8) {
-                    Text("시간표")
-                        .font(.gwaTopSystem(size: 26, weight: .heavy))
-                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                    timetableSemesterMenu
-                }
+                // "시간표" 텍스트 대신, 학기 이름을 타이틀(26pt heavy)로 직접 노출 + 드롭다운.
+                timetableSemesterMenu
             } else {
                 Text(headerTitle)
                     .font(.gwaTopSystem(size: 26, weight: .heavy))
@@ -296,7 +292,8 @@ struct GwaTopCalendarView: View {
         .padding(.bottom, 6)
     }
 
-    /// "시간표" 옆 작은 학기 드롭다운 — 시간표 데이터(스케줄)가 있는 학기만 노출.
+    /// 시간표 탭 타이틀 = 현재 학기 이름(타이틀 크기·검은색) + 드롭다운 캐럿.
+    /// 탭하면 시간표 데이터(스케줄)가 있는 학기 목록이 아래로 펼쳐진다.
     @ViewBuilder
     private var timetableSemesterMenu: some View {
         let sems = timetableSemesters
@@ -316,18 +313,22 @@ struct GwaTopCalendarView: View {
                     }
                 }
             } label: {
-                HStack(spacing: 3) {
+                HStack(spacing: 6) {
                     Text(currentName)
-                        .font(.gwaTopSystem(size: 13, weight: .bold))
+                        .font(.gwaTopSystem(size: 26, weight: .heavy))
+                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
                         .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                     Image(systemName: "chevron.down")
-                        .font(.gwaTopSystem(size: 9, weight: .bold))
+                        .font(.gwaTopSystem(size: 16, weight: .bold))
+                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
                 }
-                .foregroundStyle(GwaTopHomeTheme.primary)
-                .padding(.horizontal, 10).padding(.vertical, 5)
-                .background(GwaTopHomeTheme.primary.opacity(0.10))
-                .clipShape(Capsule())
             }
+        } else {
+            // 시간표 데이터가 있는 학기가 없을 때의 폴백 타이틀.
+            Text("시간표")
+                .font(.gwaTopSystem(size: 26, weight: .heavy))
+                .foregroundStyle(GwaTopHomeTheme.textPrimary)
         }
     }
 

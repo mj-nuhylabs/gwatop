@@ -738,6 +738,16 @@ async def _run_classify(file_id: str, SessionLocal) -> None:
         file_row.status = "classifying"
         await session.commit()
 
+        # 요약 + 분석본을 '분류'와 병렬로 미리 시작한다.
+        # 둘 다 입력이 extracted_text 뿐이라 분류 결과를 기다릴 필요가 없다.
+        # 기존엔 분류 commit("classified") 이후에야 큐잉했는데, 그 시점이
+        # 리스트의 "준비 완료" 표시 시점과 같아서 → 사용자가 곧바로 파일에 들어가면
+        # 요약 row 가 아직 없어 상세 화면이 "처리 중"으로 깜빡였다.
+        # 분류와 병렬로 돌리면 "준비 완료"가 뜰 즈음 요약도 대부분 끝나 있다.
+        if file_row.extracted_text and file_row.extracted_text.strip():
+            generate_summary_task.delay(file_id)
+            analyze_file_task.delay(file_id)
+
         week_embeddings = deserialize_week_embeddings(
             course.weekly_topic_embeddings or []
         )
@@ -781,11 +791,10 @@ async def _run_classify(file_id: str, SessionLocal) -> None:
     # send_task 호출 (import 회피).
     celery_app.send_task("tasks.notify_classified", args=[file_id])
 
-    # 학습 탭 진입 전에 미리 요약 + 분석본을 만들어둔다.
-    # 분석본은 quiz/flashcard/mindmap/memorize/topics 의 공유 입력으로 재활용.
-    if file_row.extracted_text and file_row.extracted_text.strip():
-        generate_summary_task.delay(file_id)
-        analyze_file_task.delay(file_id)
+    # 요약 + 분석본 큐잉은 위쪽(status="classifying" 직후)으로 이동해
+    # 분류와 병렬로 돌린다. 분석본은 quiz/flashcard/mindmap/memorize/topics 의
+    # 공유 입력으로 재활용된다. generate_summary_task/analyze_file_task 는 내부에
+    # 중복 생성 가드가 있어 다른 경로에서 다시 호출돼도 안전하다.
 
 
 # ---------- Pipeline: summary generation ----------
