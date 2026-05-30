@@ -21,11 +21,8 @@
 	<key>GIDClientID</key>
 	<string>166115611136-d42e728kfojf7resv9um0fcpgeffo8lp.apps.googleusercontent.com</string>
 	<key>GwaTopAPIBaseURL</key>
-	<!--
-	  임시(2026-05-30): api.gwatop.com DNS/HTTPS 셋업 완료 전까지 EC2 호스트 직결.
-	  HTTPS 전환 완료 후 https://api.gwatop.com 로 복귀 + 아래 compute-1 ATS 예외 제거.
-	-->
-	<string>http://ec2-3-221-89-155.compute-1.amazonaws.com:8000</string>
+	<!-- 운영 API — Caddy(Let's Encrypt) HTTPS 종단 → localhost:8000 프록시. 도메인은 .co.kr (.com 아님). -->
+	<string>https://api.gwatop.co.kr</string>
 	<!-- Pretendard Variable — gwatop-web 와 동일한 한글+라틴 단일 가변 폰트 -->
 	<key>UIAppFonts</key>
 	<array>
@@ -48,18 +45,6 @@
 			<key>localhost</key>
 			<dict>
 				<key>NSExceptionAllowsInsecureHTTPLoads</key>
-				<true/>
-			</dict>
-			<!--
-			  임시(2026-05-30): EC2 Public DNS 직결용 cleartext HTTP 예외.
-			  compute-1.amazonaws.com = us-east-1 EC2 DNS suffix (서브도메인 포함).
-			  api.gwatop.com HTTPS 전환 완료 시 이 블록 통째로 제거.
-			-->
-			<key>compute-1.amazonaws.com</key>
-			<dict>
-				<key>NSExceptionAllowsInsecureHTTPLoads</key>
-				<true/>
-				<key>NSIncludesSubdomains</key>
 				<true/>
 			</dict>
 		</dict>
