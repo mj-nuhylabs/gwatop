@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - GwaTop 홈 화면
 // Google 로그인 후 전달받은 사용자 정보를 홈 화면과 설정 화면에서 사용합니다.
@@ -69,6 +70,10 @@ struct GwaTopHomeView: View {
     @State private var loadError: String? = nil
     /// 과목 카드 탭 시 표시할 상세 시트 대상.
     @State private var selectedSubject: GwaTopSubject? = nil
+    /// 무차별 업로드 — Files 앱 파일 선택기 표시 여부.
+    @State private var showingUploadImporter = false
+    /// 파일 읽기/선택 실패 메시지 (업로드 버튼 아래 표시).
+    @State private var uploadImportError: String? = nil
 
     /// 실 데이터 기반 과목 카드. 백엔드에 progress 컬럼이 없어서 이번 주 todo
     /// 완료율로 derive. 다음 일정은 upcomingTodos / nextEvent 에서 가장 빠른 것.
@@ -120,6 +125,7 @@ struct GwaTopHomeView: View {
                         topGreetingSection
                             .padding(.top, 18)
 
+                        uploadSection
                         todayTaskSection
                         subjectProgressSection
                     }
@@ -146,6 +152,15 @@ struct GwaTopHomeView: View {
                     onSaved: { Task { await load(force: true) } }
                 )
                 .presentationDetents([.medium, .large])
+            }
+            // 무차별 업로드 — 종류(강의계획서/강의자료)를 미리 묻지 않으므로 버튼 탭 시
+            // 곧장 파일 선택기를 띄운다. 선택 즉시 백그라운드 업로드가 시작되고 분류는 백엔드가.
+            .fileImporter(
+                isPresented: $showingUploadImporter,
+                allowedContentTypes: Self.uploadContentTypes,
+                allowsMultipleSelection: false
+            ) { result in
+                handleAutoFilePick(result)
             }
         }
     }
@@ -327,6 +342,109 @@ struct GwaTopHomeView: View {
                 }
                 .gwaTopCard(radius: 22)
             }
+        }
+    }
+
+    // MARK: - 무차별 파일 업로드 (강의계획서/강의자료 자동 구분)
+
+    /// 허용 파일 타입 — PDF / PPTX / DOCX. 강의계획서·강의자료 모두 이 형식이라
+    /// 한 진입점에서 받고, 종류 판정은 백엔드(_auto_dispatch)에 맡긴다.
+    private static let uploadContentTypes: [UTType] = {
+        var types: [UTType] = [.pdf]
+        if let pptx = UTType(filenameExtension: "pptx") { types.append(pptx) }
+        if let docx = UTType(filenameExtension: "docx") { types.append(docx) }
+        return types
+    }()
+
+    /// ToDo 위에 놓이는 업로드 진입점. 탭하면 파일 선택기를 띄우고, 진행 중 업로드가
+    /// 있으면 바로 아래에 진행 카드(GwaTopUploadProgressBanner)를 함께 보여준다.
+    private var uploadSection: some View {
+        VStack(spacing: 10) {
+            Button {
+                uploadImportError = nil
+                showingUploadImporter = true
+            } label: {
+                HStack(spacing: 14) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.white.opacity(0.18))
+                            .frame(width: 46, height: 46)
+                        Image(systemName: "arrow.up.doc.fill")
+                            .font(.gwaTopSystem(size: 20, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("파일 업로드")
+                            .font(.gwaTopSystem(size: 16, weight: .heavy))
+                            .foregroundStyle(.white)
+                        Text("강의계획서·강의자료 아무거나 올리면 AI가 자동으로 분류해요")
+                            .font(.gwaTopSystem(size: 12, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.92))
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    Image(systemName: "plus")
+                        .font(.gwaTopSystem(size: 15, weight: .heavy))
+                        .foregroundStyle(GwaTopHomeTheme.primary)
+                        .frame(width: 30, height: 30)
+                        .background(Color.white)
+                        .clipShape(Circle())
+                }
+                .padding(16)
+                .background(GwaTopHomeTheme.primaryGradient)
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            }
+            .buttonStyle(.plain)
+
+            // 진행 중 업로드가 있으면 버튼 바로 아래에 진행 상태 카드 표시.
+            GwaTopUploadProgressBanner()
+
+            if let uploadImportError {
+                Text(uploadImportError)
+                    .font(.gwaTopSystem(size: 12, weight: .semibold))
+                    .foregroundStyle(GwaTopHomeTheme.danger)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    /// 파일 선택 결과 처리 — 보안 스코프 진입 후 Data 로 읽어 전역 업로드 매니저에 위임.
+    private func handleAutoFilePick(_ result: Result<[URL], Error>) {
+        uploadImportError = nil
+        switch result {
+        case .failure(let error):
+            uploadImportError = "파일 선택에 실패했어요: \(error.localizedDescription)"
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+
+            let filename = url.lastPathComponent
+            let fileType = Self.inferUploadFileType(from: url)
+            do {
+                let data = try Data(contentsOf: url)
+                // 시트 없이 즉시 백그라운드 업로드 시작. 종류 구분은 백엔드가 한다.
+                GwaTopUploadProgress.shared.startAutoUpload(
+                    filename: filename, data: data, fileType: fileType,
+                )
+            } catch {
+                uploadImportError = "파일을 읽지 못했어요: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// 확장자 → 백엔드 file_type. 선택기가 PDF/PPTX/DOCX 로 제한하므로 그 외는 없음.
+    private static func inferUploadFileType(from url: URL) -> String {
+        switch url.pathExtension.lowercased() {
+        case "pdf":  return "pdf"
+        case "pptx": return "pptx"
+        case "docx": return "docx"
+        default:     return "other"
         }
     }
 

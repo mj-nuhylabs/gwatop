@@ -205,6 +205,58 @@ final class GwaTopUploadProgress: ObservableObject {
         }
         tasks[jobId] = task
     }
+
+    /// 무차별(auto) 업로드 — 강의계획서/강의자료를 구분하지 않고 아무 파일이나 올린다.
+    /// 종류 판정은 백엔드가 하므로 과목/타입을 미리 받지 않는다. 홈 화면 버튼에서 시트 없이
+    /// 바로 호출되며, 화면을 떠나도 이 singleton 에 묶여 백그라운드로 계속 진행된다.
+    func startAutoUpload(filename: String, data: Data, fileType: String) {
+        let jobId = begin(filename: filename)
+        updateProgress(id: jobId, progress: 0.15)
+
+        let task = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let fileId = try await GwaTopFileUploadService.shared.uploadAuto(
+                    filename: filename, data: data, fileType: fileType,
+                )
+                if Task.isCancelled { return }
+                self.updateProgress(id: jobId, progress: 1.0)
+                self.setPhase(id: jobId, phase: .processing)
+
+                // 백엔드: 텍스트 추출 → 종류 판정 → (syllabus) 파싱 / (material) 주차 분류.
+                // 두 경로 모두 terminal status 에 도달할 때까지 폴링한다 — parsed(syllabus),
+                // classified/unclassified(material), failed. waitForMaterialSettled 가 이
+                // "진행 중" 집합을 벗어나는 시점을 잡아준다.
+                let finalStatus = await GwaTopFileUploadService.shared
+                    .waitForMaterialSettled(fileId: fileId)
+                if Task.isCancelled { return }
+
+                // 어떤 종류로 판정됐든 모든 탭이 새로고침되도록 두 알림 모두 발행한다:
+                //  - .syllabusParseCompleted → GwaTopAppDataStore 가 과목/일정/할일/파일을
+                //    전부 재조회 (홈·캘린더가 구독) → 신규 과목·시험·과제가 즉시 반영.
+                //  - .materialUploadCompleted → 학습 탭이 과목별 파일 목록을 재조회.
+                NotificationCenter.default.post(
+                    name: .syllabusParseCompleted, object: nil,
+                    userInfo: ["file_id": fileId]
+                )
+                NotificationCenter.default.post(
+                    name: .materialUploadCompleted, object: nil,
+                    userInfo: ["file_id": fileId]
+                )
+
+                if finalStatus == "failed" {
+                    self.fail(id: jobId, message: "파일 분석에 실패했어요. 다시 시도해 주세요.")
+                } else {
+                    self.setPhase(id: jobId, phase: .done)
+                }
+            } catch {
+                if Task.isCancelled { return }
+                let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                self.fail(id: jobId, message: msg)
+            }
+        }
+        tasks[jobId] = task
+    }
 }
 
 // MARK: - 진행 카드 (학습/캘린더 탭 상단에 표시)

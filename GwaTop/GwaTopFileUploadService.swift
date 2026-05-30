@@ -144,6 +144,41 @@ actor GwaTopFileUploadService {
         return presigned.fileId
     }
 
+    /// 무차별(auto) 업로드 — 학기/과목/타입을 미리 지정하지 않고 아무 파일이나 올린다.
+    /// 백엔드가 텍스트를 추출해 강의계획서(→ 과목 매칭/생성 + 시험·과제 일정 자동 등록)인지
+    /// 강의자료(→ 과목 매칭/생성 + 주차 자동 분류)인지 스스로 판정하고, file.course_id 도
+    /// 백엔드가 채운다. (classification_source="auto_pending" 마커 → 워커의 _auto_dispatch)
+    /// - Returns: 업로드된 file_id (분류 진행 중인 동안엔 course_id 는 NULL)
+    func uploadAuto(
+        filename: String,
+        data: Data,
+        fileType: String
+    ) async throws -> String {
+        let req = GwaTopPresignedRequest(
+            filename: filename,
+            fileType: fileType,
+            fileSizeBytes: data.count,
+            isSyllabus: false  // 무의미 — 백엔드가 auto_pending 마커로 종류를 직접 판정한다.
+        )
+        let presigned: GwaTopPresignedResponse = try await GwaTopAPIClient.shared.post(
+            "/v1/files/auto/presigned-url",
+            body: req
+        )
+
+        let contentType = Self.contentType(for: fileType)
+        try await GwaTopAPIClient.shared.uploadPUT(
+            toAbsoluteURL: presigned.uploadUrl,
+            body: data,
+            contentType: contentType
+        )
+
+        let _: GwaTopFileConfirmResponse = try await GwaTopAPIClient.shared.postEmpty(
+            "/v1/files/auto/\(presigned.fileId)/confirm"
+        )
+
+        return presigned.fileId
+    }
+
     /// 파일 파싱 완료까지 폴링.
     /// - Returns: (성공 여부, 마지막 status, 에러 메시지, 최종 schedules_count)
     func waitForParseCompletion(
