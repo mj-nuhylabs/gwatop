@@ -170,7 +170,7 @@ enum GwaTopAPI {
         #if DEBUG
         return "http://localhost:8000"
         #else
-        return "https://api.gwatop.com"
+        return "https://api.gwatop.co.kr"
         #endif
     }()
 
