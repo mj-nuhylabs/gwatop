@@ -34,13 +34,34 @@ struct GwaTopAdminView: View {
     @State private var isLoading = false
     @State private var errorMessage: String? = nil
 
+    /// 설정에서 push 로 들어왔으므로 dismiss() 로 이전 화면(설정)으로 돌아간다.
+    @Environment(\.dismiss) private var dismiss
+
     var body: some View {
         NavigationStack {
             ZStack {
                 GwaTopHomeTheme.background.ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    GwaTopScreenHeader(title: "관리자") {
+                    // 커스텀 헤더 — 좌측 뒤로가기 + "관리자" + 우측 새로고침.
+                    // GwaTopScreenHeader 는 leading 슬롯이 없어 직접 구성. 자체 NavigationStack +
+                    // 네비바 숨김이라 시스템 back 버튼이 없으므로 명시적 뒤로가기 버튼 제공.
+                    HStack(alignment: .center) {
+                        Button {
+                            dismiss()
+                        } label: {
+                            Image(systemName: "chevron.left")
+                                .font(.gwaTopSystem(size: 17, weight: .bold))
+                                .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                                .frame(width: 38, height: 38)
+                                .background(GwaTopHomeTheme.surface)
+                                .clipShape(Circle())
+                        }
+                        Text("관리자")
+                            .font(.gwaTopSystem(size: 26, weight: .heavy))
+                            .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                            .padding(.leading, 4)
+                        Spacer()
                         Button {
                             Task { await reload() }
                         } label: {
@@ -52,6 +73,9 @@ struct GwaTopAdminView: View {
                                 .clipShape(Circle())
                         }
                     }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+                    .padding(.bottom, 6)
 
                     ScrollView {
                         VStack(spacing: 14) {

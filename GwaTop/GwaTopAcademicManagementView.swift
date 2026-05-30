@@ -15,6 +15,9 @@ struct GwaTopAcademicManagementView: View {
     @State private var courses: [GwaTopCourseDTO] = []
     @State private var isLoading: Bool = false
     @State private var errorMessage: String? = nil
+    // 학기 이름 변경용 — 대상 학기와 입력 텍스트.
+    @State private var renameTarget: GwaTopSemesterDTO? = nil
+    @State private var renameText: String = ""
 
     var body: some View {
         List {
@@ -52,6 +55,12 @@ struct GwaTopAcademicManagementView: View {
                         } label: { Label("삭제", systemImage: "trash") }
                     }
                     .swipeActions(edge: .leading) {
+                        Button {
+                            renameTarget = semester
+                            renameText = semester.name
+                        } label: { Label("이름변경", systemImage: "pencil") }
+                        .tint(GwaTopHomeTheme.primary)
+
                         if !semester.isActive {
                             Button {
                                 Task { await setActive(semester) }
@@ -77,6 +86,16 @@ struct GwaTopAcademicManagementView: View {
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await reload() }
         .task { await reload() }
+        .alert("학기 이름 변경", isPresented: Binding(
+            get: { renameTarget != nil },
+            set: { if !$0 { renameTarget = nil } }
+        )) {
+            TextField("학기 이름", text: $renameText)
+            Button("저장") { Task { await renameSemester() } }
+            Button("취소", role: .cancel) { renameTarget = nil }
+        } message: {
+            Text("새 학기 이름을 입력하세요.")
+        }
     }
 
     private func semesterRow(_ s: GwaTopSemesterDTO) -> some View {
@@ -128,6 +147,20 @@ struct GwaTopAcademicManagementView: View {
     private func deleteSemester(_ s: GwaTopSemesterDTO) async {
         do {
             try await GwaTopSemesterService.shared.delete(id: s.id)
+            await reload()
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func renameSemester() async {
+        guard let target = renameTarget else { return }
+        let newName = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        renameTarget = nil
+        guard !newName.isEmpty, newName != target.name else { return }
+        do {
+            _ = try await GwaTopSemesterService.shared.update(id: target.id, name: newName)
             await reload()
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription

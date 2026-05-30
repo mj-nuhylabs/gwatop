@@ -12,6 +12,13 @@ struct GwaTopTimetableView: View {
     let courses: [GwaTopCourseDTO]
     /// 시간표 블록을 탭했을 때 호출 — 부모가 정보/수정 시트를 띄움.
     var onSelectCourse: ((GwaTopCourseDTO) -> Void)? = nil
+    /// 겹침 해소 — 사용자가 둘 중 한 수업을 고르면 호출.
+    /// (keep: 남길 수업, removeFrom: 충돌 슬롯을 뺄 수업, day/slotStart/slotEnd: 뺄 슬롯)
+    var onResolveConflict: ((_ keep: GwaTopCourseDTO, _ removeFrom: GwaTopCourseDTO,
+                             _ day: String, _ slotStartMin: Int, _ slotEndMin: Int) -> Void)? = nil
+
+    /// 겹침 해소 확인 다이얼로그용 대기 상태.
+    @State private var pendingResolution: PendingResolution? = nil
 
     private let dayOrder: [String] = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
     private let dayLabel: [String: String] = [
@@ -28,20 +35,177 @@ struct GwaTopTimetableView: View {
         let blocks = computeBlocks()
         let days = displayDays(from: blocks)
         let (startHour, endHour) = displayRange(from: blocks)
+        let (conflicts, conflictKeys) = Self.computeConflicts(blocks)
 
         VStack(spacing: 12) {
             // 시간표 추가 버튼은 캘린더 탭 공용 FAB 으로 통합됨 — 인라인 버튼 제거.
+
+            if !conflicts.isEmpty {
+                conflictBanner(conflicts)
+            }
 
             if blocks.isEmpty {
                 emptyState
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
-                    grid(blocks: blocks, days: days, startHour: startHour, endHour: endHour)
+                    grid(blocks: blocks, days: days, startHour: startHour, endHour: endHour,
+                         conflictKeys: conflictKeys)
                 }
                 .padding(.horizontal, 2)
             }
             legend
         }
+    }
+
+    // MARK: - 시간 겹침 알림
+
+    /// 겹치는 수업 쌍마다 "어떤 수업을 둘까요?" — 두 수업을 선택지로 보여준다.
+    /// 한쪽을 고르면 그 수업만 시간표에 남고, 다른 수업의 충돌 슬롯은 제거된다.
+    private func conflictBanner(_ conflicts: [TimetableConflict]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                Text("시간이 겹치는 수업이 \(conflicts.count)개 있어요")
+                    .font(.gwaTopSystem(size: 14, weight: .heavy))
+            }
+            .foregroundStyle(GwaTopHomeTheme.danger)
+
+            ForEach(conflicts) { c in
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("\(dayLabel[c.day] ?? c.day)요일 \(Self.hhmm(c.overlapStartMin))–\(Self.hhmm(c.overlapEndMin)) 겹침 · 둘 수업을 골라주세요")
+                        .font(.gwaTopSystem(size: 11, weight: .semibold))
+                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                    HStack(spacing: 8) {
+                        // 왼쪽 수업 선택 → 오른쪽(courseB) 슬롯 제거
+                        conflictChoice(
+                            course: c.courseA,
+                            startMin: c.aStartMin, endMin: c.aEndMin
+                        ) {
+                            pendingResolution = PendingResolution(
+                                keep: c.courseA, removeFrom: c.courseB,
+                                day: c.day, slotStartMin: c.bStartMin, slotEndMin: c.bEndMin
+                            )
+                        }
+                        // 오른쪽 수업 선택 → 왼쪽(courseA) 슬롯 제거
+                        conflictChoice(
+                            course: c.courseB,
+                            startMin: c.bStartMin, endMin: c.bEndMin
+                        ) {
+                            pendingResolution = PendingResolution(
+                                keep: c.courseB, removeFrom: c.courseA,
+                                day: c.day, slotStartMin: c.aStartMin, slotEndMin: c.aEndMin
+                            )
+                        }
+                    }
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(GwaTopHomeTheme.danger.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(GwaTopHomeTheme.danger.opacity(0.25), lineWidth: 1)
+        )
+        .confirmationDialog(
+            "이 수업만 시간표에 둘까요?",
+            isPresented: Binding(
+                get: { pendingResolution != nil },
+                set: { if !$0 { pendingResolution = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingResolution
+        ) { p in
+            Button("‘\(p.keep.name)’ 두기 (‘\(p.removeFrom.name)’ 이 시간 제거)", role: .destructive) {
+                onResolveConflict?(p.keep, p.removeFrom, p.day, p.slotStartMin, p.slotEndMin)
+                pendingResolution = nil
+            }
+            Button("취소", role: .cancel) { pendingResolution = nil }
+        } message: { p in
+            Text("‘\(p.removeFrom.name)’ 의 \(dayLabel[p.day] ?? p.day)요일 \(Self.hhmm(p.slotStartMin))–\(Self.hhmm(p.slotEndMin)) 수업이 시간표에서 빠집니다. (과목 자체는 유지)")
+        }
+    }
+
+    /// 겹침 선택지 1개 — 과목 색 점 + 이름 + 시간. 탭하면 onTap.
+    private func conflictChoice(
+        course: GwaTopCourseDTO, startMin: Int, endMin: Int, onTap: @escaping () -> Void
+    ) -> some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(course.color.map(Color.gwaTopHex) ?? GwaTopHomeTheme.primary)
+                        .frame(width: 8, height: 8)
+                    Text(course.name)
+                        .font(.gwaTopSystem(size: 12, weight: .bold))
+                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                        .lineLimit(1)
+                }
+                Text("\(Self.hhmm(startMin))–\(Self.hhmm(endMin))")
+                    .font(.gwaTopSystem(size: 10, weight: .medium))
+                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(GwaTopHomeTheme.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(GwaTopHomeTheme.line, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// 같은 요일에 시간이 겹치는 (서로 다른 과목) 블록 쌍을 찾는다.
+    /// 반환: (겹침 목록, 겹친 블록 식별키 집합) — 키는 그리드에서 빨간 테두리 칠하는 데 사용.
+    private static func computeConflicts(
+        _ blocks: [TimetableBlock]
+    ) -> (conflicts: [TimetableConflict], keys: Set<String>) {
+        var conflicts: [TimetableConflict] = []
+        var keys: Set<String> = []
+        let byDay = Dictionary(grouping: blocks, by: { $0.day })
+        for (day, dayBlocks) in byDay {
+            guard dayBlocks.count >= 2 else { continue }
+            for i in 0..<dayBlocks.count {
+                for j in (i + 1)..<dayBlocks.count {
+                    let a = dayBlocks[i], b = dayBlocks[j]
+                    // 같은 과목의 여러 슬롯끼리는 겹쳐도 정상 — 스킵.
+                    if a.course.id == b.course.id { continue }
+                    let overlapStart = max(a.startMin, b.startMin)
+                    let overlapEnd = min(a.endMin, b.endMin)
+                    if overlapStart < overlapEnd {
+                        conflicts.append(TimetableConflict(
+                            courseA: a.course, aStartMin: a.startMin, aEndMin: a.endMin,
+                            courseB: b.course, bStartMin: b.startMin, bEndMin: b.endMin,
+                            day: day,
+                            overlapStartMin: overlapStart, overlapEndMin: overlapEnd
+                        ))
+                        keys.insert(blockKey(a))
+                        keys.insert(blockKey(b))
+                    }
+                }
+            }
+        }
+        // 보기 좋게 요일·시작 순으로 정렬.
+        let order = ["MON": 0, "TUE": 1, "WED": 2, "THU": 3, "FRI": 4, "SAT": 5, "SUN": 6]
+        conflicts.sort {
+            (order[$0.day] ?? 9, $0.overlapStartMin) < (order[$1.day] ?? 9, $1.overlapStartMin)
+        }
+        return (conflicts, keys)
+    }
+
+    private static func blockKey(_ b: TimetableBlock) -> String {
+        "\(b.course.id)|\(b.day)|\(b.startMin)|\(b.endMin)"
+    }
+
+    private static func hhmm(_ minutes: Int) -> String {
+        String(format: "%02d:%02d", minutes / 60, minutes % 60)
     }
 
     // MARK: - Grid
@@ -50,7 +214,8 @@ struct GwaTopTimetableView: View {
         blocks: [TimetableBlock],
         days: [String],
         startHour: Int,
-        endHour: Int
+        endHour: Int,
+        conflictKeys: Set<String>
     ) -> some View {
         let hours = endHour - startHour
         let totalHeight = CGFloat(hours) * hourHeight
@@ -80,7 +245,8 @@ struct GwaTopTimetableView: View {
                     day: day,
                     blocks: blocks.filter { $0.day == day },
                     startHour: startHour,
-                    totalHeight: totalHeight
+                    totalHeight: totalHeight,
+                    conflictKeys: conflictKeys
                 )
             }
         }
@@ -91,7 +257,8 @@ struct GwaTopTimetableView: View {
         day: String,
         blocks: [TimetableBlock],
         startHour: Int,
-        totalHeight: CGFloat
+        totalHeight: CGFloat,
+        conflictKeys: Set<String>
     ) -> some View {
         VStack(spacing: 0) {
             Text(dayLabel[day] ?? day)
@@ -117,7 +284,7 @@ struct GwaTopTimetableView: View {
                 ForEach(blocks) { block in
                     let y = CGFloat(block.startMin - startHour * 60) * (hourHeight / 60)
                     let h = max(CGFloat(block.endMin - block.startMin) * (hourHeight / 60), 20)
-                    courseBlock(block)
+                    courseBlock(block, isConflicting: conflictKeys.contains(Self.blockKey(block)))
                         .frame(maxWidth: .infinity)
                         .frame(height: h)
                         .offset(y: y)
@@ -134,7 +301,7 @@ struct GwaTopTimetableView: View {
         )
     }
 
-    private func courseBlock(_ block: TimetableBlock) -> some View {
+    private func courseBlock(_ block: TimetableBlock, isConflicting: Bool = false) -> some View {
         let color = block.course.color.map(Color.gwaTopHex) ?? GwaTopHomeTheme.primary
         // 슬롯(요일)별 강의실 우선, 없으면 과목 전체 강의실로 폴백.
         let slotRoom = block.location?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -172,6 +339,22 @@ struct GwaTopTimetableView: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(color.opacity(0.92))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        // 시간이 겹치는 블록은 빨간 테두리 + 경고 아이콘으로 즉시 눈에 띄게.
+        .overlay(alignment: .topTrailing) {
+            if isConflicting {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.gwaTopSystem(size: 9, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(3)
+                    .background(GwaTopHomeTheme.danger)
+                    .clipShape(Circle())
+                    .offset(x: 3, y: -3)
+            }
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(isConflicting ? GwaTopHomeTheme.danger : .clear, lineWidth: 2)
+        )
 
         // 탭 콜백이 있으면 버튼으로 감싸 클릭 가능. 없으면 그냥 표시 (이전 동작 유지).
         return Group {
@@ -298,6 +481,31 @@ private struct TimetableBlock: Identifiable {
     let endMin: Int
     /// 이 슬롯(요일)의 강의실. 비어 있으면 표시 시 course.location 으로 폴백.
     let location: String?
+}
+
+/// 같은 요일에 시간이 겹치는 두 과목 — 경고 배너에 한 줄씩 표시.
+/// 각 과목의 충돌 슬롯 시간을 따로 들고 있어, 사용자가 한쪽을 고르면 다른 쪽 슬롯을 제거한다.
+private struct TimetableConflict: Identifiable {
+    let id = UUID()
+    let courseA: GwaTopCourseDTO
+    let aStartMin: Int
+    let aEndMin: Int
+    let courseB: GwaTopCourseDTO
+    let bStartMin: Int
+    let bEndMin: Int
+    let day: String
+    let overlapStartMin: Int
+    let overlapEndMin: Int
+}
+
+/// 겹침 해소 확인 대기 — "removeFrom 의 day slot 을 뺄까요?" 다이얼로그에 쓰임.
+private struct PendingResolution: Identifiable {
+    let id = UUID()
+    let keep: GwaTopCourseDTO
+    let removeFrom: GwaTopCourseDTO
+    let day: String
+    let slotStartMin: Int
+    let slotEndMin: Int
 }
 
 // MARK: - 간단한 FlowHStack (Legend 줄바꿈)
