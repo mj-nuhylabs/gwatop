@@ -160,7 +160,7 @@ struct GwaTopSyllabusUploadSheet: View {
                         .font(.gwaTopSystem(size: 14, weight: .heavy))
                         .foregroundStyle(GwaTopHomeTheme.textPrimary)
                     Text(semesters.isEmpty
-                         ? "먼저 학기를 등록해 주세요. (강의계획서 자동 매칭은 학기가 1개 이상 있어야 동작합니다.)"
+                         ? "학기를 따로 등록하지 않아도 돼요. 그대로 업로드하면 AI가 강의계획서를 분석해 학기와 과목을 자동으로 만들어 줍니다."
                          : "그대로 업로드하면 AI가 새 과목을 자동 생성합니다.")
                         .font(.gwaTopSystem(size: 12, weight: .medium))
                         .foregroundStyle(GwaTopHomeTheme.textSecondary)

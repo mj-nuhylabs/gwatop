@@ -11,11 +11,13 @@ from __future__ import annotations
 import logging
 import random
 import re
+from datetime import date
 from typing import Iterable
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import kst_now_naive
 from app.models.course import Course
 from app.models.semester import Semester
 from app.models.user import User
@@ -108,6 +110,33 @@ def _fuzzy_score(target: str, candidate: str) -> float:
 _FUZZY_THRESHOLD = 0.70
 
 
+def _build_default_semester(user_id) -> Semester:
+    """오늘(KST) 날짜로 기본 학기를 만든다. 강의계획서를 학기 미선택으로 올렸는데
+    등록된 학기가 0개일 때, 사용자가 따로 학기를 만들 필요 없이 자동 생성하기 위함.
+
+    월 기준 학기 구분 (iOS defaultSemesterName 과 동일):
+      3~6월  → N-1학기   / 9~12월 → N-2학기
+      7~8월  → 여름 계절학기 / 1~2월  → 겨울 계절학기
+    """
+    today = kst_now_naive().date()
+    y, m = today.year, today.month
+    if 3 <= m <= 6:
+        name, start, end = f"{y}-1학기", date(y, 3, 1), date(y, 6, 30)
+    elif 9 <= m <= 12:
+        name, start, end = f"{y}-2학기", date(y, 9, 1), date(y, 12, 31)
+    elif 7 <= m <= 8:
+        name, start, end = f"{y} 여름 계절학기", date(y, 7, 1), date(y, 8, 31)
+    else:  # 1~2월
+        name, start, end = f"{y} 겨울 계절학기", date(y, 1, 1), date(y, 2, 28)
+    return Semester(
+        user_id=user_id,
+        name=name,
+        start_date=start,
+        end_date=end,
+        is_active=True,
+    )
+
+
 async def _pick_target_semester(db: AsyncSession, user: User) -> Semester:
     # 1) active
     active = (
@@ -133,9 +162,15 @@ async def _pick_target_semester(db: AsyncSession, user: User) -> Semester:
     if recent:
         return recent
 
-    raise CourseMatchError(
-        "등록된 학기가 없어 강의계획서를 자동 배정할 수 없습니다. 먼저 학기를 추가해 주세요."
+    # 3) 학기 0개 — 예전엔 여기서 에러를 던져 업로드가 실패했다.
+    #    이제는 오늘 날짜 기준 학기를 자동 생성해서 사용자가 학기를 먼저 만들 필요가 없게 한다.
+    logger.info(
+        "등록 학기 0개 — 강의계획서 자동 배정 위해 기본 학기 자동 생성 user=%s", user.id
     )
+    sem = _build_default_semester(user.id)
+    db.add(sem)
+    await db.flush()  # 이후 course 생성에 semester.id 필요 → flush 로 PK 확보
+    return sem
 
 
 def _pick_color(existing_colors: Iterable[str | None]) -> str:

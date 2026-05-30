@@ -27,6 +27,8 @@ struct GwaTopCalendarView: View {
     @State private var showingCreateSheet: Bool = false
     @State private var editingEvent: GwaTopCalendarEvent? = nil
     @State private var selectedTopTab: TopTab = .calendar
+    // 시간표에서 보고 있는 학기. nil 이면 활성 학기(없으면 첫 학기) 자동 선택.
+    @State private var timetableSemesterId: String? = nil
     // 시간표 시트 상태 — 탭 시 선택된 과목, + 버튼 시 추가 시트 노출.
     @State private var timetableEditingCourse: GwaTopCourseDTO? = nil
     @State private var showingTimetableAddSheet: Bool = false
@@ -384,12 +386,68 @@ struct GwaTopCalendarView: View {
                 errorBanner(message: msg)
             }
 
+            timetableSemesterPicker
+
             GwaTopTimetableView(
-                courses: courses,
+                courses: timetableFilteredCourses,
                 onSelectCourse: { course in
                     timetableEditingCourse = course
                 }
             )
+        }
+    }
+
+    /// 시간표에서 선택 가능한 학기 목록 (스플래시 캐시).
+    private var timetableSemesters: [GwaTopSemesterDTO] {
+        GwaTopAppDataStore.shared.semesters
+    }
+
+    /// 실제로 보여줄 학기 id — 사용자가 고른 것 > 활성 학기 > 첫 학기.
+    private var effectiveTimetableSemesterId: String? {
+        timetableSemesterId
+            ?? timetableSemesters.first(where: { $0.isActive })?.id
+            ?? timetableSemesters.first?.id
+    }
+
+    /// 선택 학기의 과목만. 학기 정보가 아예 없으면 전체 표시 (폴백).
+    private var timetableFilteredCourses: [GwaTopCourseDTO] {
+        guard let sid = effectiveTimetableSemesterId else { return courses }
+        return courses.filter { $0.semesterId == sid }
+    }
+
+    /// 학기 2개 이상일 때만 학기 선택 드롭다운 노출 — 1개 이하면 고를 게 없으니 숨김.
+    @ViewBuilder
+    private var timetableSemesterPicker: some View {
+        let sems = timetableSemesters
+        if sems.count >= 2 {
+            let currentName = sems.first(where: { $0.id == effectiveTimetableSemesterId })?.name ?? "학기 선택"
+            Menu {
+                ForEach(sems) { s in
+                    Button {
+                        timetableSemesterId = s.id
+                    } label: {
+                        if s.id == effectiveTimetableSemesterId {
+                            Label(s.name, systemImage: "checkmark")
+                        } else {
+                            Text(s.name)
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "calendar")
+                        .font(.gwaTopSystem(size: 13, weight: .bold))
+                    Text(currentName)
+                        .font(.gwaTopSystem(size: 14, weight: .bold))
+                    Image(systemName: "chevron.down")
+                        .font(.gwaTopSystem(size: 11, weight: .bold))
+                    Spacer()
+                }
+                .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .background(GwaTopHomeTheme.surface)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
         }
     }
 

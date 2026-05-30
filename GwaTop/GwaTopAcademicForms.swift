@@ -10,11 +10,68 @@ import SwiftUI
 
 // MARK: - 학기 폼 (push view 형태)
 
+/// 학기 종류 — 정규학기(1·2학기) + 계절학기(여름·겨울).
+/// 선택하면 연도와 함께 이름·기간을 자동으로 채운다 (사용자가 아래에서 수정 가능).
+enum GwaTopSemesterTerm: String, CaseIterable, Identifiable {
+    case spring, summer, fall, winter
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .spring: return "1학기"
+        case .summer: return "여름"
+        case .fall:   return "2학기"
+        case .winter: return "겨울"
+        }
+    }
+    func name(year: Int) -> String {
+        switch self {
+        case .spring: return "\(year)-1학기"
+        case .fall:   return "\(year)-2학기"
+        case .summer: return "\(year) 여름 계절학기"
+        case .winter: return "\(year) 겨울 계절학기"
+        }
+    }
+    private var startMD: (Int, Int) {
+        switch self {
+        case .spring: return (3, 1)
+        case .summer: return (7, 1)
+        case .fall:   return (9, 1)
+        case .winter: return (1, 1)
+        }
+    }
+    private var endMD: (Int, Int) {
+        switch self {
+        case .spring: return (6, 30)
+        case .summer: return (8, 31)
+        case .fall:   return (12, 31)
+        case .winter: return (2, 28)
+        }
+    }
+    func startDate(year: Int) -> Date { Self.makeDate(year, startMD.0, startMD.1) }
+    func endDate(year: Int) -> Date { Self.makeDate(year, endMD.0, endMD.1) }
+
+    private static func makeDate(_ y: Int, _ m: Int, _ d: Int) -> Date {
+        var c = DateComponents(); c.year = y; c.month = m; c.day = d
+        return Calendar.current.date(from: c) ?? Date()
+    }
+    /// 오늘 월 기준 기본 학기 종류.
+    static var current: GwaTopSemesterTerm {
+        switch Calendar.current.component(.month, from: Date()) {
+        case 3...6:  return .spring
+        case 9...12: return .fall
+        case 7...8:  return .summer
+        default:     return .winter
+        }
+    }
+}
+
 struct GwaTopNewSemesterFormView: View {
     var onCreated: (GwaTopSemesterDTO) -> Void
 
     @Environment(\.dismiss) private var dismiss
 
+    @State private var term: GwaTopSemesterTerm = .current
+    @State private var year: Int = Calendar.current.component(.year, from: Date())
     @State private var name: String = defaultSemesterName()
     @State private var startDate: Date = defaultStartDate()
     @State private var endDate: Date = defaultEndDate()
@@ -23,8 +80,27 @@ struct GwaTopNewSemesterFormView: View {
     @State private var isSubmitting: Bool = false
     @State private var errorMessage: String? = nil
 
+    /// 선택 가능한 연도 — 작년 ~ 내후년.
+    private var yearOptions: [Int] {
+        let y = Calendar.current.component(.year, from: Date())
+        return [y - 1, y, y + 1, y + 2]
+    }
+
     var body: some View {
         Form {
+            Section("학기 종류") {
+                Picker("학기", selection: $term) {
+                    ForEach(GwaTopSemesterTerm.allCases) { t in
+                        Text(t.label).tag(t)
+                    }
+                }
+                .pickerStyle(.segmented)
+                Picker("연도", selection: $year) {
+                    ForEach(yearOptions, id: \.self) { y in
+                        Text("\(y)년").tag(y)
+                    }
+                }
+            }
             Section("이름") {
                 TextField("예: 2026-1학기", text: $name)
             }
@@ -58,6 +134,15 @@ struct GwaTopNewSemesterFormView: View {
         }
         .navigationTitle("새 학기")
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: term) { _, _ in applyTermPreset() }
+        .onChange(of: year) { _, _ in applyTermPreset() }
+    }
+
+    /// 학기 종류·연도 선택을 이름/기간에 반영. 사용자가 그 뒤 직접 수정 가능.
+    private func applyTermPreset() {
+        name = term.name(year: year)
+        startDate = term.startDate(year: year)
+        endDate = term.endDate(year: year)
     }
 
     private var canSubmit: Bool {
