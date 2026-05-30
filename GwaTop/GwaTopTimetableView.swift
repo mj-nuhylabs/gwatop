@@ -208,6 +208,25 @@ struct GwaTopTimetableView: View {
         String(format: "%02d:%02d", minutes / 60, minutes % 60)
     }
 
+    /// 강의실 줄바꿈용 — 문자 뒤에 숫자가 붙으면 그 사이에 보이지 않는 줄바꿈 기회(U+200B)를
+    /// 넣어, 좁은 칸에서 길면 "공학관306호" → "공학관" / "306호" 처럼 자연스럽게 끊기게 한다.
+    /// (띄어쓰기가 있으면 거기서도 끊긴다.)
+    private static func wrappableRoom(_ s: String) -> String {
+        let chars = Array(s)
+        var out = ""
+        out.reserveCapacity(chars.count + 4)
+        for (i, ch) in chars.enumerated() {
+            if i > 0 {
+                let prev = chars[i - 1]
+                if ch.isNumber, !prev.isNumber, !prev.isWhitespace {
+                    out.append("\u{200B}")  // zero-width space: 줄바꿈 기회만 제공
+                }
+            }
+            out.append(ch)
+        }
+        return out
+    }
+
     // MARK: - Grid
 
     private func grid(
@@ -310,7 +329,7 @@ struct GwaTopTimetableView: View {
             : slotRoom
         let content = VStack(alignment: .leading, spacing: 2) {
             Text(block.course.name)
-                .font(.gwaTopSystem(size: 11, weight: .bold))
+                .font(.gwaTopSystem(size: 13, weight: .heavy))
                 .foregroundStyle(.white)
                 .lineLimit(2)
                 .minimumScaleFactor(0.8)
@@ -323,15 +342,14 @@ struct GwaTopTimetableView: View {
             // 강의실 — 블록 하단. 핀 아이콘 + 텍스트로 시각적으로 한 줄에 압축.
             // 짧은 블록(30분짜리)에선 Spacer 가 먼저 collapse 되고 location 만 남음.
             if !location.isEmpty {
-                HStack(spacing: 2) {
-                    Image(systemName: "mappin.circle.fill")
-                        .font(.gwaTopSystem(size: 8, weight: .bold))
-                    Text(location)
-                        .font(.gwaTopSystem(size: 9, weight: .medium))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .foregroundStyle(.white.opacity(0.9))
+                // 아이콘 없이 강의실 텍스트만. 좁은 칸에서 잘리지 않게 줄바꿈하되,
+                // 띄어쓰기 / 문자→숫자 경계에서 끊겨 "공학관" 다음 줄 "306호" 처럼 나뉜다.
+                Text(Self.wrappableRoom(location))
+                    .font(.gwaTopSystem(size: 10, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(nil)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
