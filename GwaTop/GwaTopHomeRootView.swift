@@ -216,17 +216,7 @@ struct GwaTopHomeView: View {
     }
 
     private var topGreetingSection: some View {
-        // 오늘 할 일 = upcomingTodos 중 오늘 마감인 것. done/total 모두 카운트.
-        let todayTodos = (dashboard?.upcomingTodos ?? []).filter {
-            Calendar.current.isDateInToday($0.dueDate)
-        }
-        let todayTotal = todayTodos.count
-        let todayDone = todayTodos.filter(\.isDone).count
-        let todayRemaining = max(0, todayTotal - todayDone)
-        let todayRate = todayTotal == 0 ? 0 : Double(todayDone) / Double(todayTotal)
-        let todayPercent = Int((todayRate * 100).rounded())
-
-        return VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(currentDateText)
                     .font(.gwaTopSystem(size: 14, weight: .semibold))
@@ -238,39 +228,11 @@ struct GwaTopHomeView: View {
                     .lineSpacing(2)
             }
 
-            // 오늘 할 일 요약 — 카드 없이 플랫. 좌측 텍스트 + 우측 퍼센트 + 하단 thin progress.
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    (
-                        Text("오늘 할 일 ")
-                            .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                        + Text("\(todayRemaining)")
-                            .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                            .fontWeight(.heavy)
-                        + Text("개 남았어요")
-                            .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                    )
-                    .font(.gwaTopSystem(size: 15, weight: .semibold))
-
-                    Spacer(minLength: 8)
-
-                    Text("\(todayPercent)%")
-                        .font(.gwaTopSystem(size: 15, weight: .heavy).monospacedDigit())
-                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                }
-
-                GeometryReader { proxy in
-                    ZStack(alignment: .leading) {
-                        Capsule()
-                            .fill(GwaTopHomeTheme.surfaceMute)
-                        Capsule()
-                            .fill(GwaTopHomeTheme.primary)
-                            .frame(width: max(0, proxy.size.width * todayRate))
-                            .animation(.easeOut(duration: 0.35), value: todayRate)
-                    }
-                }
+            // 인사말 아래 얇은 구분선 — 데이터와 무관한 순수 디자인 요소.
+            // (기존 '오늘 할 일' 진행바를 제거하고 그 트랙 톤만 선으로 남김.)
+            Capsule()
+                .fill(GwaTopHomeTheme.surfaceMute)
                 .frame(height: 4)
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
