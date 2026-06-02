@@ -130,61 +130,64 @@ struct GwaTopAssignmentsView: View {
             .buttonStyle(.plain)
 
             if !isCollapsed {
-                // 같은 카드 안에서 헤더 → 헤어라인 → 과제 행 순으로 쌓는다.
-                // 각 행 앞에 인셋 구분선을 둬 헤더/행, 행/행 사이를 분리.
+                // 같은 카드 안에서 헤더 → 헤어라인 → 과제 행 순으로 쌓는다 (애플 그룹 리스트 스타일).
                 VStack(spacing: 0) {
                     ForEach(group.assignments) { assignment in
                         Divider()
                             .background(GwaTopHomeTheme.line)
-                            .padding(.horizontal, 16)
+                            .padding(.leading, 16)
 
                         GwaTopAssignmentRow(
                             assignment: assignment,
                             onToggle: { toggleAssignment(assignment) }
                         )
-                        .padding(16)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
                     }
                 }
                 // 슬라이드 in/out 제거 → 자연스러운 fade. 위에서 떨어지는 듯한 튕김 현상 해소.
                 .transition(.opacity)
             }
         }
-        .gwaTopCard(radius: 24, lineColor: group.course.color.opacity(0.18), lineWidth: 1)
+        // 홈 카드와 동일한 플랫 스타일 — 그림자/테두리 없음(코랄 테두리 제거해 미니멀 통일).
+        .gwaTopCard(radius: 18)
     }
 
     private func courseGroupHeader(_ group: GwaTopAssignmentCourseGroup, isCollapsed: Bool) -> some View {
         let activeCount = group.assignments.filter { !$0.isCompleted }.count
-        let total = group.assignments.count
         return HStack(spacing: 12) {
-            Image(systemName: group.course.iconName)
-                .font(.gwaTopSystem(size: 16, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 38, height: 38)
-                .background(group.course.color)
-                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+            // 홈 "내 과목" 카드와 동일한 톤다운 아이콘 타일 — 컬러 채움 대신 13% 틴트.
+            ZStack {
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .fill(group.course.color.opacity(0.13))
+                    .frame(width: 42, height: 42)
+                Image(systemName: group.course.iconName)
+                    .font(.gwaTopSystem(size: 17, weight: .bold))
+                    .foregroundStyle(group.course.color)
+            }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(group.course.name)
-                    .font(.gwaTopSystem(size: 16, weight: .heavy))
+                    .font(.gwaTopSystem(size: 16, weight: .bold))
                     .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                Text(activeCount > 0 ? "남은 과제 \(activeCount)개" : "모두 완료 ✓")
-                    .font(.gwaTopSystem(size: 12, weight: .semibold))
+                    .lineLimit(1)
+                Text(activeCount > 0 ? "남은 과제 \(activeCount)개" : "모두 완료")
+                    .font(.gwaTopSystem(size: 12, weight: .medium))
                     .foregroundStyle(activeCount > 0 ? GwaTopHomeTheme.textSecondary : GwaTopHomeTheme.success)
             }
 
             Spacer()
 
-            Text("\(total)")
-                .font(.system(size: 13, weight: .heavy, design: .rounded))
-                .foregroundStyle(group.course.color)
-                .frame(minWidth: 26, minHeight: 26)
-                .padding(.horizontal, 8)
-                .background(group.course.color.opacity(0.12))
-                .clipShape(Capsule())
+            // 컬러 캡슐 배지 제거 → 홈 진행률 % 처럼 단정한 컬러 숫자만.
+            if activeCount > 0 {
+                Text("\(activeCount)")
+                    .font(.system(size: 15, weight: .heavy, design: .rounded))
+                    .foregroundStyle(group.course.color)
+            }
 
             Image(systemName: "chevron.down")
-                .font(.gwaTopSystem(size: 12, weight: .bold))
-                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                .font(.gwaTopSystem(size: 12, weight: .semibold))
+                .foregroundStyle(GwaTopHomeTheme.textTertiary)
                 .rotationEffect(.degrees(isCollapsed ? -90 : 0))
         }
         .padding(.horizontal, 16)
@@ -395,90 +398,58 @@ private enum GwaTopAssignmentFilter: String, CaseIterable, Identifiable {
     }
 }
 
-/// 과목 그룹 카드 안에 들어가는 과제 한 줄. 자체 카드 chrome 없이 행(row) 으로만 동작한다.
-/// (과목명 배지는 카드 헤더와 중복이라 제거 — 우선순위 배지만 남김.)
+/// 과목 그룹 카드 안에 들어가는 과제 한 줄. 자체 카드 chrome 없이 행(row) 으로만 동작.
+/// 홈 `GwaTopTodayTaskRow` 와 동일한 미니멀 언어 — 알약/배지 없이 작은 체크박스 +
+/// 제목 + 단정한 회색 메타 한 줄 + 우측 plain 컬러 D-Day 텍스트.
 private struct GwaTopAssignmentRow: View {
     let assignment: GwaTopAssignment
     let onToggle: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 13) {
-                Button(action: onToggle) {
-                    ZStack {
-                        Circle()
-                            .fill(assignment.isCompleted ? GwaTopHomeTheme.success : assignment.course.color.opacity(0.12))
-                            .frame(width: 40, height: 40)
-
-                        Image(systemName: assignment.isCompleted ? "checkmark" : "circle")
-                            .font(.gwaTopSystem(size: 15, weight: .bold))
-                            .foregroundStyle(assignment.isCompleted ? .white : assignment.course.color)
-                    }
+        HStack(alignment: .top, spacing: 12) {
+            // 미니멀 체크박스 — 빨강(우선순위색) 대신 차분한 과목색 얇은 링 / 완료: success 채움.
+            Button(action: onToggle) {
+                ZStack {
+                    Circle()
+                        .strokeBorder(assignment.course.color.opacity(0.5), lineWidth: 1.6)
+                        .opacity(assignment.isCompleted ? 0 : 1)
+                    Circle()
+                        .fill(GwaTopHomeTheme.success)
+                        .opacity(assignment.isCompleted ? 1 : 0)
+                    Image(systemName: "checkmark")
+                        .font(.gwaTopSystem(size: 11, weight: .bold))
+                        .foregroundStyle(.white)
+                        .opacity(assignment.isCompleted ? 1 : 0)
                 }
-                .buttonStyle(.plain)
+                .frame(width: 22, height: 22)
+                .frame(width: 32, height: 32)        // 넉넉한 탭 영역
+                .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, -5)                        // 제목 첫 줄 중심과 정렬
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(assignment.priority.displayTitle)
-                        .font(.gwaTopSystem(size: 12, weight: .bold))
-                        .foregroundStyle(assignment.priority.color)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 5)
-                        .background(assignment.priority.color.opacity(0.10))
-                        .clipShape(Capsule())
+            VStack(alignment: .leading, spacing: 3) {
+                Text(assignment.title)
+                    .font(.gwaTopSystem(size: 15, weight: .semibold))
+                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                    .strikethrough(assignment.isCompleted, color: GwaTopHomeTheme.textSecondary)
+                    .opacity(assignment.isCompleted ? 0.55 : 1)
+                    .lineLimit(2)
 
-                    Text(assignment.title)
-                        .font(.gwaTopSystem(size: 16, weight: .heavy))
-                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                        .strikethrough(assignment.isCompleted, color: GwaTopHomeTheme.textSecondary)
-
-                    if !assignment.description.isEmpty {
-                        Text(assignment.description)
-                            .font(.gwaTopSystem(size: 13, weight: .medium))
-                            .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                            .lineSpacing(3)
-                            .lineLimit(2)
-                    }
-                }
-
-                Spacer(minLength: 6)
-
-                Text(assignment.dDayText)
-                    .font(.gwaTopSystem(size: 12, weight: .heavy))
-                    .foregroundStyle(assignment.isCompleted ? GwaTopHomeTheme.success : assignment.priority.color)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 7)
-                    .background((assignment.isCompleted ? GwaTopHomeTheme.success : assignment.priority.color).opacity(0.10))
-                    .clipShape(Capsule())
+                // 글자 최소화 — 우선순위/AI 라벨·요일 다 빼고 마감일시만 한 줄 회색으로.
+                Text(GwaTopDateFormatters.koMonthDayTime.string(from: assignment.dueDate))
+                    .font(.gwaTopSystem(size: 12, weight: .medium))
+                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                    .lineLimit(1)
             }
 
-            HStack(spacing: 12) {
-                Label(assignment.dueDateText, systemImage: "clock.fill")
-                if assignment.estimatedMinutes > 0 {
-                    Label("예상 \(assignment.estimatedMinutes)분", systemImage: "timer")
-                }
-                if assignment.isAuto {
-                    Label("AI 자동", systemImage: "sparkles")
-                }
-            }
-            .font(.gwaTopSystem(size: 12, weight: .semibold))
-            .foregroundStyle(GwaTopHomeTheme.textSecondary)
+            Spacer(minLength: 8)
 
-            if !assignment.recommendedAction.isEmpty {
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "sparkles")
-                        .font(.gwaTopSystem(size: 12, weight: .bold))
-                        .foregroundStyle(GwaTopHomeTheme.primary)
-                        .padding(.top, 2)
-
-                    Text(assignment.recommendedAction)
-                        .font(.gwaTopSystem(size: 13, weight: .medium))
-                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                        .lineSpacing(3)
-                }
-                .padding(12)
-                .background(GwaTopHomeTheme.primary.opacity(0.07))
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            }
+            // 우측 D-Day — 빨강 제거, 차분한 회색 텍스트. 완료면 success.
+            Text(assignment.isCompleted ? "완료" : assignment.dDayText)
+                .font(.gwaTopSystem(size: 12, weight: .heavy).monospacedDigit())
+                .foregroundStyle(assignment.isCompleted ? GwaTopHomeTheme.success : GwaTopHomeTheme.textSecondary)
+                .padding(.top, 1)
         }
     }
 }
