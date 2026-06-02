@@ -83,18 +83,19 @@ struct GwaTopSignUpView: View {
                             GwaTopPillField(
                                 placeholder: "이메일",
                                 text: $email,
-                                keyboard: .emailAddress
-                            ) {
-                                Button {
-                                    sendEmailCode()
-                                } label: {
-                                    Text(emailCodeButtonLabel)
-                                        .font(.gwaTopSystem(size: 13, weight: .heavy))
-                                        .foregroundStyle(canSendCode ? GwaTopTheme.primary : GwaTopHomeTheme.textTertiary)
+                                keyboard: .emailAddress,
+                                trailing: {
+                                    Button {
+                                        sendEmailCode()
+                                    } label: {
+                                        Text(emailCodeButtonLabel)
+                                            .font(.gwaTopSystem(size: 13, weight: .heavy))
+                                            .foregroundStyle(canSendCode ? GwaTopTheme.primary : GwaTopHomeTheme.textTertiary)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .disabled(!canSendCode)
                                 }
-                                .buttonStyle(.plain)
-                                .disabled(!canSendCode)
-                            }
+                            )
 
                             // 인증코드 — 발송 후에만 노출
                             if emailCodeSent {
@@ -113,30 +114,32 @@ struct GwaTopSignUpView: View {
                             GwaTopPillField(
                                 placeholder: "비밀번호 (8 자 이상)",
                                 text: $password,
-                                isSecure: !isPasswordVisible
-                            ) {
-                                Button { isPasswordVisible.toggle() } label: {
-                                    Image(systemName: isPasswordVisible ? "eye.slash.fill" : "eye.fill")
-                                        .font(.gwaTopSystem(size: 15, weight: .semibold))
-                                        .foregroundStyle(GwaTopTheme.textSecondary)
+                                isSecure: !isPasswordVisible,
+                                trailing: {
+                                    Button { isPasswordVisible.toggle() } label: {
+                                        Image(systemName: isPasswordVisible ? "eye.slash.fill" : "eye.fill")
+                                            .font(.gwaTopSystem(size: 15, weight: .semibold))
+                                            .foregroundStyle(GwaTopTheme.textSecondary)
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(.plain)
-                            }
+                            )
 
                             // 비밀번호 확인 + 인라인 불일치 경고
                             VStack(alignment: .leading, spacing: 6) {
                                 GwaTopPillField(
                                     placeholder: "비밀번호 확인",
                                     text: $confirmPassword,
-                                    isSecure: !isConfirmPasswordVisible
-                                ) {
-                                    Button { isConfirmPasswordVisible.toggle() } label: {
-                                        Image(systemName: isConfirmPasswordVisible ? "eye.slash.fill" : "eye.fill")
-                                            .font(.gwaTopSystem(size: 15, weight: .semibold))
-                                            .foregroundStyle(GwaTopTheme.textSecondary)
+                                    isSecure: !isConfirmPasswordVisible,
+                                    trailing: {
+                                        Button { isConfirmPasswordVisible.toggle() } label: {
+                                            Image(systemName: isConfirmPasswordVisible ? "eye.slash.fill" : "eye.fill")
+                                                .font(.gwaTopSystem(size: 15, weight: .semibold))
+                                                .foregroundStyle(GwaTopTheme.textSecondary)
+                                        }
+                                        .buttonStyle(.plain)
                                     }
-                                    .buttonStyle(.plain)
-                                }
+                                )
                                 if showPasswordMismatch {
                                     Text("비밀번호가 일치하지 않아요")
                                         .font(.gwaTopSystem(size: 12, weight: .semibold))

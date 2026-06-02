@@ -59,17 +59,18 @@ struct GwaTopLoginView: View {
                         GwaTopPillField(
                             placeholder: "비밀번호",
                             text: $password,
-                            isSecure: !isPasswordVisible
-                        ) {
-                            Button {
-                                isPasswordVisible.toggle()
-                            } label: {
-                                Image(systemName: isPasswordVisible ? "eye.slash.fill" : "eye.fill")
-                                    .font(.gwaTopSystem(size: 15, weight: .semibold))
-                                    .foregroundStyle(GwaTopTheme.textSecondary)
+                            isSecure: !isPasswordVisible,
+                            trailing: {
+                                Button {
+                                    isPasswordVisible.toggle()
+                                } label: {
+                                    Image(systemName: isPasswordVisible ? "eye.slash.fill" : "eye.fill")
+                                        .font(.gwaTopSystem(size: 15, weight: .semibold))
+                                        .foregroundStyle(GwaTopTheme.textSecondary)
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
-                        }
+                        )
                         .padding(.bottom, 16)
 
                         // 로그인 유지 체크 — 체크 시에만 다음 실행에서 자동 로그인.
