@@ -1,0 +1,10 @@
+[Unit]
+Description=GwaTop Celery watchdog 주기 실행 (90초마다 ping 점검)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=90s
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

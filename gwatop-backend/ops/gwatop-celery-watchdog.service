@@ -1,0 +1,9 @@
+[Unit]
+Description=GwaTop Celery watchdog (wedged 워커 감지 시 재시작)
+After=gwatop-celery.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/home/ubuntu/gwatop/gwatop-backend/.env
+WorkingDirectory=/home/ubuntu/gwatop/gwatop-backend
+ExecStart=/usr/bin/bash /home/ubuntu/gwatop/gwatop-backend/ops/celery_watchdog.sh
