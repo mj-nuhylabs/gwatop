@@ -100,6 +100,17 @@ def classify_file_task(file_id: str) -> None:
     _run_with_fresh_engine(lambda Session: _run_classify(file_id, Session))
 
 
+@celery_app.task(name="tasks.process_auto_batch")
+def process_auto_batch_task(file_ids: list[str], user_id: str) -> None:
+    """여러 파일을 한 번에 자동 분류 업로드한 배치를 순서대로 처리.
+
+    핵심: 강의계획서를 먼저 처리(과목+일정 생성)한 뒤 강의자료를 처리한다.
+    그래야 강의자료의 과목 자동 매칭이 방금 생성된 과목에 정확히 붙어 중복 과목이 안 생긴다.
+    단일 Celery 태스크 안에서 phase 별로 처리하므로 순서가 결정론적으로 보장된다.
+    """
+    _run_with_fresh_engine(lambda Session: _run_auto_batch(file_ids, user_id, Session))
+
+
 @celery_app.task(name="tasks.generate_summary")
 def generate_summary_task(file_id: str) -> None:
     """파일 텍스트 → AI 요약 노트 생성 후 ai_contents 에 저장."""
@@ -146,6 +157,74 @@ def generate_ai_content_task(
 
 # ---------- Pipeline: text extraction ----------
 
+async def _extract_text_into(session: AsyncSession, file_row: File) -> tuple[str | None, bool]:
+    """파일의 S3 객체를 내려받아 텍스트를 추출하고 file_row.extracted_text / status 를 갱신한다.
+
+    dispatch(후속 태스크 큐잉) 는 하지 않는다 — 호출자가 결정.
+    반환: (text, ok). ok=False 면 내부에서 이미 _mark_failed 했으므로 호출자는 중단.
+
+    단일 흐름(_run_extract)과 배치 흐름(_run_auto_batch) 양쪽에서 재사용한다.
+    """
+    file_row.status = "processing"
+    file_row.parse_error = None
+    await session.commit()
+
+    try:
+        data = await asyncio.to_thread(s3.download_to_bytes, file_row.s3_key)
+    except Exception as exc:
+        logger.exception("extract_text: S3 download failed for %s", file_row.id)
+        await _mark_failed(session, file_row, f"S3 download failed: {exc}")
+        return None, False
+
+    text: str | None = None
+    if file_row.file_type == "pdf":
+        try:
+            text = await asyncio.to_thread(extract_text_from_pdf_bytes, data)
+        except Exception as exc:
+            logger.exception("extract_text: PyMuPDF failed for %s", file_row.id)
+            await _mark_failed(session, file_row, f"PDF text extraction failed: {exc}")
+            return None, False
+
+        # OCR fallback — PyMuPDF 가 거의 빈 결과를 돌려준 경우 (손글씨/스캔 PDF).
+        from app.services.ocr_fallback import needs_ocr, ocr_pdf, OCRError
+        if needs_ocr(text):
+            logger.info(
+                "extract_text: triggering OCR fallback for file=%s (got %d chars from PyMuPDF)",
+                file_row.id, len(text or ""),
+            )
+            try:
+                ocr_text = await ocr_pdf(data)
+                if ocr_text and len(ocr_text.strip()) > len(text or ""):
+                    text = ocr_text
+                    logger.info(
+                        "extract_text: OCR fallback succeeded file=%s chars=%d",
+                        file_row.id, len(ocr_text),
+                    )
+            except OCRError as exc:
+                logger.warning(
+                    "extract_text: OCR fallback failed file=%s: %s", file_row.id, exc,
+                )
+
+    file_row.extracted_text = text
+    # 강의계획서인데 텍스트가 비어 있으면 parse를 트리거할 수 없다 → 명시적 실패.
+    if file_row.is_syllabus and not (text and text.strip()):
+        await _mark_failed(
+            session, file_row,
+            "강의계획서에서 텍스트를 추출하지 못했어요. PDF가 이미지로만 이루어져 있는지 확인해 주세요.",
+        )
+        return None, False
+
+    file_row.status = "extracted"
+    await session.commit()
+
+    text_preview = (text or "").strip().replace("\n", " ")[:200]
+    logger.info(
+        "extract_text: file=%s chars=%d preview=%r",
+        file_row.id, len(text or ""), text_preview,
+    )
+    return text, True
+
+
 async def _run_extract(file_id: str, SessionLocal) -> None:
     async with SessionLocal() as session:
         file_row = await _load_file(session, UUID(file_id))
@@ -159,66 +238,9 @@ async def _run_extract(file_id: str, SessionLocal) -> None:
             )
             return
 
-        file_row.status = "processing"
-        file_row.parse_error = None
-        await session.commit()
-
-        try:
-            data = await asyncio.to_thread(s3.download_to_bytes, file_row.s3_key)
-        except Exception as exc:
-            logger.exception("extract_text: S3 download failed for %s", file_id)
-            await _mark_failed(session, file_row, f"S3 download failed: {exc}")
+        text, ok = await _extract_text_into(session, file_row)
+        if not ok:
             return
-
-        text: str | None = None
-        if file_row.file_type == "pdf":
-            try:
-                text = await asyncio.to_thread(extract_text_from_pdf_bytes, data)
-            except Exception as exc:
-                logger.exception("extract_text: PyMuPDF failed for %s", file_id)
-                await _mark_failed(session, file_row, f"PDF text extraction failed: {exc}")
-                return
-
-            # OCR fallback — PyMuPDF 가 거의 빈 결과를 돌려준 경우 (손글씨/스캔 PDF).
-            # gpt-4o-mini vision 으로 페이지별 OCR 실행.
-            from app.services.ocr_fallback import needs_ocr, ocr_pdf, OCRError
-            if needs_ocr(text):
-                logger.info(
-                    "extract_text: triggering OCR fallback for file=%s (got %d chars from PyMuPDF)",
-                    file_id, len(text or ""),
-                )
-                try:
-                    ocr_text = await ocr_pdf(data)
-                    if ocr_text and len(ocr_text.strip()) > len(text or ""):
-                        text = ocr_text
-                        logger.info(
-                            "extract_text: OCR fallback succeeded file=%s chars=%d",
-                            file_id, len(ocr_text),
-                        )
-                except OCRError as exc:
-                    logger.warning(
-                        "extract_text: OCR fallback failed file=%s: %s", file_id, exc,
-                    )
-                    # 원래 text 유지하고 계속 진행 (빈 문자열일 수도)
-
-        file_row.extracted_text = text
-        # 강의계획서인데 텍스트가 비어 있으면(=PyMuPDF가 빈 결과 반환) parse를 트리거할 수 없다.
-        # 그대로 'extracted' 로 두면 사용자가 영원히 "처리 중"으로 보게 되니 명시적으로 실패 처리.
-        if file_row.is_syllabus and not (text and text.strip()):
-            await _mark_failed(
-                session, file_row,
-                "강의계획서에서 텍스트를 추출하지 못했어요. PDF가 이미지로만 이루어져 있는지 확인해 주세요.",
-            )
-            return
-
-        file_row.status = "extracted"
-        await session.commit()
-
-        text_preview = (text or "").strip().replace("\n", " ")[:200]
-        logger.info(
-            "extract_text: file=%s chars=%d preview=%r",
-            file_id, len(text or ""), text_preview,
-        )
 
     # Auto-classify 분기: 사용자가 학기/과목/타입 지정 없이 올린 파일.
     # 업로드 시점에 classification_source="auto_pending" 으로 marker 가 찍힘.
@@ -269,7 +291,22 @@ async def _auto_dispatch(file_id: str, SessionLocal) -> None:
                 )
             return
 
-        # material — 과목 자동 매칭 또는 신규 생성.
+    # material — 과목 자동 매칭/생성은 별도 세션에서 (위 with 블록 종료 후).
+    await _dispatch_material(file_id, SessionLocal)
+
+
+async def _dispatch_material(file_id: str, SessionLocal) -> None:
+    """auto 강의자료 처리: 과목명 추정 → 과목 매칭/신규생성 → course_id 채움 → 주차 분류 큐잉.
+
+    배치 흐름(Phase 4)에서도 호출 — 이 때는 syllabus 들이 이미 과목을 생성한 뒤라
+    match_or_create_course 가 기존 과목에 정확히 매칭된다 (중복 과목 생성 방지).
+    """
+    async with SessionLocal() as session:
+        file_row = await _load_file(session, UUID(file_id))
+        if file_row is None:
+            return
+        text = file_row.extracted_text or ""
+
         user = await session.get(User, file_row.uploaded_by_user_id) if file_row.uploaded_by_user_id else None
         if user is None:
             await _mark_failed(session, file_row, "업로드 사용자 정보를 찾을 수 없어요.")
@@ -292,10 +329,91 @@ async def _auto_dispatch(file_id: str, SessionLocal) -> None:
         file_row.classification_source = "auto_material"
         await session.commit()
         logger.info(
-            "auto_dispatch: file=%s material → course=%s (%s, created=%s)",
+            "dispatch_material: file=%s → course=%s (%s, created=%s)",
             file_id, course.id, course.name, created,
         )
-        classify_file_task.delay(file_id)
+    classify_file_task.delay(file_id)
+
+
+# ---------- Batch auto upload: 강의계획서 먼저, 그 다음 강의자료 ----------
+
+async def _run_auto_batch(file_ids: list[str], user_id: str, SessionLocal) -> None:
+    """여러 파일을 phase 별로 처리해 강의계획서 → 강의자료 순서를 보장한다.
+
+    Phase 1+2) 각 파일 텍스트 추출 + syllabus/material 분류
+    Phase 3)   syllabus 들을 inline 으로 파싱 (과목 + 일정 생성). await 로 완료 보장.
+    Phase 4)   material 들을 처리 (이제 syllabus 가 만든 과목에 매칭됨)
+    """
+    logger.info("auto_batch: start count=%d user=%s", len(file_ids), user_id)
+    syllabus_ids: list[str] = []
+    material_ids: list[str] = []
+
+    # ----- Phase 1+2: 추출 + 분류 -----
+    for fid in file_ids:
+        try:
+            async with SessionLocal() as session:
+                file_row = await _load_file(session, UUID(fid))
+                if file_row is None:
+                    logger.warning("auto_batch: file %s not found", fid)
+                    continue
+                # 이미 다른 경로로 처리 시작된 파일은 건너뜀 (중복 confirm 방어).
+                if file_row.status not in ("pending", "uploading"):
+                    logger.info(
+                        "auto_batch: skip file=%s status=%s (already processing)",
+                        fid, file_row.status,
+                    )
+                    continue
+
+                text, ok = await _extract_text_into(session, file_row)
+                if not ok:
+                    continue  # _mark_failed 됨
+
+                decision = await detect_kind(text or "", file_row.filename)
+                logger.info(
+                    "auto_batch: classify file=%s kind=%s confidence=%.2f reason=%s",
+                    fid, decision.kind, decision.confidence, decision.reason,
+                )
+
+                if decision.kind == "syllabus":
+                    file_row.is_syllabus = True
+                    file_row.classification_source = "auto_syllabus"
+                    await session.commit()
+                    if text and text.strip():
+                        syllabus_ids.append(fid)
+                    else:
+                        await _mark_failed(
+                            session, file_row,
+                            "강의계획서로 판정됐으나 텍스트가 비어있어요. 이미지 PDF 인지 확인해주세요.",
+                        )
+                else:
+                    # material 은 Phase 4 에서 처리. 일단 marker 만.
+                    file_row.is_syllabus = False
+                    file_row.classification_source = "auto_material_pending"
+                    await session.commit()
+                    material_ids.append(fid)
+        except Exception:
+            logger.exception("auto_batch: extract/classify failed for %s", fid)
+
+    logger.info(
+        "auto_batch: classified syllabus=%d material=%d",
+        len(syllabus_ids), len(material_ids),
+    )
+
+    # ----- Phase 3: 강의계획서 먼저 (과목 + 일정 생성). inline await 로 완료 보장 -----
+    for fid in syllabus_ids:
+        try:
+            await _run_parse_syllabus(fid, SessionLocal)
+        except Exception:
+            logger.exception("auto_batch: syllabus parse failed for %s", fid)
+
+    # ----- Phase 4: 강의자료 (이제 과목이 존재하므로 매칭됨) -----
+    for fid in material_ids:
+        try:
+            await _dispatch_material(fid, SessionLocal)
+        except Exception:
+            logger.exception("auto_batch: material dispatch failed for %s", fid)
+
+    logger.info("auto_batch: done count=%d", len(file_ids))
 
 
 # ---------- Pipeline: syllabus parsing ----------

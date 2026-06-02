@@ -303,6 +303,43 @@ async def confirm_auto_upload(
     return FileConfirmResponse(file=FileResponse.model_validate(file_record))
 
 
+class AutoBatchConfirmRequest(BaseModel):
+    file_ids: list[uuid.UUID] = Field(..., min_length=1, max_length=30)
+
+
+@router.post(
+    "/files/auto/batch-confirm",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def confirm_auto_batch(
+    body: AutoBatchConfirmRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """여러 파일을 한 번에 자동 분류 업로드. 강의계획서를 먼저 처리한 뒤 강의자료를 처리한다.
+
+    각 파일은 미리 /files/auto/presigned-url 로 만들어진 auto_pending 파일이어야 한다.
+    소유권/상태를 검증하고 S3 업로드 완료를 확인한 뒤, 단일 배치 태스크에 모두 넘긴다.
+    """
+    valid_ids: list[str] = []
+    for fid in body.file_ids:
+        file_record, _ = await owned_file(fid, current_user, db)
+        if file_record.classification_source != "auto_pending":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="배치 업로드는 자동 분류 업로드 전용입니다.",
+            )
+        if file_record.status in ("pending", "uploading"):
+            _verify_uploaded_object(file_record)
+            valid_ids.append(str(fid))
+
+    if valid_ids:
+        from app.tasks.file_tasks import process_auto_batch_task
+        process_auto_batch_task.delay(valid_ids, str(current_user.id))
+
+    return {"queued": valid_ids, "count": len(valid_ids)}
+
+
 # 진행 중으로 간주할 status 값들. parsing 끝나면 "parsed" 또는 "failed" 로 전환.
 _IN_FLIGHT_STATUSES = ("pending", "uploading", "processing", "extracted", "parsing")
 
