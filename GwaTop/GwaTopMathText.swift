@@ -525,6 +525,34 @@ private struct GwaTopRichTextWebView: UIViewRepresentable {
         return "rgba(\(Int(r * 255)), \(Int(g * 255)), \(Int(b * 255)), \(a))"
     }
 
+    /// LLM(GPT)이 답변 전체를 ``` 코드펜스로 감싸 보내는 경우 그 래퍼만 벗겨낸다.
+    /// 마크다운 렌더러(marked)는 펜스 안 내용을 raw 코드로 그리므로, 감싸여 있으면
+    /// `##`·`**`·수식이 그대로 노출된다(= 튜터 답변이 깨져 보이던 실제 원인).
+    /// 첫 줄이 "단독 펜스 오프너"(``` 또는 ```markdown 등)이고 펜스가 전체를 감쌀 때만
+    /// 처리해, 본문 중간의 진짜 코드블록은 보존한다.
+    static func unwrapWholeCodeFence(_ s: String) -> String {
+        let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("```") else { return s }
+
+        // 펜스 라인(단독 ``` 또는 ```lang) 이 몇 개인지 — 전체 래퍼면 보통 1~2개.
+        // 3개 이상이면 본문에 실제 코드블록이 여러 개 있는 것이므로 손대지 않는다.
+        func isBareFenceLine(_ line: Substring) -> Bool {
+            let t = line.trimmingCharacters(in: .whitespaces)
+            return t.hasPrefix("```") && t.dropFirst(3).allSatisfy { $0.isLetter || $0.isNumber }
+        }
+        var lines = trimmed.split(separator: "\n", omittingEmptySubsequences: false)
+        let fenceCount = lines.filter(isBareFenceLine).count
+        guard fenceCount >= 1, fenceCount <= 2, let first = lines.first, isBareFenceLine(first) else {
+            return s
+        }
+
+        lines.removeFirst()  // 여는 펜스 제거
+        if let last = lines.last, last.trimmingCharacters(in: .whitespaces) == "```" {
+            lines.removeLast()  // 닫는 펜스 제거 (truncated 면 없을 수 있음)
+        }
+        return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// 마크다운 본문을 JS 문자열 리터럴로 안전하게 인코딩.
     private static func jsLiteral(_ s: String) -> String {
         // `\` → `\\`, 줄바꿈 → `\n`, 백틱 → `\``, $ → `\$` (template literal interpolation 차단).
@@ -549,7 +577,8 @@ private struct GwaTopRichTextWebView: UIViewRepresentable {
     ) -> String {
         let cssTextColor = cssColor(from: color)
         let cssAccent = cssColor(from: accent)
-        let md = jsLiteral(markdown)
+        // LLM이 전체를 ```로 감싸 보낸 경우 래퍼를 벗겨 마크다운이 정상 파싱되게 한다.
+        let md = jsLiteral(unwrapWholeCodeFence(markdown))
 
         return """
         <!DOCTYPE html>
