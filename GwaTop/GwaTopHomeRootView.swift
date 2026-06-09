@@ -70,10 +70,32 @@ struct GwaTopHomeView: View {
     @State private var loadError: String? = nil
     /// 과목 카드 탭 시 표시할 상세 시트 대상.
     @State private var selectedSubject: GwaTopSubject? = nil
+    /// 가로 과목 칩에서 선택된 과목 id — nil 이면 첫 과목 자동 선택.
+    @State private var pickedCourseId: String? = nil
     /// 무차별 업로드 — Files 앱 파일 선택기 표시 여부.
     @State private var showingUploadImporter = false
     /// 파일 읽기/선택 실패 메시지 (업로드 버튼 아래 표시).
     @State private var uploadImportError: String? = nil
+
+    /// 현재 선택된 과목 (없으면 첫 번째).
+    private var activeCourseId: String? {
+        pickedCourseId ?? courses.first?.id
+    }
+
+    /// 선택된 과목의 ToDo (미완 우선, 마감 빠른 순). is_auto 포함.
+    private var activeCourseTodos: [GwaTopTodoDTO] {
+        guard let cid = activeCourseId else { return [] }
+        let all = (dashboard?.upcomingTodos ?? []) + weekTodos
+        // 중복 제거 (id 기준) 후 해당 과목만.
+        var seen = Set<String>()
+        let unique = all.filter { seen.insert($0.id).inserted }
+        return unique
+            .filter { $0.courseId == cid }
+            .sorted {
+                if $0.isDone != $1.isDone { return !$0.isDone }
+                return $0.dueDate < $1.dueDate
+            }
+    }
 
     /// 실 데이터 기반 과목 카드. 백엔드에 progress 컬럼이 없어서 이번 주 todo
     /// 완료율로 derive. 다음 일정은 upcomingTodos / nextEvent 에서 가장 빠른 것.
@@ -123,10 +145,19 @@ struct GwaTopHomeView: View {
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 22) {
                         topGreetingSection
-                            .padding(.top, 18)
+                            .padding(.top, 14)
 
-                        uploadSection
-                        todayTaskSection
+                        uploadSuperCard
+
+                        if let uploadImportError {
+                            Text(uploadImportError)
+                                .font(.gwaTopSystem(size: 12, weight: .semibold))
+                                .foregroundStyle(GwaTopHomeTheme.danger)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        GwaTopUploadProgressBanner()
+
+                        courseTodoSection
                     }
                     .padding(.horizontal, 20)
                     .padding(.bottom, 30)
@@ -214,95 +245,30 @@ struct GwaTopHomeView: View {
         }
     }
 
+    // MARK: - 인사말 (가로형 — avatar + 텍스트)
+
     private var topGreetingSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(currentDateText)
-                    .font(.gwaTopSystem(size: 14, weight: .semibold))
-                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+        HStack(spacing: 12) {
+            // 좌측 아바타 (이니셜 원형)
+            ZStack {
+                Circle()
+                    .fill(GwaTopHomeTheme.primary.opacity(0.15))
+                    .frame(width: 46, height: 46)
+                Text(String(user.firstDisplayName.prefix(1)))
+                    .font(.system(size: 18, weight: .heavy, design: .rounded))
+                    .foregroundStyle(GwaTopHomeTheme.primary)
+            }
 
-                Text("안녕하세요,\n\(user.firstDisplayName)님")
-                    .font(.system(size: 28, weight: .heavy, design: .rounded))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("안녕하세요, \(user.firstDisplayName)님")
+                    .font(.gwaTopSystem(size: 17, weight: .heavy))
                     .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                    .lineSpacing(2)
-            }
-
-            // 인사말 아래 얇은 구분선 — 데이터와 무관한 순수 디자인 요소.
-            // (기존 '오늘 할 일' 진행바를 제거하고 그 트랙 톤만 선으로 남김.)
-            Capsule()
-                .fill(GwaTopHomeTheme.surfaceMute)
-                .frame(height: 4)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var todayTaskSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionHeader(title: "ToDo")
-
-            // 모든 행을 하나의 카드에 모으고 hairline divider로 구분.
-            // 카드의 시각적 노이즈를 줄이고 정보 위계를 분명히 한다 (애플 리스트 스타일).
-            VStack(spacing: 0) {
-                if let todos = dashboard?.upcomingTodos, !todos.isEmpty {
-                    ForEach(Array(todos.enumerated()), id: \.element.id) { index, todo in
-                        GwaTopTodayTaskRow(task: GwaTopTodayTask(todo: todo))
-                        if index < todos.count - 1 {
-                            Divider()
-                                .padding(.leading, 32)  // priority dot 영역 들여쓰기
-                        }
-                    }
-                } else if isLoading {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                        Text("불러오는 중…")
-                            .font(.gwaTopSystem(size: 13, weight: .medium))
-                            .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                    }
-                    .padding(.vertical, 22)
-                    .frame(maxWidth: .infinity)
-                } else {
-                    Text("표시할 할 일이 없어요.")
-                        .font(.gwaTopSystem(size: 13, weight: .medium))
-                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                        .padding(.vertical, 26)
-                        .frame(maxWidth: .infinity)
-                }
-            }
-            .gwaTopCard(radius: 18)
-        }
-    }
-
-    private var subjectProgressSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            sectionHeader(title: "내 과목")
-
-            if subjects.isEmpty {
-                Text("등록된 과목이 없어요.\n설정 → 학기/과목 관리에서 추가해 주세요.")
+                Text(currentDateText)
                     .font(.gwaTopSystem(size: 13, weight: .medium))
                     .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 28)
-                    .gwaTopCard(radius: 18)
-            } else {
-                // 모든 과목을 하나의 카드 안에 모으고 hairline divider 로 구분.
-                // 각 행은 Button 으로 감싸 탭하면 상세 시트 노출 (feat/hyunnow).
-                VStack(spacing: 0) {
-                    ForEach(Array(subjects.enumerated()), id: \.element.id) { index, subject in
-                        Button {
-                            selectedSubject = subject
-                        } label: {
-                            GwaTopSubjectProgressCard(subject: subject)
-                        }
-                        .buttonStyle(.plain)
-                        if index < subjects.count - 1 {
-                            Divider()
-                                .padding(.leading, 76)   // 아이콘 영역 들여쓰기
-                        }
-                    }
-                }
-                .gwaTopCard(radius: 22)
             }
+
+            Spacer()
         }
     }
 
@@ -317,60 +283,141 @@ struct GwaTopHomeView: View {
         return types
     }()
 
-    /// ToDo 위에 놓이는 업로드 진입점. 탭하면 파일 선택기를 띄우고, 진행 중 업로드가
-    /// 있으면 바로 아래에 진행 카드(GwaTopUploadProgressBanner)를 함께 보여준다.
-    private var uploadSection: some View {
-        VStack(spacing: 10) {
-            Button {
-                uploadImportError = nil
-                showingUploadImporter = true
-            } label: {
-                HStack(spacing: 14) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.white.opacity(0.18))
-                            .frame(width: 46, height: 46)
-                        Image(systemName: "arrow.up.doc.fill")
-                            .font(.gwaTopSystem(size: 20, weight: .bold))
-                            .foregroundStyle(.white)
-                    }
+    // MARK: - 업로드 슈퍼카드 (레퍼런스의 보라 영역)
 
-                    VStack(alignment: .leading, spacing: 3) {
+    /// 큰 코랄 그라데이션 슈퍼카드 — 파일 업로드 진입점.
+    /// 탭하면 파일 선택기를 띄우고 백엔드가 강의계획서/강의자료를 자동 구분.
+    private var uploadSuperCard: some View {
+        Button {
+            uploadImportError = nil
+            showingUploadImporter = true
+        } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 10) {
                         Text("파일 업로드")
-                            .font(.gwaTopSystem(size: 16, weight: .heavy))
+                            .font(.system(size: 30, weight: .black, design: .rounded))
                             .foregroundStyle(.white)
-                        Text("강의계획서·강의자료 아무거나 올리면 AI가 자동으로 분류해요")
-                            .font(.gwaTopSystem(size: 12, weight: .semibold))
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Text("강의계획서·강의자료 아무거나\n올리면 AI가 자동으로 정리해요")
+                            .font(.gwaTopSystem(size: 13, weight: .semibold))
                             .foregroundStyle(.white.opacity(0.92))
-                            .lineLimit(2)
-                            .multilineTextAlignment(.leading)
+                            .lineSpacing(2)
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
                     Spacer(minLength: 8)
 
-                    Image(systemName: "plus")
-                        .font(.gwaTopSystem(size: 15, weight: .heavy))
-                        .foregroundStyle(GwaTopHomeTheme.primary)
-                        .frame(width: 30, height: 30)
-                        .background(Color.white)
-                        .clipShape(Circle())
+                    // 우상단 장식 — 겹친 문서 아이콘
+                    ZStack {
+                        Circle()
+                            .fill(Color.white.opacity(0.18))
+                            .frame(width: 64, height: 64)
+                        Image(systemName: "doc.on.doc.fill")
+                            .font(.system(size: 26, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
                 }
-                .padding(16)
-                .background(GwaTopHomeTheme.primaryGradient)
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            }
-            .buttonStyle(.plain)
 
-            // 진행 중 업로드가 있으면 버튼 바로 아래에 진행 상태 카드 표시.
-            GwaTopUploadProgressBanner()
+                Spacer(minLength: 28)
 
-            if let uploadImportError {
-                Text(uploadImportError)
-                    .font(.gwaTopSystem(size: 12, weight: .semibold))
-                    .foregroundStyle(GwaTopHomeTheme.danger)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                // 하단 CTA pill
+                HStack(spacing: 6) {
+                    Image(systemName: "plus")
+                        .font(.gwaTopSystem(size: 13, weight: .heavy))
+                    Text("파일 선택")
+                        .font(.gwaTopSystem(size: 14, weight: .heavy))
+                }
+                .foregroundStyle(GwaTopHomeTheme.primary)
+                .padding(.horizontal, 16)
+                .frame(height: 40)
+                .background(Color.white)
+                .clipShape(Capsule())
             }
+            .padding(20)
+            .frame(maxWidth: .infinity, minHeight: 180, alignment: .topLeading)
+            .background(GwaTopHomeTheme.primaryGradient)
+            .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - 과목 칩 + 선택 과목 ToDo (레퍼런스의 "Your plan")
+
+    private var courseTodoSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if subjects.isEmpty {
+                sectionHeader(title: "내 과목")
+                Text("등록된 과목이 없어요.\n강의계획서를 업로드하면 자동으로 추가돼요.")
+                    .font(.gwaTopSystem(size: 13, weight: .medium))
+                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 28)
+            } else {
+                sectionHeader(title: "내 과목")
+
+                // 가로 스크롤 과목 칩 — 선택 상태 표시
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(subjects) { subject in
+                            courseChip(subject)
+                        }
+                    }
+                    .padding(.horizontal, 2)
+                }
+
+                // 선택된 과목의 ToDo 리스트
+                courseTodoList
+            }
+        }
+    }
+
+    private func courseChip(_ subject: GwaTopSubject) -> some View {
+        let isSelected = subject.courseId == activeCourseId
+        return Button {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                pickedCourseId = subject.courseId
+            }
+        } label: {
+            HStack(spacing: 7) {
+                Circle()
+                    .fill(isSelected ? Color.white : subject.color)
+                    .frame(width: 8, height: 8)
+                Text(subject.name)
+                    .font(.gwaTopSystem(size: 13, weight: .bold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(isSelected ? .white : GwaTopHomeTheme.textPrimary)
+            .padding(.horizontal, 14)
+            .frame(height: 38)
+            .background(isSelected ? GwaTopHomeTheme.primary : GwaTopHomeTheme.surfaceMute)
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var courseTodoList: some View {
+        let todos = activeCourseTodos
+        if todos.isEmpty {
+            Text("이 과목에 등록된 할 일이 없어요.")
+                .font(.gwaTopSystem(size: 13, weight: .medium))
+                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 28)
+                .gwaTopCard(radius: 18)
+        } else {
+            VStack(spacing: 0) {
+                ForEach(Array(todos.enumerated()), id: \.element.id) { index, todo in
+                    GwaTopTodayTaskRow(task: GwaTopTodayTask(todo: todo))
+                    if index < todos.count - 1 {
+                        Divider().padding(.leading, 32)
+                    }
+                }
+            }
+            .gwaTopCard(radius: 18)
         }
     }
 
