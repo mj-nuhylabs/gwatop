@@ -16,6 +16,8 @@ struct GwaTopCalendarView: View {
     @State private var courses: [GwaTopCourseDTO] = []
     @State private var displayedMonth: Date = Date()
     @State private var selectedDate: Date = Date()
+    /// 사용자가 셀을 탭해서 하단 일정 섹션을 연 날짜. nil 이면 섹션 숨김.
+    @State private var daySectionDate: Date? = nil
     @State private var selectedEvent: GwaTopCalendarEvent? = nil
     @State private var showUploadPreview: Bool = false
     @State private var isLoading: Bool = false
@@ -409,8 +411,13 @@ struct GwaTopCalendarView: View {
 
             // Apple 캘린더 연동 토글은 설정 화면으로 이동. (최초 로그인/회원가입 시 1회 안내)
             monthGrid
-            // selectedDaySection 제거 — 일정은 셀 안 pill 로 직접 노출. tap 시 detail sheet.
-            // 강의계획서 업로드 / 일정 추가 진입은 우하단 FAB(+) 스피드다이얼로 이동.
+
+            // 사용자가 날짜를 탭하면 그 날의 일정 리스트를 그리드 아래에 표시.
+            if daySectionDate != nil {
+                sectionDivider.opacity(0.5)
+                selectedDaySection
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
     }
 
@@ -712,6 +719,7 @@ struct GwaTopCalendarView: View {
                         GwaTopCalendarDayCell(
                             day: day,
                             isToday: calendar.isDateInToday(day.date),
+                            isSelected: daySectionDate.map { calendar.isDate($0, inSameDayAs: day.date) } ?? false,
                             events: eventsByDay[calendar.startOfDay(for: day.date)] ?? [],
                             onEventTap: { event in
                                 selectedEvent = event
@@ -719,6 +727,7 @@ struct GwaTopCalendarView: View {
                             onCellTap: {
                                 withAnimation(.spring(response: 0.25, dampingFraction: 0.86)) {
                                     selectedDate = day.date
+                                    daySectionDate = day.date   // 하단 일정 섹션 열기
                                     if !calendar.isDate(day.date, equalTo: displayedMonth, toGranularity: .month) {
                                         displayedMonth = day.date
                                     }
@@ -749,11 +758,24 @@ struct GwaTopCalendarView: View {
 
     private var selectedDaySection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            // 헤더: 부제목("선택한 날짜의 일정") + 개수 캡슐 제거 — 날짜 타이틀만 노출
-            Text(selectedDateTitle)
-                .font(.gwaTopSystem(size: 21, weight: .bold))
-                .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            // 헤더: 선택 날짜 타이틀 + 닫기 버튼
+            HStack {
+                Text(selectedDateTitle)
+                    .font(.gwaTopSystem(size: 21, weight: .bold))
+                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                Spacer()
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { daySectionDate = nil }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.gwaTopSystem(size: 12, weight: .bold))
+                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                        .frame(width: 28, height: 28)
+                        .background(GwaTopHomeTheme.surfaceMute)
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+            }
 
             if selectedDateEvents.isEmpty {
                 VStack(spacing: 10) {
@@ -895,13 +917,14 @@ private struct GwaTopCalendarDay: Identifiable, Equatable {
 private struct GwaTopCalendarDayCell: View {
     let day: GwaTopCalendarDay
     let isToday: Bool
+    var isSelected: Bool = false
     let events: [GwaTopCalendarEvent]
     let onEventTap: (GwaTopCalendarEvent) -> Void
     let onCellTap: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            // 날짜 — 오늘이면 검은 원 + 흰 글자, 일요일은 빨강, 다른 달은 흐리게
+            // 날짜 — 오늘이면 검은 원, 선택 시 코랄 원, 일요일은 빨강, 다른 달은 흐리게
             HStack {
                 Group {
                     if isToday {
@@ -910,6 +933,13 @@ private struct GwaTopCalendarDayCell: View {
                             .foregroundStyle(GwaTopHomeTheme.background)
                             .frame(width: 22, height: 22)
                             .background(GwaTopHomeTheme.textPrimary)
+                            .clipShape(Circle())
+                    } else if isSelected {
+                        Text(day.dayNumber)
+                            .font(.gwaTopSystem(size: 12, weight: .heavy))
+                            .foregroundStyle(.white)
+                            .frame(width: 22, height: 22)
+                            .background(GwaTopHomeTheme.primary)
                             .clipShape(Circle())
                     } else {
                         Text(day.dayNumber)
