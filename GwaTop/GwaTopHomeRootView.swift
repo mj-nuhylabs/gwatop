@@ -127,7 +127,6 @@ struct GwaTopHomeView: View {
 
                         uploadSection
                         todayTaskSection
-                        subjectProgressSection
                     }
                     .padding(.horizontal, 20)
                     .padding(.bottom, 30)
