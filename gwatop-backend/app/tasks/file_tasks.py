@@ -222,6 +222,23 @@ async def _extract_text_into(session: AsyncSession, file_row: File) -> tuple[str
             await _mark_failed(session, file_row, f"DOCX text extraction failed: {exc}")
             return None, False
 
+    elif file_row.file_type == "image":
+        # 이미지엔 임베드된 텍스트 레이어가 없다 → 항상 OCR(GPT-4o-mini vision)로 추출.
+        # PDF OCR fallback 과 같은 경로(_ocr_single_page)를 페이지 렌더링 없이 재사용한다.
+        from app.services.ocr_fallback import ocr_image, OCRError
+        try:
+            text = await ocr_image(data)
+        except OCRError as exc:
+            logger.warning("extract_text: image OCR unavailable file=%s: %s", file_row.id, exc)
+            text = ""
+        except Exception as exc:
+            logger.exception("extract_text: image OCR failed for %s", file_row.id)
+            await _mark_failed(session, file_row, f"Image OCR failed: {exc}")
+            return None, False
+        logger.info(
+            "extract_text: image OCR file=%s chars=%d", file_row.id, len(text or ""),
+        )
+
     file_row.extracted_text = text
     # 강의계획서인데 텍스트가 비어 있으면 parse를 트리거할 수 없다 → 명시적 실패.
     if file_row.is_syllabus and not (text and text.strip()):

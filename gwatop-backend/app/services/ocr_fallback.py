@@ -113,9 +113,26 @@ def _render_page_range(
     return out
 
 
+def _detect_image_mime(data: bytes) -> str:
+    """매직 바이트로 이미지 MIME 추정. GPT-4o-mini vision 이 받는 포맷으로 제한.
+
+    PDF 페이지 렌더링은 항상 PNG 라 기본값이 image/png. 사용자가 직접 올린 이미지
+    파일(JPEG/GIF/WEBP)도 정확한 MIME 를 붙여야 vision 입력이 거부되지 않는다.
+    """
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    # PNG(\x89PNG) 및 그 외는 png 로 취급 — 대부분의 PDF 렌더 출력이 PNG.
+    return "image/png"
+
+
 async def _ocr_single_page(png_bytes: bytes, page_index: int) -> str:
-    """한 페이지 이미지를 GPT-4o-mini vision 으로 OCR. 실패 시 빈 문자열."""
+    """한 페이지/이미지를 GPT-4o-mini vision 으로 OCR. 실패 시 빈 문자열."""
     b64 = base64.b64encode(png_bytes).decode("ascii")
+    mime = _detect_image_mime(png_bytes)
     client = _get_client()
     try:
         response = await client.chat.completions.create(
@@ -131,7 +148,7 @@ async def _ocr_single_page(png_bytes: bytes, page_index: int) -> str:
                         {"type": "text", "text": f"이 페이지({page_index + 1}번)의 글씨를 모두 옮겨 적어주세요."},
                         {
                             "type": "image_url",
-                            "image_url": {"url": f"data:image/png;base64,{b64}"},
+                            "image_url": {"url": f"data:{mime};base64,{b64}"},
                         },
                     ],
                 },
@@ -192,6 +209,19 @@ async def ocr_pdf(pdf_bytes: bytes) -> str:
         "OCR done: total chars=%d (pages=%d)", len(joined), n
     )
     return joined
+
+
+async def ocr_image(image_bytes: bytes) -> str:
+    """업로드된 단일 이미지 파일(JPEG/PNG/GIF/WEBP)을 OCR 해 텍스트 반환.
+
+    PDF 처럼 페이지 렌더링이 필요 없다 — bytes 를 바로 vision 입력으로 넣는다.
+    실패하거나 글씨가 없으면 빈 문자열.
+    """
+    if not image_bytes:
+        return ""
+    text = await _ocr_single_page(image_bytes, 0)
+    logger.info("OCR image done: chars=%d", len(text))
+    return text.strip()
 
 
 def needs_ocr(extracted_text: str | None) -> bool:
