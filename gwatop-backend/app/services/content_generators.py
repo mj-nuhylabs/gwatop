@@ -221,8 +221,11 @@ async def generate_quiz(
     )
     # 중복 회피 시엔 다양성을 위해 temperature 큰 폭 인상.
     temp = 0.9 if exclude_questions else 0.4
+    # 퀴즈는 5~7문제 × (질문+보기4개+해설+LaTeX 이스케이프) 라 출력이 가장 길다.
+    # 2200 은 수식 많은 자료(물리 등)에서 자주 잘려(finish_reason=length) 생성 실패 →
+    # 빈 퀴즈로 떨어졌다. 여유를 줘 truncation 을 막는다(실사용 토큰만큼만 과금).
     payload, model, tokens = await _generate_json(
-        system=QUIZ_SYSTEM, user=user_prompt, max_tokens=2200, temperature=temp,
+        system=QUIZ_SYSTEM, user=user_prompt, max_tokens=3500, temperature=temp,
     )
     questions_raw = payload.get("questions", [])
     validated: list[dict[str, Any]] = []
