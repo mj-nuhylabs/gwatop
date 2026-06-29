@@ -20,6 +20,7 @@ notify_classified_task (Day 4 / Day 7 APNs placeholder):
 from __future__ import annotations
 
 import asyncio
+import difflib
 import json
 import logging
 import re
@@ -974,6 +975,13 @@ async def _run_classify(file_id: str, SessionLocal) -> None:
 
         await session.commit()
 
+        # 강의자료에 시험/과제 '일정 변경' 공지가 있을 수 있다 → 스캔해서 캘린더에 반영.
+        # 분류 실패와 무관하게 best-effort 로 시도하며, 어떤 오류도 분류 결과를 깨지 않는다.
+        try:
+            await _scan_and_apply_schedule_changes(session, course, file_row)
+        except Exception:
+            logger.exception("schedule change scan: 예기치 못한 오류 file=%s", file_id)
+
     # 분류 결과와 무관하게 알림은 한 번 — UI에서 "미분류 폴더" 안내에도 쓰임.
     # notify_classified 태스크는 app/tasks/notify_tasks.py 로 이관됨. 이름 기반으로
     # send_task 호출 (import 회피).
@@ -983,6 +991,143 @@ async def _run_classify(file_id: str, SessionLocal) -> None:
     # 분류와 병렬로 돌린다. 분석본은 quiz/flashcard/mindmap/memorize/topics 의
     # 공유 입력으로 재활용된다. generate_summary_task/analyze_file_task 는 내부에
     # 중복 생성 가드가 있어 다른 경로에서 다시 호출돼도 안전하다.
+
+
+# ---------- 강의자료 일정 변경 스캔 (시험/과제 날짜 변경 공지 반영) ----------
+
+
+def _match_schedule(rows: list[Schedule], title: str, sched_type: str | None) -> Schedule | None:
+    """LLM 이 준 existing_title 로 기존 schedule 을 매칭. 같은 type 가산 + 제목 유사도."""
+    if not title:
+        return None
+    title_n = title.strip().lower()
+    best: Schedule | None = None
+    best_score = 0.0
+    for s in rows:
+        if s.type not in ("exam", "assignment"):
+            continue
+        st = (s.title or "").strip().lower()
+        if title_n and (title_n in st or st in title_n):
+            score = 0.9
+        else:
+            score = difflib.SequenceMatcher(None, title_n, st).ratio()
+        if sched_type and s.type == sched_type:
+            score += 0.1
+        if score > best_score:
+            best_score, best = score, s
+    return best if best_score >= 0.6 else None
+
+
+def _parse_change_datetime(date_str, time_str) -> datetime | None:
+    """'YYYY-MM-DD' (+ 선택 'HH:MM') → naive datetime. 파싱 실패 시 None."""
+    if not date_str:
+        return None
+    try:
+        d = datetime.strptime(str(date_str)[:10], "%Y-%m-%d")
+    except Exception:
+        return None
+    if time_str:
+        try:
+            t = datetime.strptime(str(time_str)[:5], "%H:%M")
+            return d.replace(hour=t.hour, minute=t.minute)
+        except Exception:
+            return d
+    return d
+
+
+async def _replace_auto_todos(session: AsyncSession, schedule: Schedule) -> None:
+    """schedule 의 기존 auto todo 를 지우고 현재 일정 기준으로 다시 만든다(날짜 변경 반영)."""
+    await session.execute(
+        delete(Todo).where(Todo.schedule_id == schedule.id, Todo.is_auto.is_(True))
+    )
+    for spec in build_auto_todos(schedule):
+        session.add(Todo(**spec))
+
+
+async def _scan_and_apply_schedule_changes(session: AsyncSession, course: Course, file_row: File) -> None:
+    """강의자료 텍스트에서 시험/과제 일정 변경·신규 공지를 찾아 schedules 에 반영.
+
+    보수적: 키워드 게이트 통과 시에만 LLM 호출. 기존 일정 매칭이 확실할 때만 날짜 갱신,
+    신규는 같은 날짜·유사 제목 중복이 없을 때만 추가. is_auto=True 를 유지하므로 강의계획서
+    재파싱 시 동기화된다(강의계획서가 다시 truth 가 되면 원래대로). 모든 변경은 로그로 남긴다.
+    """
+    from app.services.schedule_change_scanner import (
+        material_mentions_schedule,
+        scan_schedule_changes,
+        ScheduleChangeError,
+    )
+
+    text = file_row.extracted_text or ""
+    if not material_mentions_schedule(text):
+        return
+
+    rows = list(
+        (await session.execute(select(Schedule).where(Schedule.course_id == course.id)))
+        .scalars()
+        .all()
+    )
+
+    semester = await session.get(Semester, course.semester_id)
+    context_year = semester.start_date.year if semester else None
+    existing = [
+        {"title": s.title, "type": s.type, "date": s.due_date.date().isoformat()}
+        for s in rows if s.type in ("exam", "assignment")
+    ]
+
+    try:
+        result = await scan_schedule_changes(text=text, existing=existing, context_year=context_year)
+    except ScheduleChangeError as exc:
+        logger.warning("[SCHED_CHANGE] scan 실패 file=%s: %s", file_row.id, exc)
+        return
+
+    applied = 0
+
+    # 1) 기존 일정 날짜/시간 변경
+    for upd in result["updates"]:
+        sched = _match_schedule(rows, upd.get("existing_title", ""), upd.get("type"))
+        new_dt = _parse_change_datetime(upd.get("new_date"), upd.get("new_start_time"))
+        if sched is None or new_dt is None or sched.due_date == new_dt:
+            continue
+        old = sched.due_date
+        sched.due_date = new_dt
+        suffix = f"[강의자료 공지로 일정 변경: {old.date().isoformat()} → {new_dt.date().isoformat()}]"
+        sched.description = (sched.description + "\n" + suffix) if sched.description else suffix
+        await _replace_auto_todos(session, sched)
+        applied += 1
+        logger.info(
+            "[SCHED_CHANGE] update file=%s sched=%r %s -> %s",
+            file_row.id, sched.title, old.isoformat(), new_dt.isoformat(),
+        )
+
+    # 2) 명확한 날짜의 신규 시험/과제
+    for ev in result["new_events"]:
+        new_dt = _parse_change_datetime(ev.get("date"), ev.get("start_time"))
+        if new_dt is None:
+            continue
+        ev_type = ev.get("type") if ev.get("type") in ("exam", "assignment") else "exam"
+        title = (ev.get("title") or "").strip() or "새 일정"
+        dup = any(
+            s.type == ev_type and s.due_date.date() == new_dt.date()
+            and difflib.SequenceMatcher(None, (s.title or "").lower(), title.lower()).ratio() >= 0.6
+            for s in rows
+        )
+        if dup:
+            continue
+        sched = Schedule(
+            course_id=course.id, title=title, type=ev_type, due_date=new_dt,
+            description=(ev.get("note") or None), is_auto=True,
+        )
+        session.add(sched)
+        await session.flush()
+        for spec in build_auto_todos(sched):
+            session.add(Todo(**spec))
+        rows.append(sched)
+        applied += 1
+        logger.info("[SCHED_CHANGE] new file=%s %r at %s", file_row.id, title, new_dt.isoformat())
+
+    if applied:
+        await session.commit()
+        logger.info("[SCHED_CHANGE] file=%s applied=%d", file_row.id, applied)
 
 
 # ---------- Pipeline: summary generation ----------
