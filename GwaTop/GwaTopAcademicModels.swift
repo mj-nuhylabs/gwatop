@@ -92,6 +92,8 @@ struct GwaTopAssignment: Identifiable, Codable, Equatable {
     var title: String
     var description: String
     var dueDate: Date
+    /// false 면 날짜 미지정 todo — dueDate 는 정렬용 sentinel(.distantFuture)이고 화면엔 "날짜 미정"으로 표기.
+    var hasDueDate: Bool = true
     var priority: GwaTopAssignmentPriority
     var status: GwaTopAssignmentStatus
     var estimatedMinutes: Int      // 0이면 UI 숨김
@@ -119,6 +121,7 @@ struct GwaTopAssignment: Identifiable, Codable, Equatable {
         self.title = dto.title
         self.description = ""
         self.dueDate = dto.dueDate
+        self.hasDueDate = dto.hasDueDate
         self.priority = GwaTopAssignmentPriority(rawValue: dto.priority) ?? .low
         self.status = dto.isDone ? .completed : .pending
         self.estimatedMinutes = 0
@@ -133,6 +136,7 @@ struct GwaTopAssignment: Identifiable, Codable, Equatable {
         title: String,
         description: String,
         dueDate: Date,
+        hasDueDate: Bool = true,
         priority: GwaTopAssignmentPriority,
         status: GwaTopAssignmentStatus,
         estimatedMinutes: Int,
@@ -145,6 +149,7 @@ struct GwaTopAssignment: Identifiable, Codable, Equatable {
         self.title = title
         self.description = description
         self.dueDate = dueDate
+        self.hasDueDate = hasDueDate
         self.priority = priority
         self.status = status
         self.estimatedMinutes = estimatedMinutes
@@ -155,6 +160,7 @@ struct GwaTopAssignment: Identifiable, Codable, Equatable {
 
     var dDayText: String {
         if isCompleted { return "완료" }
+        if !hasDueDate { return "날짜 미정" }
         let day = Date.gwaTopDDayFromToday(to: dueDate)
         if day == 0 { return "D-Day" }
         if day > 0 { return "D-\(day)" }
@@ -162,7 +168,7 @@ struct GwaTopAssignment: Identifiable, Codable, Equatable {
     }
 
     var dueDateText: String {
-        GwaTopDateFormatters.koMonthDayWeekdayTime.string(from: dueDate)
+        hasDueDate ? GwaTopDateFormatters.koMonthDayWeekdayTime.string(from: dueDate) : "날짜 미정"
     }
 
     static let sampleData: [GwaTopAssignment] = [

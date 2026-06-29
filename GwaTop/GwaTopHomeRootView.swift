@@ -76,8 +76,14 @@ struct GwaTopHomeView: View {
     @State private var showingUploadImporter = false
     /// 파일 읽기/선택 실패 메시지 (업로드 버튼 아래 표시).
     @State private var uploadImportError: String? = nil
-    /// 오늘의 일정 타임라인용 — 오늘 00:00~24:00 schedules (시험·회의 등).
-    @State private var todaySchedules: [GwaTopScheduleDTO] = []
+    /// "What's Up Next" 용 — 오늘부터 앞으로 21일간의 schedules (시험·회의 등).
+    /// 오늘 일정이 비면 다른 날의 가장 가까운 일정을 띄우기 위해 넉넉히 받아둔다.
+    @State private var upcomingSchedules: [GwaTopScheduleDTO] = []
+
+    /// upcomingSchedules 중 오늘 것만 — 오늘 타임라인 항목 계산에 사용.
+    private var todaySchedules: [GwaTopScheduleDTO] {
+        upcomingSchedules.filter { Calendar.current.isDateInToday($0.dueDate) }
+    }
     /// 오늘 마감 스트립 — 토글 진행중 id (빠른 더블탭 race 방지).
     @State private var togglingTodoIds: Set<String> = []
     /// 낙관적 토글 override (id → isDone). 서버 반영 + 재조회 후 제거.
@@ -155,8 +161,6 @@ struct GwaTopHomeView: View {
 
                         todayTimelineSection
 
-                        uploadSuperCard
-
                         if let uploadImportError {
                             Text(uploadImportError)
                                 .font(.gwaTopSystem(size: 12, weight: .semibold))
@@ -232,9 +236,9 @@ struct GwaTopHomeView: View {
             isLoading = false
             loadError = nil
             // store 에는 schedules 캐시가 없어 타임라인용 오늘 일정만 별도로 채운다.
-            if todaySchedules.isEmpty,
-               let scheds = try? await Self.fetchTodaySchedules() {
-                todaySchedules = scheds
+            if upcomingSchedules.isEmpty,
+               let scheds = try? await Self.fetchUpcomingSchedules() {
+                upcomingSchedules = scheds
             }
             return
         }
@@ -252,13 +256,13 @@ struct GwaTopHomeView: View {
             let weekEnd = cal.date(byAdding: .day, value: 7, to: weekStart) ?? now
             return try? await GwaTopTodoService.shared.fetchAll(start: weekStart, end: weekEnd)
         }()
-        async let schedulesTask: [GwaTopScheduleDTO]? = try? Self.fetchTodaySchedules()
+        async let schedulesTask: [GwaTopScheduleDTO]? = try? Self.fetchUpcomingSchedules()
 
         let (dash, list, todos, scheds) = await (dashTask, coursesTask, todosTask, schedulesTask)
         if let dash { dashboard = dash }
         if let list { courses = list }
         if let todos { weekTodos = todos }
-        if let scheds { todaySchedules = scheds }
+        if let scheds { upcomingSchedules = scheds }
 
         if dash == nil && list == nil && todos == nil && self.dashboard == nil {
             loadError = "데이터를 불러오지 못했어요. 잠시 후 다시 시도해주세요."
@@ -289,7 +293,31 @@ struct GwaTopHomeView: View {
             }
 
             Spacer()
+
+            // 우상단 빈 공간으로 옮긴 파일 업로드 진입 버튼 (기존 슈퍼카드 대체).
+            uploadHeaderButton
         }
+    }
+
+    /// 인사말 우측의 컴팩트 파일 업로드 버튼 — 탭하면 파일 선택기를 띄운다.
+    private var uploadHeaderButton: some View {
+        Button {
+            uploadImportError = nil
+            showingUploadImporter = true
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "plus")
+                    .font(.gwaTopSystem(size: 13, weight: .heavy))
+                Text("파일 업로드")
+                    .font(.gwaTopSystem(size: 13, weight: .heavy))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .frame(height: 40)
+            .background(GwaTopHomeTheme.primaryGradient)
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - 오늘의 일정 타임라인 (수업 + 시험·회의 일정)
@@ -311,6 +339,8 @@ struct GwaTopHomeView: View {
                     id: "class-\(course.id)-\(slot.startTime)",
                     title: course.name.isEmpty ? "이름 없는 과목" : course.name,
                     subtitle: room.map { "수업 · \($0)" } ?? "수업",
+                    typeLabel: "수업",
+                    location: room,
                     startText: slot.startTime,
                     endText: slot.endTime,
                     startMinutes: Self.minutes(from: slot.startTime),
@@ -323,10 +353,13 @@ struct GwaTopHomeView: View {
         for sched in todaySchedules where sched.type.lowercased() != "assignment" {
             let comps = cal.dateComponents([.hour, .minute], from: sched.dueDate)
             let mins = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
+            let courseName = sched.courseName.trimmingCharacters(in: .whitespacesAndNewlines)
             items.append(GwaTopTodayTimelineItem(
                 id: "sched-\(sched.id)",
                 title: sched.title,
                 subtitle: "\(Self.scheduleTypeLabel(sched.type)) · \(sched.courseName)",
+                typeLabel: Self.scheduleTypeLabel(sched.type),
+                location: courseName.isEmpty ? nil : courseName,
                 startText: GwaTopDateFormatters.koTimeOnly.string(from: sched.dueDate),
                 endText: nil,
                 startMinutes: mins,
@@ -340,68 +373,111 @@ struct GwaTopHomeView: View {
 
     private var todayTimelineSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            sectionHeader(title: "오늘의 일정")
+            sectionHeader(title: "What's Up Next")
 
-            if todayTimelineItems.isEmpty {
-                // 빈 상태는 카드 없이 투명하게 — 홈 길이를 아끼고 톤을 가볍게.
-                Text("오늘은 일정이 없어요")
-                    .font(.gwaTopSystem(size: 13, weight: .medium))
-                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-            } else {
-                // 1분마다 다시 그려 바늘 위치/현재 일정을 갱신.
-                TimelineView(.periodic(from: Date(), by: 60)) { context in
-                    let comps = Calendar.current.dateComponents([.hour, .minute], from: context.date)
-                    let nowMins = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
-
-                    VStack(spacing: 0) {
-                        GwaTopTodayTimelineStrip(items: todayTimelineItems, nowMinutes: nowMins)
-
-                        Divider().background(GwaTopHomeTheme.line)
-
-                        currentScheduleFooter(nowMinutes: nowMins)
-                    }
-                    .gwaTopCard(radius: 18)
-                }
+            // 1분마다 다시 그려 카운트다운/진행 상태를 갱신.
+            TimelineView(.periodic(from: Date(), by: 60)) { context in
+                nextUpContent(now: context.date)
             }
         }
     }
 
-    /// 타임라인 카드 하단 — 지금 진행 중인 일정(없으면 다음 일정)을 행으로 표시.
+    /// "What's Up Next" — 우선순위:
+    ///  1) 지금 진행 중인 오늘 일정, 2) 오늘 남은 다음 일정,
+    ///  3) (오늘 일정이 다 끝났으면) 다른 날의 가장 가까운 일정,
+    ///  4) 아무것도 없으면 안내 문구.
     @ViewBuilder
-    private func currentScheduleFooter(nowMinutes: Int) -> some View {
-        let current = todayTimelineItems.filter {
-            $0.startMinutes <= nowMinutes && nowMinutes < $0.displayEndMinutes
-        }
-        let next = todayTimelineItems
-            .filter { $0.startMinutes > nowMinutes }
-            .min(by: { $0.startMinutes < $1.startMinutes })
+    private func nextUpContent(now: Date) -> some View {
+        let comps = Calendar.current.dateComponents([.hour, .minute], from: now)
+        let nowMinutes = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
 
-        VStack(alignment: .leading, spacing: 0) {
-            if !current.isEmpty {
-                timelineFooterCaption("현재 일정")
-                ForEach(current) { GwaTopTodayTimelineRow(item: $0) }
-            } else if let next {
-                timelineFooterCaption("다음 일정")
-                GwaTopTodayTimelineRow(item: next)
-            } else {
-                Text("오늘 남은 일정이 없어요")
-                    .font(.gwaTopSystem(size: 13, weight: .medium))
-                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-            }
+        let ongoing = todayTimelineItems
+            .filter { $0.startMinutes <= nowMinutes && nowMinutes < $0.displayEndMinutes }
+            .sorted { $0.startMinutes < $1.startMinutes }
+        let upcoming = todayTimelineItems
+            .filter { $0.startMinutes > nowMinutes }
+            .sorted { $0.startMinutes < $1.startMinutes }
+
+        let primaryIsOngoing = !ongoing.isEmpty
+        let primary = ongoing.first ?? upcoming.first
+
+        if let primary {
+            GwaTopNextUpCard(item: primary, nowMinutes: nowMinutes, isOngoing: primaryIsOngoing)
+        } else if let future = nearestUpcomingEvent(now: now) {
+            // 오늘 남은 일정이 없으면 다른 날의 가장 가까운 일정을 띄운다.
+            GwaTopUpcomingNextCard(event: future)
+        } else {
+            Text("다가오는 일정이 없어요")
+                .font(.gwaTopSystem(size: 13, weight: .medium))
+                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 18)
+                .gwaTopCard(radius: 18)
         }
     }
 
-    private func timelineFooterCaption(_ text: String) -> some View {
-        Text(text)
-            .font(.gwaTopSystem(size: 11, weight: .heavy))
-            .foregroundStyle(GwaTopHomeTheme.textTertiary)
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
+    /// 오늘 이후(now 이후)의 가장 가까운 일정 1건 — 미래 schedule + 다음 수업 발생 중 최소 시각.
+    private func nearestUpcomingEvent(now: Date) -> GwaTopUpcomingEvent? {
+        let cal = Calendar.current
+        var candidates: [GwaTopUpcomingEvent] = []
+
+        // 1) 미래 일정(schedule) — assignment 제외, now 이후.
+        for sched in upcomingSchedules
+        where sched.type.lowercased() != "assignment" && sched.dueDate > now {
+            let courseName = sched.courseName.trimmingCharacters(in: .whitespacesAndNewlines)
+            candidates.append(GwaTopUpcomingEvent(
+                date: sched.dueDate,
+                endMinutes: nil,
+                title: sched.title,
+                typeLabel: Self.scheduleTypeLabel(sched.type),
+                location: courseName.isEmpty ? nil : courseName,
+                color: sched.courseColor.map(Color.gwaTopHex) ?? GwaTopHomeTheme.primary
+            ))
+        }
+
+        // 2) 다음 수업 발생 — 각 과목의 주간 슬롯에서 now 이후 가장 가까운 날짜/시각.
+        let dayKeys = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
+        for course in courses {
+            for slot in (course.schedule ?? []) {
+                guard let weekdayIdx = dayKeys.firstIndex(of: slot.day.uppercased()) else { continue }
+                let startMin = Self.minutes(from: slot.startTime)
+                guard let next = Self.nextOccurrence(weekdayIndex: weekdayIdx, minutes: startMin, after: now, cal: cal) else { continue }
+                let slotRoom = slot.location?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let courseRoom = course.location?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let room = (slotRoom?.isEmpty == false) ? slotRoom : ((courseRoom?.isEmpty == false) ? courseRoom : nil)
+                candidates.append(GwaTopUpcomingEvent(
+                    date: next,
+                    endMinutes: Self.minutes(from: slot.endTime),
+                    title: course.name.isEmpty ? "이름 없는 과목" : course.name,
+                    typeLabel: "수업",
+                    location: room,
+                    color: course.color.map(Color.gwaTopHex) ?? GwaTopHomeTheme.primary
+                ))
+            }
+        }
+
+        return candidates.min(by: { $0.date < $1.date })
+    }
+
+    /// 주어진 요일(weekdayIndex 0=일)·시각(분)의 now 이후 가장 가까운 발생 시각.
+    private static func nextOccurrence(weekdayIndex: Int, minutes: Int, after now: Date, cal: Calendar) -> Date? {
+        let targetWeekday = weekdayIndex + 1   // Calendar: 1=일 … 7=토
+        let todayWeekday = cal.component(.weekday, from: now)
+        let dayOffset = (targetWeekday - todayWeekday + 7) % 7
+        let h = minutes / 60, m = minutes % 60
+
+        func date(daysAhead: Int) -> Date? {
+            guard let base = cal.date(byAdding: .day, value: daysAhead, to: now) else { return nil }
+            return cal.date(bySettingHour: h, minute: m, second: 0, of: base)
+        }
+
+        if dayOffset == 0 {
+            // 오늘 요일이면 아직 시작 전일 때만 오늘, 지났으면 다음 주.
+            if let today = date(daysAhead: 0), today > now { return today }
+            return date(daysAhead: 7)
+        }
+        return date(daysAhead: dayOffset)
     }
 
     /// "HH:mm" → 자정 기준 분. 파싱 실패 시 0 (정렬만 흐트러지고 크래시 없음).
@@ -421,11 +497,12 @@ struct GwaTopHomeView: View {
         }
     }
 
-    /// 오늘 00:00~24:00 schedules — 타임라인 전용 (store 캐시 대상 아님).
-    private static func fetchTodaySchedules() async throws -> [GwaTopScheduleDTO] {
+    /// 오늘 00:00 ~ +21일 schedules — "What's Up Next" 전용 (store 캐시 대상 아님).
+    /// 오늘 일정이 없을 때 다른 날의 가장 가까운 일정을 띄우기 위해 범위를 넓게 받는다.
+    private static func fetchUpcomingSchedules() async throws -> [GwaTopScheduleDTO] {
         let cal = Calendar.current
         let start = cal.startOfDay(for: Date())
-        let end = cal.date(byAdding: .day, value: 1, to: start) ?? start
+        let end = cal.date(byAdding: .day, value: 21, to: start) ?? start
         return try await GwaTopScheduleService.shared.fetchAll(start: start, end: end)
     }
 
@@ -515,66 +592,6 @@ struct GwaTopHomeView: View {
         if let docx = UTType(filenameExtension: "docx") { types.append(docx) }
         return types
     }()
-
-    // MARK: - 업로드 슈퍼카드 (레퍼런스의 보라 영역)
-
-    /// 큰 코랄 그라데이션 슈퍼카드 — 파일 업로드 진입점.
-    /// 탭하면 파일 선택기를 띄우고 백엔드가 강의계획서/강의자료를 자동 구분.
-    private var uploadSuperCard: some View {
-        Button {
-            uploadImportError = nil
-            showingUploadImporter = true
-        } label: {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("파일 업로드")
-                            .font(.system(size: 30, weight: .black, design: .rounded))
-                            .foregroundStyle(.white)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        Text("강의계획서·강의자료 아무거나\n올리면 AI가 자동으로 정리해요")
-                            .font(.gwaTopSystem(size: 13, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.92))
-                            .lineSpacing(2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    Spacer(minLength: 8)
-
-                    // 우상단 장식 — 겹친 문서 아이콘
-                    ZStack {
-                        Circle()
-                            .fill(Color.white.opacity(0.18))
-                            .frame(width: 64, height: 64)
-                        Image(systemName: "doc.on.doc.fill")
-                            .font(.system(size: 26, weight: .bold))
-                            .foregroundStyle(.white)
-                    }
-                }
-
-                Spacer(minLength: 28)
-
-                // 하단 CTA pill
-                HStack(spacing: 6) {
-                    Image(systemName: "plus")
-                        .font(.gwaTopSystem(size: 13, weight: .heavy))
-                    Text("파일 선택")
-                        .font(.gwaTopSystem(size: 14, weight: .heavy))
-                }
-                .foregroundStyle(GwaTopHomeTheme.primary)
-                .padding(.horizontal, 16)
-                .frame(height: 40)
-                .background(Color.white)
-                .clipShape(Capsule())
-            }
-            .padding(20)
-            .frame(maxWidth: .infinity, minHeight: 180, alignment: .topLeading)
-            .background(GwaTopHomeTheme.primaryGradient)
-            .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-        }
-        .buttonStyle(.plain)
-    }
 
     // MARK: - 과목 칩 + 선택 과목 ToDo (레퍼런스의 "Your plan")
 
@@ -721,6 +738,10 @@ private struct GwaTopTodayTimelineItem: Identifiable {
     let id: String
     let title: String
     let subtitle: String
+    /// 일정 종류 라벨 — "수업" / "시험" / "회의" 등.
+    let typeLabel: String
+    /// 장소(강의실 등). 없으면 nil.
+    let location: String?
     let startText: String
     let endText: String?
     let startMinutes: Int
@@ -733,170 +754,240 @@ private struct GwaTopTodayTimelineItem: Identifiable {
     }
 }
 
-/// 가로 타임라인 — 0~23시 눈금 위에 과목색 이벤트 바를 올리고,
-/// 현재 시각 위치에 빨간 바늘을 그린다. 등장 시 바늘이 화면 중앙에 오도록 자동 스크롤.
-private struct GwaTopTodayTimelineStrip: View {
-    let items: [GwaTopTodayTimelineItem]
+/// "What's Up Next" 주인공 카드 — 지금/곧 닥쳐오는 일정의 시간·이름·종류·장소를
+/// 한눈에 보여준다. (예: "오전 9:00 · 알고리즘 · 수업 · 공학관 302호")
+private struct GwaTopNextUpCard: View {
+    let item: GwaTopTodayTimelineItem
     let nowMinutes: Int
-
-    private static let hourWidth: CGFloat = 56
-    private static let labelHeight: CGFloat = 18
-    private static let barHeight: CGFloat = 26
-    private static let barGap: CGFloat = 6
-
-    /// 겹치는 이벤트를 위→아래 lane 으로 분배 (시작 순 그리디).
-    private var laned: [(item: GwaTopTodayTimelineItem, lane: Int)] {
-        var laneEnds: [Int] = []
-        var out: [(GwaTopTodayTimelineItem, Int)] = []
-        for item in items.sorted(by: { $0.startMinutes < $1.startMinutes }) {
-            if let idx = laneEnds.firstIndex(where: { $0 <= item.startMinutes }) {
-                laneEnds[idx] = item.displayEndMinutes
-                out.append((item, idx))
-            } else {
-                laneEnds.append(item.displayEndMinutes)
-                out.append((item, laneEnds.count - 1))
-            }
-        }
-        return out
-    }
-
-    private var laneCount: Int { (laned.map(\.lane).max() ?? 0) + 1 }
-    private var needleX: CGFloat { CGFloat(nowMinutes) / 60 * Self.hourWidth }
+    let isOngoing: Bool
 
     var body: some View {
-        let gridTop = Self.labelHeight + 4
-        let gridHeight = CGFloat(laneCount) * (Self.barHeight + Self.barGap) + 12
-        let totalWidth = 24 * Self.hourWidth
-        let totalHeight = gridTop + gridHeight
+        HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 5) {
+                // 상태 — 진행 중이면 과목색, 예정이면 카운트다운.
+                Text(statusText)
+                    .font(.gwaTopSystem(size: 12, weight: .heavy))
+                    .foregroundStyle(isOngoing ? item.color : GwaTopHomeTheme.textTertiary)
 
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                ZStack(alignment: .topLeading) {
-                    // 시간 라벨 + 세로 눈금 (매 시간)
-                    ForEach(0..<24, id: \.self) { hour in
-                        Text("\(hour)")
-                            .font(.gwaTopSystem(size: 10, weight: .semibold).monospacedDigit())
-                            .foregroundStyle(GwaTopHomeTheme.textTertiary)
-                            .offset(x: CGFloat(hour) * Self.hourWidth + 4, y: 2)
-                        Rectangle()
-                            .fill(GwaTopHomeTheme.line)
-                            .frame(width: 1, height: gridHeight)
-                            .offset(x: CGFloat(hour) * Self.hourWidth, y: gridTop)
+                // 시간 — 카드의 주인공. "오전 9:00 – 10:15"
+                Text(timeText)
+                    .font(.gwaTopSystem(size: 20, weight: .heavy).monospacedDigit())
+                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
+
+                // 이름
+                Text(item.title)
+                    .font(.gwaTopSystem(size: 16, weight: .semibold))
+                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                    .lineLimit(1)
+
+                // 종류 칩 + 장소
+                HStack(spacing: 8) {
+                    Text(item.typeLabel)
+                        .font(.gwaTopSystem(size: 11, weight: .heavy))
+                        .foregroundStyle(item.color)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(item.color.opacity(0.14))
+                        .clipShape(Capsule())
+
+                    if let location = item.location {
+                        HStack(spacing: 3) {
+                            Image(systemName: "mappin.and.ellipse")
+                                .font(.gwaTopSystem(size: 11, weight: .bold))
+                            Text(location)
+                                .font(.gwaTopSystem(size: 12, weight: .medium))
+                                .lineLimit(1)
+                        }
+                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
                     }
-
-                    // 이벤트 바
-                    ForEach(laned, id: \.item.id) { entry in
-                        timelineBar(entry.item, lane: entry.lane, gridTop: gridTop)
-                    }
-
-                    // 현재 시각 바늘 — 점 + 세로선
-                    Circle()
-                        .fill(GwaTopHomeTheme.danger)
-                        .frame(width: 7, height: 7)
-                        .offset(x: needleX - 3.5, y: gridTop - 9)
-                    Rectangle()
-                        .fill(GwaTopHomeTheme.danger)
-                        .frame(width: 2, height: gridHeight + 4)
-                        .offset(x: needleX - 1, y: gridTop - 4)
-
-                    // 초기 스크롤 anchor (바늘 위치, 비가시)
-                    Color.clear
-                        .frame(width: 1, height: 1)
-                        .offset(x: needleX)
-                        .id("gwTimelineNow")
                 }
-                .frame(width: totalWidth, height: totalHeight, alignment: .topLeading)
-                .padding(.horizontal, 14)
-                .padding(.top, 12)
-                .padding(.bottom, 6)
+                .padding(.top, 1)
             }
-            .onAppear {
-                proxy.scrollTo("gwTimelineNow", anchor: .center)
-            }
-        }
-    }
 
-    /// 이벤트 바 — 과목색 틴트 배경 + 좌측 컬러 엣지 + 제목. 지난 이벤트는 흐리게.
-    @ViewBuilder
-    private func timelineBar(_ item: GwaTopTodayTimelineItem, lane: Int, gridTop: CGFloat) -> some View {
-        let x = CGFloat(item.startMinutes) / 60 * Self.hourWidth
-        let rawWidth = CGFloat(item.displayEndMinutes - item.startMinutes) / 60 * Self.hourWidth
-        let width = max(rawWidth, 44)
-        let y = gridTop + 8 + CGFloat(lane) * (Self.barHeight + Self.barGap)
-        let isPast = item.displayEndMinutes < nowMinutes
-
-        HStack(spacing: 6) {
-            Capsule()
-                .fill(item.color)
-                .frame(width: 3)
-                .padding(.vertical, 5)
-            Text(item.title)
-                .font(.gwaTopSystem(size: 11, weight: .bold))
-                .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                .lineLimit(1)
             Spacer(minLength: 0)
         }
-        .padding(.leading, 5)
-        .padding(.trailing, 4)
-        .frame(width: width, height: Self.barHeight)
-        .background(item.color.opacity(0.22))
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .offset(x: x, y: y)
-        .opacity(isPast ? 0.45 : 1)
+        // 카드(흰 배경/그림자) 없이 페이지에 평평하게 — 색 단서는 좌측 아이콘 배지로 충분.
+        .padding(.vertical, 4)
+    }
+
+    // MARK: - 표시 문자열
+
+    private var timeText: String {
+        let start = Self.koClock(item.startMinutes)
+        if let end = item.endMinutes {
+            return "\(start) – \(Self.koClock(end))"
+        }
+        return start
+    }
+
+    private var statusText: String {
+        if isOngoing {
+            let remaining = max(0, item.displayEndMinutes - nowMinutes)
+            return remaining > 0 ? "진행 중 · \(remaining)분 남음" : "진행 중"
+        }
+        let delta = item.startMinutes - nowMinutes
+        if delta <= 0 { return "곧 시작" }
+        if delta < 60 { return "T-\(delta)분" }
+        let h = delta / 60, m = delta % 60
+        return m == 0 ? "T-\(h)시간" : "T-\(h)시간\(m)분"
+    }
+
+    /// 자정 기준 분 → "오전/오후 h:mm".
+    private static func koClock(_ minutes: Int) -> String {
+        let h24 = (minutes / 60) % 24
+        let m = minutes % 60
+        var h12 = h24 % 12
+        if h12 == 0 { h12 = 12 }
+        return String(format: "%@ %d:%02d", h24 < 12 ? "오전" : "오후", h12, m)
+    }
+
+    private static func symbol(for typeLabel: String) -> String {
+        switch typeLabel {
+        case "수업": return "book.closed.fill"
+        case "시험": return "pencil.and.list.clipboard"
+        case "회의": return "person.2.fill"
+        case "강의": return "play.rectangle.fill"
+        case "업로드": return "tray.and.arrow.up.fill"
+        default: return "calendar"
+        }
     }
 }
 
-/// 타임라인 한 줄 — 좌측 시각 컬럼 + 과목색 점 + 제목/부제.
-/// 지난 일정은 흐리게, 진행 중이면 시각·라벨을 과목색으로 강조.
-/// (가로 타임라인 카드 하단의 "현재/다음 일정" 행으로 사용)
-private struct GwaTopTodayTimelineRow: View {
+/// 주인공 다음에 올 일정을 한 줄로 요약 — "다음 · 오전 11:00 · 자료구조 (수업)".
+private struct GwaTopNextUpFollowingRow: View {
     let item: GwaTopTodayTimelineItem
 
     var body: some View {
-        let comps = Calendar.current.dateComponents([.hour, .minute], from: Date())
-        let nowMins = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
-        let isPast = (item.endMinutes ?? item.startMinutes) < nowMins
-        let isOngoing = !isPast && item.startMinutes <= nowMins
-
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.startText)
-                    .font(.gwaTopSystem(size: 13, weight: .bold).monospacedDigit())
-                    .foregroundStyle(isOngoing ? item.color : GwaTopHomeTheme.textPrimary)
-                if let endText = item.endText {
-                    Text(endText)
-                        .font(.gwaTopSystem(size: 11, weight: .medium).monospacedDigit())
-                        .foregroundStyle(GwaTopHomeTheme.textTertiary)
-                }
-            }
-            .frame(width: 42, alignment: .leading)
-
+        HStack(spacing: 10) {
             Circle()
                 .fill(item.color)
-                .frame(width: 8, height: 8)
+                .frame(width: 7, height: 7)
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.title)
-                    .font(.gwaTopSystem(size: 15, weight: .semibold))
+            Text("다음")
+                .font(.gwaTopSystem(size: 11, weight: .heavy))
+                .foregroundStyle(GwaTopHomeTheme.textTertiary)
+
+            Text(item.startText)
+                .font(.gwaTopSystem(size: 13, weight: .bold).monospacedDigit())
+                .foregroundStyle(GwaTopHomeTheme.textPrimary)
+
+            Text(item.title)
+                .font(.gwaTopSystem(size: 13, weight: .medium))
+                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                .lineLimit(1)
+
+            if let location = item.location {
+                Text("· \(location)")
+                    .font(.gwaTopSystem(size: 12, weight: .medium))
+                    .foregroundStyle(GwaTopHomeTheme.textTertiary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+        }
+        // 카드 없이 평평한 한 줄 — primary next-up 과 시각적으로 이어지게.
+        .padding(.vertical, 6)
+    }
+}
+
+// MARK: - 다른 날 가장 가까운 일정
+
+/// 오늘 일정이 없을 때 띄우는, 다른 날의 가장 가까운 일정 1건.
+private struct GwaTopUpcomingEvent {
+    let date: Date          // 시작 일시(전체)
+    let endMinutes: Int?    // 종료 시각(분) — 수업은 있음, point 일정은 nil
+    let title: String
+    let typeLabel: String
+    let location: String?
+    let color: Color
+}
+
+/// "What's Up Next" — 다른 날 일정 카드. 날짜 라벨(내일/M월 d일)을 곁들여 보여준다.
+private struct GwaTopUpcomingNextCard: View {
+    let event: GwaTopUpcomingEvent
+
+    var body: some View {
+        HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 5) {
+                // 날짜 라벨 — 내일 / 모레 / "6월 30일 월요일"
+                Text(dayLabel)
+                    .font(.gwaTopSystem(size: 12, weight: .heavy))
+                    .foregroundStyle(event.color)
+
+                Text(timeText)
+                    .font(.gwaTopSystem(size: 20, weight: .heavy).monospacedDigit())
+                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
+
+                Text(event.title)
+                    .font(.gwaTopSystem(size: 16, weight: .semibold))
                     .foregroundStyle(GwaTopHomeTheme.textPrimary)
                     .lineLimit(1)
-                Text(item.subtitle)
-                    .font(.gwaTopSystem(size: 12, weight: .medium))
-                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                    .lineLimit(1)
+
+                HStack(spacing: 8) {
+                    Text(event.typeLabel)
+                        .font(.gwaTopSystem(size: 11, weight: .heavy))
+                        .foregroundStyle(event.color)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(event.color.opacity(0.14))
+                        .clipShape(Capsule())
+
+                    if let location = event.location {
+                        HStack(spacing: 3) {
+                            Image(systemName: "mappin.and.ellipse")
+                                .font(.gwaTopSystem(size: 11, weight: .bold))
+                            Text(location)
+                                .font(.gwaTopSystem(size: 12, weight: .medium))
+                                .lineLimit(1)
+                        }
+                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                    }
+                }
+                .padding(.top, 1)
             }
 
-            Spacer(minLength: 8)
-
-            if isOngoing {
-                Text("진행 중")
-                    .font(.gwaTopSystem(size: 11, weight: .heavy))
-                    .foregroundStyle(item.color)
-            }
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .opacity(isPast ? 0.45 : 1)
+        // 카드 없이 평평하게 (primary next-up 과 동일한 스타일).
+        .padding(.vertical, 4)
+    }
+
+    // MARK: - 표시 문자열
+
+    private var dayLabel: String {
+        let cal = Calendar.current
+        if cal.isDateInTomorrow(event.date) { return "내일" }
+        let days = cal.dateComponents([.day],
+                                      from: cal.startOfDay(for: Date()),
+                                      to: cal.startOfDay(for: event.date)).day ?? 0
+        if days == 2 { return "모레" }
+        return GwaTopDateFormatters.koMonthDayShortWeekday.string(from: event.date)
+    }
+
+    private var timeText: String {
+        let c = Calendar.current.dateComponents([.hour, .minute], from: event.date)
+        let start = Self.koClock(hour: c.hour ?? 0, minute: c.minute ?? 0)
+        if let end = event.endMinutes {
+            return "\(start) – \(Self.koClock(hour: end / 60, minute: end % 60))"
+        }
+        return start
+    }
+
+    private static func koClock(hour h24: Int, minute m: Int) -> String {
+        var h12 = h24 % 12
+        if h12 == 0 { h12 = 12 }
+        return String(format: "%@ %d:%02d", h24 < 12 ? "오전" : "오후", h12, m)
+    }
+
+    private static func symbol(for typeLabel: String) -> String {
+        switch typeLabel {
+        case "수업": return "book.closed.fill"
+        case "시험": return "pencil.and.list.clipboard"
+        case "회의": return "person.2.fill"
+        case "강의": return "play.rectangle.fill"
+        case "업로드": return "tray.and.arrow.up.fill"
+        default: return "calendar"
+        }
     }
 }
 
@@ -930,7 +1021,7 @@ private struct GwaTopTodayDueCard: View {
 
                 Spacer(minLength: 2)
 
-                Text(isDone ? "완료" : "\(GwaTopDateFormatters.koTimeOnly.string(from: todo.dueDate)) 까지")
+                Text(isDone ? "완료" : (todo.hasDueDate ? "\(GwaTopDateFormatters.koTimeOnly.string(from: todo.dueDate)) 까지" : "날짜 미정"))
                     .font(.gwaTopSystem(size: 11, weight: .semibold))
                     .foregroundStyle(isDone ? GwaTopHomeTheme.success : GwaTopHomeTheme.textSecondary)
             }
@@ -1746,7 +1837,7 @@ struct GwaTopTodayTask: Identifiable {
         self.id = todo.id
         self.title = todo.title
         self.subject = todo.courseName
-        self.dueText = GwaTopDateFormatters.koMonthDayTime.string(from: todo.dueDate)
+        self.dueText = todo.hasDueDate ? GwaTopDateFormatters.koMonthDayTime.string(from: todo.dueDate) : "날짜 미정"
         self.priorityText = todo.isDone ? "완료" : priorityText
         self.iconName = todo.isDone ? "checkmark" : icon
         self.color = todo.isDone ? GwaTopHomeTheme.success : (todo.courseColor.map(Color.gwaTopHex) ?? color)

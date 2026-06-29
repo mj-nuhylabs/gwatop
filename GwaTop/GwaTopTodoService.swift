@@ -22,7 +22,11 @@ struct GwaTopTodoDTO: Decodable, Identifiable {
     let courseName: String
     let courseColor: String?
     let title: String
+    /// 날짜 미지정(강의계획서/강의자료에 날짜가 안 적힌 시험·과제) todo 는 백엔드가 due_date=null 로 준다.
+    /// 정렬·그룹핑 코드가 비-옵셔널 Date 를 가정하므로, null 이면 .distantFuture 로 두고(맨 뒤로 정렬,
+    /// 특정 날짜 칸에도 안 걸림) hasDueDate=false 로 구분한다. 표시할 땐 hasDueDate 로 "날짜 미정" 처리.
     let dueDate: Date
+    let hasDueDate: Bool
     let priority: String       // "low" / "medium" / "high"
     let isDone: Bool
     let isAuto: Bool
@@ -40,6 +44,23 @@ struct GwaTopTodoDTO: Decodable, Identifiable {
         case isDone      = "is_done"
         case isAuto      = "is_auto"
         case createdAt   = "created_at"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id          = try c.decode(String.self, forKey: .id)
+        courseId    = try c.decode(String.self, forKey: .courseId)
+        scheduleId  = try c.decodeIfPresent(String.self, forKey: .scheduleId)
+        courseName  = try c.decode(String.self, forKey: .courseName)
+        courseColor = try c.decodeIfPresent(String.self, forKey: .courseColor)
+        title       = try c.decode(String.self, forKey: .title)
+        let due     = try c.decodeIfPresent(Date.self, forKey: .dueDate)
+        dueDate     = due ?? .distantFuture
+        hasDueDate  = (due != nil)
+        priority    = try c.decode(String.self, forKey: .priority)
+        isDone      = try c.decode(Bool.self, forKey: .isDone)
+        isAuto      = try c.decode(Bool.self, forKey: .isAuto)
+        createdAt   = try c.decode(Date.self, forKey: .createdAt)
     }
 }
 

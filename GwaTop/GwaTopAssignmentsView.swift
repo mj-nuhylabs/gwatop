@@ -12,6 +12,20 @@ struct GwaTopAssignmentsView: View {
     @State private var loadError: String? = nil
     /// 빠른 더블탭으로 토글이 중복 실행되는 걸 막는 진행중 id 집합.
     @State private var togglingIds: Set<String> = []
+    /// 길게 눌러 드래그하는 동안의 과목 id — 드롭 대상 카드 강조용.
+    @State private var draggingCourseId: String? = nil
+    /// 과목 순서 편집 모드 — iOS 홈 화면처럼 카드를 길게 누르면 켜지고 "완료"로 끈다.
+    @State private var isEditingCourses = false
+
+    /// 사용자가 직접 정한 과목 순서(학습/Todo 공유) — 길게 눌러 드래그로 재정렬.
+    @ObservedObject private var orderStore = GwaTopCourseOrderStore.shared
+
+    /// 카드를 길게 눌렀을 때 — 햅틱과 함께 과목 순서 편집 모드로 진입.
+    private func enterCourseEditMode() {
+        guard !isEditingCourses else { return }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        withAnimation(.easeOut(duration: 0.18)) { isEditingCourses = true }
+    }
 
     private let calendar = Calendar.current
     private let weekdaySymbols = ["월", "화", "수", "목", "금", "토", "일"]
@@ -63,6 +77,12 @@ struct GwaTopAssignmentsView: View {
         }
     }
 
+    /// 사용자가 직접 정한 순서를 우선 적용한 과목 진행도 카드 목록.
+    /// 아직 손대지 않은 과목은 기본 정렬(마감 임박순)을 그대로 따른다.
+    private var orderedCourseProgressList: [GwaTopTodoCourseProgress] {
+        orderStore.ordered(courseProgressList) { $0.course.id }
+    }
+
     /// 선택된 날짜에 마감인 과제 — 미완(우선순위·마감순) 먼저, 완료는 맨 아래로.
     private var dayAssignments: [GwaTopAssignment] {
         let base = assignments.filter { calendar.isDate($0.dueDate, inSameDayAs: selectedDate) }
@@ -98,24 +118,40 @@ struct GwaTopAssignmentsView: View {
 
                 VStack(spacing: 0) {
                     GwaTopScreenHeader(title: "Todo") {
-                        // 레퍼런스의 "July, 2025 ⌄" 위치 — 제목 줄 오른쪽. 탭하면 오늘로 복귀.
-                        Button {
-                            goToToday()
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text(GwaTopDateFormatters.koYearMonth.string(from: selectedDate))
+                        if isEditingCourses {
+                            // 편집 모드 — iOS 홈 화면처럼 "완료" 로 빠져나간다.
+                            Button {
+                                withAnimation(.easeOut(duration: 0.18)) { isEditingCourses = false }
+                            } label: {
+                                Text("완료")
                                     .font(.gwaTopSystem(size: 14, weight: .bold))
-                                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                                Image(systemName: "chevron.down")
-                                    .font(.gwaTopSystem(size: 10, weight: .bold))
-                                    .foregroundStyle(GwaTopHomeTheme.textTertiary)
+                                    .foregroundStyle(GwaTopHomeTheme.primary)
+                                    .padding(.horizontal, 14)
+                                    .frame(height: 32)
+                                    .background(GwaTopHomeTheme.surfaceMute)
+                                    .clipShape(Capsule())
                             }
-                            .padding(.horizontal, 12)
-                            .frame(height: 32)
-                            .background(GwaTopHomeTheme.surfaceMute)
-                            .clipShape(Capsule())
+                            .buttonStyle(.plain)
+                        } else {
+                            // 레퍼런스의 "July, 2025 ⌄" 위치 — 제목 줄 오른쪽. 탭하면 오늘로 복귀.
+                            Button {
+                                goToToday()
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text(GwaTopDateFormatters.koYearMonth.string(from: selectedDate))
+                                        .font(.gwaTopSystem(size: 14, weight: .bold))
+                                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                                    Image(systemName: "chevron.down")
+                                        .font(.gwaTopSystem(size: 10, weight: .bold))
+                                        .foregroundStyle(GwaTopHomeTheme.textTertiary)
+                                }
+                                .padding(.horizontal, 12)
+                                .frame(height: 32)
+                                .background(GwaTopHomeTheme.surfaceMute)
+                                .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
 
                     ScrollView(showsIndicators: false) {
@@ -242,13 +278,28 @@ struct GwaTopAssignmentsView: View {
                 columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
                 spacing: 12
             ) {
-                ForEach(courseProgressList) { item in
+                ForEach(Array(orderedCourseProgressList.enumerated()), id: \.element.id) { idx, item in
                     NavigationLink(value: item.course.id) {
                         GwaTopTodoCourseCard(item: item)
                     }
                     .buttonStyle(.plain)
+                    .modifier(GwaTopCourseReorderModifier(
+                        courseId: item.course.id,
+                        index: idx,
+                        isEditing: isEditingCourses,
+                        enabled: true,
+                        draggingId: $draggingCourseId,
+                        onEnterEdit: { enterCourseEditMode() },
+                        onMove: { dragged in
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
+                                orderStore.move(dragged, before: item.course.id,
+                                                in: orderedCourseProgressList.map(\.course.id))
+                            }
+                        }
+                    ))
                 }
             }
+            .animation(.spring(response: 0.3, dampingFraction: 0.86), value: orderStore.order)
         }
     }
 
@@ -578,22 +629,28 @@ private struct GwaTopTodoTaskCard: View {
                         .lineLimit(2)
                 }
 
-                // 메타 행: 과목색 점 + 마감 시각 + D-Day
+                // 메타 행: 과목색 점 + 마감 시각 + D-Day (날짜 미지정 todo 는 "날짜 미정"만 표시)
                 HStack(spacing: 7) {
                     Circle()
                         .fill(isCompleted ? GwaTopHomeTheme.controlDisabled : assignment.course.color)
                         .frame(width: 7, height: 7)
-                    Text(GwaTopDateFormatters.koMonthDayTime.string(from: assignment.dueDate))
-                        .font(.gwaTopSystem(size: 12, weight: .medium))
-                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                    Text("·")
-                        .font(.gwaTopSystem(size: 12, weight: .medium))
-                        .foregroundStyle(GwaTopHomeTheme.textTertiary)
-                    Text(assignment.dDayText)
-                        .font(.gwaTopSystem(size: 12, weight: .heavy))
-                        .foregroundStyle(isCompleted
-                                         ? GwaTopHomeTheme.success
-                                         : (isUrgent ? GwaTopHomeTheme.primary : GwaTopHomeTheme.textSecondary))
+                    if assignment.hasDueDate {
+                        Text(GwaTopDateFormatters.koMonthDayTime.string(from: assignment.dueDate))
+                            .font(.gwaTopSystem(size: 12, weight: .medium))
+                            .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                        Text("·")
+                            .font(.gwaTopSystem(size: 12, weight: .medium))
+                            .foregroundStyle(GwaTopHomeTheme.textTertiary)
+                        Text(assignment.dDayText)
+                            .font(.gwaTopSystem(size: 12, weight: .heavy))
+                            .foregroundStyle(isCompleted
+                                             ? GwaTopHomeTheme.success
+                                             : (isUrgent ? GwaTopHomeTheme.primary : GwaTopHomeTheme.textSecondary))
+                    } else {
+                        Text("날짜 미정")
+                            .font(.gwaTopSystem(size: 12, weight: .medium))
+                            .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                    }
                 }
                 .padding(.top, 2)
             }
@@ -755,6 +812,7 @@ private struct GwaTopCourseTodoRow: View {
     private var secondaryText: String {
         if isCompleted { return "완료됨" }
         if isOngoing { return "진행 중 · \(assignment.dDayText)" }
+        if !assignment.hasDueDate { return "날짜 미정" }
         if !assignment.description.isEmpty { return assignment.description }
         return "\(GwaTopDateFormatters.koMonthDayTime.string(from: assignment.dueDate)) · \(assignment.dDayText)"
     }

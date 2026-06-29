@@ -557,7 +557,7 @@ struct GwaTopAdminUserDetailSheet: View {
                                         Text(t.title).font(.gwaTopSystem(size: 12, weight: .semibold))
                                             .lineLimit(1)
                                         Spacer()
-                                        Text(shortDate(t.dueDate))
+                                        Text(t.dueDate.map(shortDate) ?? "날짜 미정")
                                             .font(.gwaTopSystem(size: 10))
                                             .foregroundStyle(GwaTopHomeTheme.textSecondary)
                                     }

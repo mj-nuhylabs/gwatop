@@ -122,7 +122,8 @@ struct GwaTopAdminTodo: Decodable, Identifiable {
     let id: String
     let title: String
     let priority: String
-    let dueDate: Date
+    /// 날짜 미지정 자동 todo 는 null 로 내려온다.
+    let dueDate: Date?
     let isDone: Bool
     let isAuto: Bool
     let courseId: String
