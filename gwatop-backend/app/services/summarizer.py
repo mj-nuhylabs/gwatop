@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.core.config import settings
 from app.services.latex_repair import repair_latex_in_payload
+from app.services.openai_client import get_async_openai
 
 logger = logging.getLogger(__name__)
 
@@ -77,16 +78,10 @@ class _SummaryPayload(BaseModel):
     study_tip: str = ""
 
 
-_client: AsyncOpenAI | None = None
-
-
 def _get_client() -> AsyncOpenAI:
-    global _client
-    if _client is None:
-        if not settings.OPENAI_API_KEY:
-            raise SummarizerError("OPENAI_API_KEY is not configured")
-        _client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-    return _client
+    if not settings.OPENAI_API_KEY:
+        raise SummarizerError("OPENAI_API_KEY is not configured")
+    return get_async_openai()
 
 
 def _truncate(text: str, limit: int = MAX_INPUT_CHARS) -> str:

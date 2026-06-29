@@ -33,6 +33,7 @@ from typing import AsyncIterator, Iterable
 from openai import AsyncOpenAI, OpenAIError
 
 from app.core.config import settings
+from app.services.openai_client import get_async_openai
 
 logger = logging.getLogger(__name__)
 
@@ -47,16 +48,10 @@ class TutorError(Exception):
     pass
 
 
-_client: AsyncOpenAI | None = None
-
-
 def _get_client() -> AsyncOpenAI:
-    global _client
-    if _client is None:
-        if not settings.OPENAI_API_KEY:
-            raise TutorError("OPENAI_API_KEY is not configured")
-        _client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-    return _client
+    if not settings.OPENAI_API_KEY:
+        raise TutorError("OPENAI_API_KEY is not configured")
+    return get_async_openai()
 
 
 # ---------------------------------------------------------------------------

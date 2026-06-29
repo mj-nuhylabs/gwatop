@@ -20,17 +20,13 @@ from typing import Literal
 from openai import AsyncOpenAI
 
 from app.core.config import settings
+from app.services.openai_client import get_async_openai
 
 logger = logging.getLogger(__name__)
 
-# OpenAI 클라이언트는 lazy 초기화 (config 로딩 순서 의존성 회피).
-_client: AsyncOpenAI | None = None
-
+# 이벤트 루프에 바인딩된 공유 클라이언트 (루프 바뀌면 자동 재생성).
 def _client_lazy() -> AsyncOpenAI:
-    global _client
-    if _client is None:
-        _client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-    return _client
+    return get_async_openai()
 
 
 # ---------- syllabus 감지 ----------
