@@ -11,8 +11,10 @@
 //    ┃│  과목명                                         ⌄ │  ← 접힘: 제목 + 자료수
 //    ┃│  강의자료 2개                                      │     (┃ = 과목색 포인트 바)
 //    ┃└──────────────────────────────────────────────┘
-//      (탭하면 펼쳐져 교수/시간 + 우측 원형 화살표(→ 학습 상세) 표시)
 //
+//  상호작용:
+//    • 우측 화살표(⌄/⌃) 탭 → 그 자리에서 교수/시간 상세 펼침·접힘.
+//    • 화살표 외 카드 영역 탭 → 곧장 과목별 학습 상세로 이동.
 //  한 번에 하나만 펼쳐지는 아코디언(expandedCourseId).
 //  파일 검색은 모든 과목 파일에 대해 filename contains.
 //
@@ -35,8 +37,12 @@ struct GwaTopAIStudyView: View {
     /// 자료 업로드 시트를 열 때 미리 선택할 과목 id.
     /// 과목 상세에서 열면 그 과목으로, 헤더 버튼에서 열면 nil(직접 선택).
     @State private var uploadCourseId: String? = nil
-    /// 펼쳐진(상세 정보 + 화살표 표시) 과목 id. 한 번에 하나만 펼쳐지는 아코디언.
+    /// 펼쳐진(상세 정보 표시) 과목 id. 한 번에 하나만 펼쳐지는 아코디언.
+    /// 펼침/접힘은 카드 우측 화살표(chevron) 버튼으로만 토글한다.
     @State private var expandedCourseId: String? = nil
+    /// 학습 상세로 push 할 과목 id. 카드의 화살표 외 영역을 탭하면 설정된다.
+    /// (GwaTopCourseDTO 가 Hashable 이 아니라 id 로 navigate 후 courses 에서 역참조.)
+    @State private var navCourseId: String? = nil
 
     /// 백엔드 처리 중인 상태값들. 이 중 하나라도 있으면 폴링 계속.
     private static let inProgressStatuses: Set<String> = [
@@ -125,6 +131,22 @@ struct GwaTopAIStudyView: View {
                     await reloadAllFiles(silent: true)
                 }
             }
+            // 카드 본문 탭 → 과목별 학습 상세로 push. id 로 navigate 후 현재 courses 에서 역참조해
+            // 최신 파일/로딩 상태를 그대로 넘긴다.
+            .navigationDestination(item: $navCourseId) { cid in
+                if let course = courses.first(where: { $0.id == cid }) {
+                    GwaTopCourseStudyDetailView(
+                        course: course,
+                        files: filesByCourse[course.id] ?? [],
+                        isLoading: loadingCourseIds.contains(course.id),
+                        onSelectFile: { selectedFile = $0 },
+                        onUpload: {
+                            uploadCourseId = course.id
+                            showUploadSheet = true
+                        }
+                    )
+                }
+            }
             .sheet(isPresented: $showUploadSheet) {
                 GwaTopMaterialUploadSheet(preselectedCourseId: uploadCourseId, onUploadCompleted: {
                     // silent=true 로 호출해서 cache fresh bail-out 우회 + 스피너 안 띄움
@@ -192,9 +214,10 @@ struct GwaTopAIStudyView: View {
     // MARK: - Course Card (아코디언)
 
     /// 과목 카드 — 흰(surface) 배경 + 왼쪽에 과목 고유색 "포인트 바".
-    /// 탭하면 인라인으로 펼쳐지며(아코디언) 교수/시간 상세 + 오른쪽 원형 화살표가 나타나고,
-    /// 화살표를 누르면 과목별 학습 상세(GwaTopCourseStudyDetailView)로 push.
-    /// (한 번에 하나만 펼쳐지는 아코디언. 펼침/접힘은 expandedCourseId 로 관리.)
+    /// 상호작용 분리:
+    ///   • 우측 화살표(chevron) 버튼 탭 → 인라인 펼침/접힘(교수/시간 상세 노출). expandedCourseId 관리.
+    ///   • 화살표 외의 카드 영역 탭 → 과목별 학습 상세(GwaTopCourseStudyDetailView)로 push.
+    /// 화살표는 Button 이라 자기 프레임의 탭을 가로채고, 나머지는 카드 전체 onTapGesture 가 받는다.
     private func courseCard(_ course: GwaTopCourseDTO) -> some View {
         let isOpen = expandedCourseId == course.id
         let materialCount = (filesByCourse[course.id] ?? []).filter { !$0.isSyllabus }.count
@@ -208,60 +231,39 @@ struct GwaTopAIStudyView: View {
                 .frame(width: 6)
 
             VStack(alignment: .leading, spacing: 0) {
-                // ── 헤더 행: 과목명+자료수(탭 → 펼침/접힘) + 화살표(펼침) / ⌄(펼침 힌트) ──
+                // ── 헤더 행: 과목명+자료수 + 우측 펼침/접힘 화살표 버튼 ──
                 HStack(alignment: .center, spacing: 12) {
-                    // 과목명 영역 전체가 펼침/접힘 토글.
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(course.name.isEmpty ? "이름 없는 과목" : course.name)
+                            .font(.gwaTopSystem(size: 19, weight: .bold))
+                            .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                            .lineLimit(isOpen ? nil : 1)
+                            .truncationMode(.tail)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text("강의자료 \(materialCount)개")
+                            .font(.gwaTopSystem(size: 13, weight: .semibold))
+                            .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    // 펼침/접힘 토글 화살표 — 이 버튼만 펼침을 제어한다(카드 본문 탭은 네비게이션).
                     Button {
                         withAnimation(.spring(response: 0.34, dampingFraction: 0.9)) {
                             expandedCourseId = isOpen ? nil : course.id
                         }
                     } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(course.name.isEmpty ? "이름 없는 과목" : course.name)
-                                .font(.gwaTopSystem(size: 19, weight: .bold))
-                                .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                                .lineLimit(isOpen ? nil : 1)
-                                .truncationMode(.tail)
-                                .multilineTextAlignment(.leading)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Text("강의자료 \(materialCount)개")
-                                .font(.gwaTopSystem(size: 13, weight: .semibold))
-                                .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-
-                    // 펼쳐졌을 때만 보이는 학습 페이지 진입 화살표. 접혀 있으면 펼침 힌트 ⌄.
-                    if isOpen {
-                        NavigationLink {
-                            GwaTopCourseStudyDetailView(
-                                course: course,
-                                files: filesByCourse[course.id] ?? [],
-                                isLoading: loadingCourseIds.contains(course.id),
-                                onSelectFile: { selectedFile = $0 },
-                                onUpload: {
-                                    uploadCourseId = course.id
-                                    showUploadSheet = true
-                                }
-                            )
-                        } label: {
-                            Image(systemName: "chevron.right")
-                                .font(.gwaTopSystem(size: 15, weight: .bold))
-                                .foregroundStyle(GwaTopHomeTheme.primary)
-                                .frame(width: 38, height: 38)
-                                .background(GwaTopHomeTheme.primary.opacity(0.12))
-                                .clipShape(Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .transition(.opacity.combined(with: .scale(scale: 0.8)))
-                    } else {
                         Image(systemName: "chevron.down")
                             .font(.gwaTopSystem(size: 14, weight: .bold))
-                            .foregroundStyle(GwaTopHomeTheme.textTertiary)
+                            .foregroundStyle(isOpen ? GwaTopHomeTheme.primary : GwaTopHomeTheme.textTertiary)
+                            .rotationEffect(.degrees(isOpen ? 180 : 0))
                             .frame(width: 38, height: 38)
+                            .background(isOpen ? GwaTopHomeTheme.primary.opacity(0.12) : Color.clear)
+                            .clipShape(Circle())
+                            .contentShape(Circle())
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(isOpen ? "접기" : "펼치기")
                 }
 
                 // ── 상세 정보 (펼쳐졌을 때, 교수/시간이 있을 때만) ──
@@ -291,6 +293,12 @@ struct GwaTopAIStudyView: View {
                 .strokeBorder(GwaTopHomeTheme.line, lineWidth: 1)
         )
         .shadow(color: GwaTopHomeTheme.cardShadow, radius: 6, x: 0, y: 3)
+        // 화살표 외 카드 전체 탭 → 학습 상세로 이동. 위 chevron Button 이 자기 영역 탭을
+        // 먼저 가로채므로 화살표를 눌렀을 땐 이 제스처가 발동하지 않는다.
+        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .onTapGesture {
+            navCourseId = course.id
+        }
     }
 
     /// 펼쳐진 카드 안의 상세 정보 한 줄 (아이콘 + 텍스트).
