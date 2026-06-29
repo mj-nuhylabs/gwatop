@@ -16,6 +16,9 @@ celery_app.conf.update(
     accept_content=["json"],
     timezone="Asia/Seoul",
     enable_utc=True,
+    # 결과를 읽는 곳이 없으므로(.get() 미사용, 전부 fire-and-forget) 결과 백엔드 쓰기를 끈다.
+    # → 태스크마다 Redis 결과행 기록이 사라져 브로커 왕복/메모리 부담 감소.
+    task_ignore_result=True,
     # ===== 안정성 하드닝 (워커 멈춤/죽음 방지·대비) =====
     # 배경: 타임리밋이 없으면 멈춘(혹은 폭주한) 태스크가 prefork child 를 영구 점유하고,
     #       메모리가 불어나 OOM SIGKILL → WorkerLostError 로 이어진다(2026-05-27 18분
