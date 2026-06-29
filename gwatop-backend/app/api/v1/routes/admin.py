@@ -206,7 +206,7 @@ async def admin_user_detail(
                 "course_id": str(t.course_id),
                 "schedule_id": str(t.schedule_id) if t.schedule_id else None,
                 "title": t.title, "priority": t.priority,
-                "due_date": t.due_date.isoformat(),
+                "due_date": t.due_date.isoformat() if t.due_date else None,
                 "is_done": t.is_done, "is_auto": t.is_auto,
             } for t in todos
         ],
@@ -320,7 +320,7 @@ async def admin_list_todos(
             "id": str(t.id),
             "title": t.title,
             "priority": t.priority,
-            "due_date": t.due_date.isoformat(),
+            "due_date": t.due_date.isoformat() if t.due_date else None,
             "is_done": t.is_done,
             "is_auto": t.is_auto,
             "course_id": str(t.course_id),

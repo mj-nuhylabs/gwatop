@@ -32,7 +32,7 @@ class TodoResponse(BaseModel):
     course_name: str
     course_color: str | None
     title: str
-    due_date: datetime
+    due_date: datetime | None
     priority: str
     is_done: bool
     is_auto: bool

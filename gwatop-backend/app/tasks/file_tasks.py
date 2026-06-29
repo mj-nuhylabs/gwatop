@@ -53,7 +53,7 @@ from app.services.course_matcher import CourseMatchError, match_or_create_course
 from app.services.doc_text import extract_text_from_docx_bytes, extract_text_from_pptx_bytes
 from app.services.pdf_text import extract_tables_from_pdf, extract_text_from_pdf_bytes
 from app.services.syllabus_parser import SyllabusParseError, parse_syllabus
-from app.services.todo_generator import build_auto_todos
+from app.services.todo_generator import build_auto_todos, build_undated_todo
 from app.tasks.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -624,17 +624,13 @@ async def _run_parse_syllabus(file_id: str, SessionLocal) -> None:
             logger.info("[PARSE_DEBUG] warning: %s", w)
 
         # 같은 course의 기존 AI 자동 일정 정리 (재파싱/재업로드 시 중복 방지)
-        # 먼저 그 schedules에 매달린 auto todos를 같이 지운다 (FK ondelete=SET NULL이라
-        # schedule만 지우면 orphaned auto todo가 남는다).
+        # 먼저 그 course의 auto todos를 전부 지운다. schedule 에 매달린 것뿐 아니라
+        # 날짜 미지정(schedule_id=None) auto todo 도 있으므로 course_id 기준으로 싹 정리한다
+        # (강의계획서가 다시 truth — 재파싱 시 아래에서 전부 재생성).
         await session.execute(
             delete(Todo).where(
                 Todo.is_auto.is_(True),
-                Todo.schedule_id.in_(
-                    select(Schedule.id).where(
-                        Schedule.course_id == course.id,
-                        Schedule.is_auto.is_(True),
-                    )
-                ),
+                Todo.course_id == course.id,
             )
         )
         deleted = await session.execute(
@@ -648,18 +644,24 @@ async def _run_parse_syllabus(file_id: str, SessionLocal) -> None:
             deleted.rowcount or 0, course.id,
         )
 
-        inserted_rows = _insert_schedules(session, course.id, syllabus, semester.start_date)
+        inserted_rows, undated_todo_specs = _insert_schedules(
+            session, course.id, syllabus, semester.start_date,
+        )
 
-        # schedule.id 확보를 위해 flush 후 auto todos 생성 (시험 D-14/7/3/1, 과제 D-7/3/1)
+        # schedule.id 확보를 위해 flush 후 auto todos 생성 (일정 당일 1건)
         await session.flush()
         todos_added = 0
         for sched in inserted_rows:
             for spec in build_auto_todos(sched):
                 session.add(Todo(**spec))
                 todos_added += 1
+        # 날짜를 못 구한 시험/과제 — 날짜 미지정 todo 로 과목에 추가 (캘린더엔 안 올라감).
+        for spec in undated_todo_specs:
+            session.add(Todo(**spec))
+            todos_added += 1
         logger.info(
-            "[PARSE_DEBUG] generated %d auto todos for %d schedules",
-            todos_added, len(inserted_rows),
+            "[PARSE_DEBUG] generated %d auto todos for %d schedules (+%d 날짜 미지정)",
+            todos_added, len(inserted_rows), len(undated_todo_specs),
         )
 
         # 강의계획서에 강의실 정보가 있으면 저장 (없으면 기존 값 유지).
@@ -800,18 +802,22 @@ def _insert_schedules(
     course_id: UUID,
     syllabus: ParsedSyllabus,
     semester_start,
-) -> list[Schedule]:
+) -> tuple[list[Schedule], list[dict]]:
     """파싱된 시험/과제 일정을 schedules 테이블에 자동 등록.
 
     날짜 매핑 우선순위:
       1) exam_date / due_date 가 명시되어 있으면 그대로
       2) 없으면 제목·노트에서 'N주차' 추출 → semester_start + (N-1)*7
       3) 그래도 없으면 'exam'은 weeks 배열에서 '중간/기말' 키워드 매칭으로 추정
-      4) 다 실패하면 스킵
+      4) 다 실패하면(날짜를 끝내 못 구하면) **캘린더엔 못 올리므로 날짜 미지정 todo 로만 등록.**
 
-    is_auto=True로 마킹.
+    Returns:
+        (inserted_schedules, undated_todo_specs)
+        - inserted_schedules: 날짜가 있어 schedules 에 add 된 Schedule row 목록 (is_auto=True)
+        - undated_todo_specs: 날짜를 못 구한 시험/과제의 todo dict 목록 (due_date=None, schedule_id=None)
     """
     inserted: list[Schedule] = []
+    undated_todos: list[dict] = []
 
     # 1) 시험
     for exam in syllabus.exams:
@@ -826,7 +832,10 @@ def _insert_schedules(
             source = f"week#{week_guess}" if week_guess else "none"
 
         if due is None:
-            logger.warning("[PARSE_DEBUG] SKIP exam %r — no date (source=%s)", exam.title, source)
+            spec = build_undated_todo(course_id, exam.title, "exam")
+            if spec is not None:
+                undated_todos.append(spec)
+            logger.info("[PARSE_DEBUG] UNDATED exam %r → 날짜 미지정 todo (source=%s)", exam.title, source)
             continue
 
         row = _schedule_from_exam(course_id, exam, due)
@@ -845,7 +854,10 @@ def _insert_schedules(
             source = f"week#{week_guess}" if week_guess else "none"
 
         if due is None:
-            logger.warning("[PARSE_DEBUG] SKIP assignment %r — no date (source=%s)", assignment.title, source)
+            spec = build_undated_todo(course_id, assignment.title, "assignment")
+            if spec is not None:
+                undated_todos.append(spec)
+            logger.info("[PARSE_DEBUG] UNDATED assignment %r → 날짜 미지정 todo (source=%s)", assignment.title, source)
             continue
 
         row = _schedule_from_assignment(course_id, assignment, due)
@@ -853,7 +865,7 @@ def _insert_schedules(
         inserted.append(row)
         logger.info("[PARSE_DEBUG] ADD assignment %r at %s (source=%s)", assignment.title, due.isoformat(), source)
 
-    return inserted
+    return inserted, undated_todos
 
 
 def _find_week_for_exam(weeks: list[ParsedWeek], exam_title: str) -> int | None:
@@ -1099,13 +1111,45 @@ async def _scan_and_apply_schedule_changes(session: AsyncSession, course: Course
             file_row.id, sched.title, old.isoformat(), new_dt.isoformat(),
         )
 
-    # 2) 명확한 날짜의 신규 시험/과제
+    # 2) 신규 시험/과제 (날짜 명확 → schedule + todo, 날짜 미상 → 날짜 미지정 todo)
     for ev in result["new_events"]:
-        new_dt = _parse_change_datetime(ev.get("date"), ev.get("start_time"))
-        if new_dt is None:
-            continue
         ev_type = ev.get("type") if ev.get("type") in ("exam", "assignment") else "exam"
         title = (ev.get("title") or "").strip() or "새 일정"
+        new_dt = _parse_change_datetime(ev.get("date"), ev.get("start_time"))
+
+        if new_dt is None:
+            # 날짜 미상 신규 — (a) 같은 type·유사 제목의 날짜 있는 schedule 이 이미 있거나
+            # (b) 같은 과목에 유사 제목의 미지정 auto todo 가 이미 있으면 skip.
+            dated_dup = any(
+                s.type == ev_type
+                and difflib.SequenceMatcher(None, (s.title or "").lower(), title.lower()).ratio() >= 0.6
+                for s in rows
+            )
+            if dated_dup:
+                continue
+            existing_undated = (
+                await session.execute(
+                    select(Todo.title).where(
+                        Todo.course_id == course.id,
+                        Todo.is_auto.is_(True),
+                        Todo.due_date.is_(None),
+                    )
+                )
+            ).scalars().all()
+            dup = any(
+                difflib.SequenceMatcher(None, (t or "").lower(), title.lower()).ratio() >= 0.6
+                for t in existing_undated
+            )
+            if dup:
+                continue
+            spec = build_undated_todo(course.id, title, ev_type)
+            if spec is None:
+                continue
+            session.add(Todo(**spec))
+            applied += 1
+            logger.info("[SCHED_CHANGE] new(undated) file=%s %r → 날짜 미지정 todo", file_row.id, title)
+            continue
+
         dup = any(
             s.type == ev_type and s.due_date.date() == new_dt.date()
             and difflib.SequenceMatcher(None, (s.title or "").lower(), title.lower()).ratio() >= 0.6

@@ -69,15 +69,18 @@ _SYSTEM_PROMPT = """\
 규칙:
 - existing_schedules 에 있는 일정의 날짜/시간/장소가 바뀌었다는 공지면 "updates" 에 넣고,
   반드시 그 일정의 정확한 title 을 existing_title 로 적는다(목록에 없는 제목이면 update 가 아니다).
-- 목록에 없는, 날짜가 명확한 새 시험/퀴즈/과제 공지면 "new_events" 에 넣는다.
-- 날짜가 불명확하거나 단순 수업 내용이면 아무것도 넣지 마라(빈 배열).
-- 날짜는 반드시 YYYY-MM-DD. 연도가 안 적혀 있으면 context_year 를 사용한다.
+- 목록에 없는 새 시험/퀴즈/과제 공지면 "new_events" 에 넣는다.
+  - 날짜가 명확하면 date 를 YYYY-MM-DD 로 채운다.
+  - **시험/과제임은 분명한데 정확한 날짜가 안 적혀 있으면 date 를 null 로 두고 그래도 new_events 에 넣는다**
+    (예: "기말 프로젝트 보고서 제출 예정 — 날짜 추후 공지"). 단순 수업 내용·복습 안내는 넣지 마라.
+- 단순 수업 내용이거나 시험/과제 공지가 전혀 아니면 아무것도 넣지 마라(빈 배열).
+- 날짜는 YYYY-MM-DD. 연도가 안 적혀 있으면 context_year 를 사용한다. 날짜를 모르면 null.
 - 시간은 HH:MM(24시간) 또는 생략.
 - type 은 "exam"(시험/퀴즈/고사) 또는 "assignment"(과제/제출/프로젝트).
 
 오직 아래 JSON 만 출력:
 {"updates":[{"existing_title":"...","type":"exam|assignment","new_date":"YYYY-MM-DD","new_start_time":"HH:MM(optional)","new_location":"(optional)","note":"무엇이 어떻게 바뀌었는지 한 줄"}],
- "new_events":[{"title":"...","type":"exam|assignment","date":"YYYY-MM-DD","start_time":"HH:MM(optional)","location":"(optional)","note":"한 줄"}]}
+ "new_events":[{"title":"...","type":"exam|assignment","date":"YYYY-MM-DD|null","start_time":"HH:MM(optional)","location":"(optional)","note":"한 줄"}]}
 """
 
 

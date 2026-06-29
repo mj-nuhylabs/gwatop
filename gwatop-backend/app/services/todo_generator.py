@@ -6,8 +6,12 @@
    자동 생성했는데, 사용자가 복습/대비 todo 도배를 원치 않아 제거했다.)
 - exam/assignment 만 todo 를 만든다. 그 외(lecture/meeting/upload/custom)는 생성 없음.
 - todo 제목은 일정 제목 그대로(예: "Exam 1"). 접미사("복습"/"작업") 없음.
+- 강의계획서/강의자료에 **정확한 날짜가 안 적힌** 시험/과제는 캘린더(schedule)에는 못 올리지만
+  날짜 미지정(due_date=None) todo 로 해당 과목에 추가한다 — build_undated_todo 참고.
 """
 from __future__ import annotations
+
+from uuid import UUID
 
 from app.models.schedule import Schedule
 
@@ -41,3 +45,23 @@ def build_auto_todos(schedule: Schedule) -> list[dict]:
             "is_auto": True,
         }
     ]
+
+
+def build_undated_todo(course_id: UUID, title: str, sched_type: str) -> dict | None:
+    """날짜 미지정 시험/과제용 auto todo dict.
+
+    강의계획서/강의자료에 시험·과제가 적혀 있으나 정확한 날짜를 못 구한 경우,
+    캘린더(schedule)에는 못 올리므로 due_date=None, schedule_id=None 인 todo 로만 만든다.
+    exam/assignment 가 아니면 None.
+    """
+    priority = _PRIORITY_BY_TYPE.get(sched_type)
+    if priority is None:
+        return None
+    return {
+        "title": title,
+        "due_date": None,
+        "priority": priority,
+        "course_id": course_id,
+        "schedule_id": None,
+        "is_auto": True,
+    }
