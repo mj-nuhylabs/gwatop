@@ -373,8 +373,6 @@ struct GwaTopHomeView: View {
 
     private var todayTimelineSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            sectionHeader(title: "What's Up Next")
-
             // 1분마다 다시 그려 카운트다운/진행 상태를 갱신.
             TimelineView(.periodic(from: Date(), by: 60)) { context in
                 nextUpContent(now: context.date)
@@ -403,9 +401,6 @@ struct GwaTopHomeView: View {
 
         if let primary {
             GwaTopNextUpCard(item: primary, nowMinutes: nowMinutes, isOngoing: primaryIsOngoing)
-        } else if let future = nearestUpcomingEvent(now: now) {
-            // 오늘 남은 일정이 없으면 다른 날의 가장 가까운 일정을 띄운다.
-            GwaTopUpcomingNextCard(event: future)
         } else {
             Text("다가오는 일정이 없어요")
                 .font(.gwaTopSystem(size: 13, weight: .medium))
@@ -415,69 +410,6 @@ struct GwaTopHomeView: View {
                 .padding(.vertical, 18)
                 .gwaTopCard(radius: 18)
         }
-    }
-
-    /// 오늘 이후(now 이후)의 가장 가까운 일정 1건 — 미래 schedule + 다음 수업 발생 중 최소 시각.
-    private func nearestUpcomingEvent(now: Date) -> GwaTopUpcomingEvent? {
-        let cal = Calendar.current
-        var candidates: [GwaTopUpcomingEvent] = []
-
-        // 1) 미래 일정(schedule) — assignment 제외, now 이후.
-        for sched in upcomingSchedules
-        where sched.type.lowercased() != "assignment" && sched.dueDate > now {
-            let courseName = sched.courseName.trimmingCharacters(in: .whitespacesAndNewlines)
-            candidates.append(GwaTopUpcomingEvent(
-                date: sched.dueDate,
-                endMinutes: nil,
-                title: sched.title,
-                typeLabel: Self.scheduleTypeLabel(sched.type),
-                location: courseName.isEmpty ? nil : courseName,
-                color: sched.courseColor.map(Color.gwaTopHex) ?? GwaTopHomeTheme.primary
-            ))
-        }
-
-        // 2) 다음 수업 발생 — 각 과목의 주간 슬롯에서 now 이후 가장 가까운 날짜/시각.
-        let dayKeys = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
-        for course in courses {
-            for slot in (course.schedule ?? []) {
-                guard let weekdayIdx = dayKeys.firstIndex(of: slot.day.uppercased()) else { continue }
-                let startMin = Self.minutes(from: slot.startTime)
-                guard let next = Self.nextOccurrence(weekdayIndex: weekdayIdx, minutes: startMin, after: now, cal: cal) else { continue }
-                let slotRoom = slot.location?.trimmingCharacters(in: .whitespacesAndNewlines)
-                let courseRoom = course.location?.trimmingCharacters(in: .whitespacesAndNewlines)
-                let room = (slotRoom?.isEmpty == false) ? slotRoom : ((courseRoom?.isEmpty == false) ? courseRoom : nil)
-                candidates.append(GwaTopUpcomingEvent(
-                    date: next,
-                    endMinutes: Self.minutes(from: slot.endTime),
-                    title: course.name.isEmpty ? "이름 없는 과목" : course.name,
-                    typeLabel: "수업",
-                    location: room,
-                    color: course.color.map(Color.gwaTopHex) ?? GwaTopHomeTheme.primary
-                ))
-            }
-        }
-
-        return candidates.min(by: { $0.date < $1.date })
-    }
-
-    /// 주어진 요일(weekdayIndex 0=일)·시각(분)의 now 이후 가장 가까운 발생 시각.
-    private static func nextOccurrence(weekdayIndex: Int, minutes: Int, after now: Date, cal: Calendar) -> Date? {
-        let targetWeekday = weekdayIndex + 1   // Calendar: 1=일 … 7=토
-        let todayWeekday = cal.component(.weekday, from: now)
-        let dayOffset = (targetWeekday - todayWeekday + 7) % 7
-        let h = minutes / 60, m = minutes % 60
-
-        func date(daysAhead: Int) -> Date? {
-            guard let base = cal.date(byAdding: .day, value: daysAhead, to: now) else { return nil }
-            return cal.date(bySettingHour: h, minute: m, second: 0, of: base)
-        }
-
-        if dayOffset == 0 {
-            // 오늘 요일이면 아직 시작 전일 때만 오늘, 지났으면 다음 주.
-            if let today = date(daysAhead: 0), today > now { return today }
-            return date(daysAhead: 7)
-        }
-        return date(daysAhead: dayOffset)
     }
 
     /// "HH:mm" → 자정 기준 분. 파싱 실패 시 0 (정렬만 흐트러지고 크래시 없음).
@@ -782,14 +714,6 @@ private struct GwaTopNextUpCard: View {
 
                 // 종류 칩 + 장소
                 HStack(spacing: 8) {
-                    Text(item.typeLabel)
-                        .font(.gwaTopSystem(size: 11, weight: .heavy))
-                        .foregroundStyle(item.color)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(item.color.opacity(0.14))
-                        .clipShape(Capsule())
-
                     if let location = item.location {
                         HStack(spacing: 3) {
                             Image(systemName: "mappin.and.ellipse")
@@ -887,107 +811,6 @@ private struct GwaTopNextUpFollowingRow: View {
         }
         // 카드 없이 평평한 한 줄 — primary next-up 과 시각적으로 이어지게.
         .padding(.vertical, 6)
-    }
-}
-
-// MARK: - 다른 날 가장 가까운 일정
-
-/// 오늘 일정이 없을 때 띄우는, 다른 날의 가장 가까운 일정 1건.
-private struct GwaTopUpcomingEvent {
-    let date: Date          // 시작 일시(전체)
-    let endMinutes: Int?    // 종료 시각(분) — 수업은 있음, point 일정은 nil
-    let title: String
-    let typeLabel: String
-    let location: String?
-    let color: Color
-}
-
-/// "What's Up Next" — 다른 날 일정 카드. 날짜 라벨(내일/M월 d일)을 곁들여 보여준다.
-private struct GwaTopUpcomingNextCard: View {
-    let event: GwaTopUpcomingEvent
-
-    var body: some View {
-        HStack(spacing: 14) {
-            VStack(alignment: .leading, spacing: 5) {
-                // 날짜 라벨 — 내일 / 모레 / "6월 30일 월요일"
-                Text(dayLabel)
-                    .font(.gwaTopSystem(size: 12, weight: .heavy))
-                    .foregroundStyle(event.color)
-
-                Text(timeText)
-                    .font(.gwaTopSystem(size: 20, weight: .heavy).monospacedDigit())
-                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
-
-                Text(event.title)
-                    .font(.gwaTopSystem(size: 16, weight: .semibold))
-                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                    .lineLimit(1)
-
-                HStack(spacing: 8) {
-                    Text(event.typeLabel)
-                        .font(.gwaTopSystem(size: 11, weight: .heavy))
-                        .foregroundStyle(event.color)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(event.color.opacity(0.14))
-                        .clipShape(Capsule())
-
-                    if let location = event.location {
-                        HStack(spacing: 3) {
-                            Image(systemName: "mappin.and.ellipse")
-                                .font(.gwaTopSystem(size: 11, weight: .bold))
-                            Text(location)
-                                .font(.gwaTopSystem(size: 12, weight: .medium))
-                                .lineLimit(1)
-                        }
-                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                    }
-                }
-                .padding(.top, 1)
-            }
-
-            Spacer(minLength: 0)
-        }
-        // 카드 없이 평평하게 (primary next-up 과 동일한 스타일).
-        .padding(.vertical, 4)
-    }
-
-    // MARK: - 표시 문자열
-
-    private var dayLabel: String {
-        let cal = Calendar.current
-        if cal.isDateInTomorrow(event.date) { return "내일" }
-        let days = cal.dateComponents([.day],
-                                      from: cal.startOfDay(for: Date()),
-                                      to: cal.startOfDay(for: event.date)).day ?? 0
-        if days == 2 { return "모레" }
-        return GwaTopDateFormatters.koMonthDayShortWeekday.string(from: event.date)
-    }
-
-    private var timeText: String {
-        let c = Calendar.current.dateComponents([.hour, .minute], from: event.date)
-        let start = Self.koClock(hour: c.hour ?? 0, minute: c.minute ?? 0)
-        if let end = event.endMinutes {
-            return "\(start) – \(Self.koClock(hour: end / 60, minute: end % 60))"
-        }
-        return start
-    }
-
-    private static func koClock(hour h24: Int, minute m: Int) -> String {
-        var h12 = h24 % 12
-        if h12 == 0 { h12 = 12 }
-        return String(format: "%@ %d:%02d", h24 < 12 ? "오전" : "오후", h12, m)
-    }
-
-    private static func symbol(for typeLabel: String) -> String {
-        switch typeLabel {
-        case "수업": return "book.closed.fill"
-        case "시험": return "pencil.and.list.clipboard"
-        case "회의": return "person.2.fill"
-        case "강의": return "play.rectangle.fill"
-        case "업로드": return "tray.and.arrow.up.fill"
-        default: return "calendar"
-        }
     }
 }
 
