@@ -36,6 +36,9 @@ struct GwaTopCalendarView: View {
     @State private var showingTimetableAddSheet: Bool = false
     // 캘린더 탭 FAB(+) 스피드다이얼 펼침 상태 — 구글 캘린더식 "강의계획서 업로드 / 일정 추가".
     @State private var isFabExpanded: Bool = false
+    // 월 페이징 슬라이드 방향 — true: 다음 달(왼쪽으로 밀기), false: 지난 달(오른쪽으로 밀기).
+    // 월이 바뀌기 직전에 세팅해서 monthPageTransition 이 올바른 방향으로 재생되게 한다.
+    @State private var monthSlideForward: Bool = true
 
     /// 강의계획서 파싱 진행 상태 — 배너 표시 + 완료 시 자동 reload 용.
     @ObservedObject private var syllabusWatcher = GwaTopSyllabusWatcher.shared
@@ -83,6 +86,7 @@ struct GwaTopCalendarView: View {
     }
 
     private func jumpTo(event: GwaTopCalendarEvent) {
+        monthSlideForward = event.startDate > displayedMonth
         displayedMonth = event.startDate
         selectedDate = event.startDate
     }
@@ -410,11 +414,18 @@ struct GwaTopCalendarView: View {
             }
 
             // Apple 캘린더 연동 토글은 설정 화면으로 이동. (최초 로그인/회원가입 시 1회 안내)
-            monthGrid
+            // 월이 바뀌면 그리드를 통째로 교체(.id)하면서 좌우 페이징 슬라이드 전환을 준다.
+            // 정지된 ZStack 이 움직이는 그리드를 클리핑해 화면 밖으로 삐져나오지 않게 한다.
+            ZStack {
+                monthGrid
+                    .id(monthKey(displayedMonth))
+                    .transition(monthPageTransition)
+            }
+            .clipped()
 
             // 사용자가 날짜를 탭하면 그 날의 일정 리스트를 그리드 아래에 표시.
+            // (구분선/날짜 헤더/닫기 버튼 없이 일정 카드만 노출)
             if daySectionDate != nil {
-                sectionDivider.opacity(0.5)
                 selectedDaySection
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
@@ -684,6 +695,7 @@ struct GwaTopCalendarView: View {
             ?? events.first
 
         guard let event = target else { return }
+        monthSlideForward = event.startDate > displayedMonth
         withAnimation(.spring(response: 0.32, dampingFraction: 0.88)) {
             displayedMonth = event.startDate
             selectedDate = event.startDate
@@ -692,6 +704,22 @@ struct GwaTopCalendarView: View {
 
     private var eventsInDisplayedMonth: [GwaTopCalendarEvent] {
         mergedEvents.filter { calendar.isDate($0.startDate, equalTo: displayedMonth, toGranularity: .month) }
+    }
+
+    /// 연·월을 정수 키로 — .id 로 써서 "월이 바뀔 때만" 그리드를 교체(슬라이드)한다.
+    /// (같은 달 안에서 날짜만 바뀌는 경우엔 전환을 트리거하지 않음)
+    private func monthKey(_ date: Date) -> Int {
+        let c = calendar.dateComponents([.year, .month], from: date)
+        return (c.year ?? 0) * 12 + (c.month ?? 0)
+    }
+
+    /// 월 페이징 슬라이드 전환 — 방향(monthSlideForward)에 따라 진입/이탈 엣지가 반대.
+    /// 다음 달: 새 그리드가 오른쪽에서 들어오고 옛 그리드는 왼쪽으로 나간다(왼쪽으로 미는 느낌).
+    /// 지난 달: 반대로 왼쪽에서 들어오고 오른쪽으로 나간다.
+    private var monthPageTransition: AnyTransition {
+        monthSlideForward
+            ? .asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading))
+            : .asymmetric(insertion: .move(edge: .leading), removal: .move(edge: .trailing))
     }
 
     private var monthGrid: some View {
@@ -721,14 +749,12 @@ struct GwaTopCalendarView: View {
                             isToday: calendar.isDateInToday(day.date),
                             isSelected: daySectionDate.map { calendar.isDate($0, inSameDayAs: day.date) } ?? false,
                             events: eventsByDay[calendar.startOfDay(for: day.date)] ?? [],
-                            onEventTap: { event in
-                                selectedEvent = event
-                            },
                             onCellTap: {
                                 withAnimation(.spring(response: 0.25, dampingFraction: 0.86)) {
                                     selectedDate = day.date
                                     daySectionDate = day.date   // 하단 일정 섹션 열기
                                     if !calendar.isDate(day.date, equalTo: displayedMonth, toGranularity: .month) {
+                                        monthSlideForward = day.date > displayedMonth
                                         displayedMonth = day.date
                                     }
                                 }
@@ -741,6 +767,26 @@ struct GwaTopCalendarView: View {
                 }
             }
         }
+        .contentShape(Rectangle())   // 셀 사이 빈 공간에서도 스와이프가 인식되도록
+        // 좌우 스와이프로 월 이동 — 세로 스크롤과 공존하도록 simultaneousGesture 사용.
+        .simultaneousGesture(monthSwipeGesture)
+    }
+
+    /// 캘린더 그리드 좌우 스와이프 제스처 — 왼쪽으로 밀면 다음 달, 오른쪽으로 밀면 지난 달.
+    /// 세로 스크롤 오작동을 막기 위해 수평 이동이 수직보다 충분히 우세할 때만 반응한다.
+    private var monthSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 24)
+            .onEnded { value in
+                let horizontal = value.translation.width
+                let vertical = value.translation.height
+                // 수평 이동이 수직의 1.5배 이상이고 50pt 넘게 움직였을 때만 월 이동.
+                guard abs(horizontal) > abs(vertical) * 1.5, abs(horizontal) > 50 else { return }
+                if horizontal < 0 {
+                    moveMonth(by: 1)    // ← 왼쪽 스와이프 = 다음 달
+                } else {
+                    moveMonth(by: -1)   // → 오른쪽 스와이프 = 지난 달
+                }
+            }
     }
 
     /// 42개 monthDays 를 7개씩 묶어 6주.
@@ -758,25 +804,6 @@ struct GwaTopCalendarView: View {
 
     private var selectedDaySection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            // 헤더: 선택 날짜 타이틀 + 닫기 버튼
-            HStack {
-                Text(selectedDateTitle)
-                    .font(.gwaTopSystem(size: 21, weight: .bold))
-                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                Spacer()
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) { daySectionDate = nil }
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.gwaTopSystem(size: 12, weight: .bold))
-                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                        .frame(width: 28, height: 28)
-                        .background(GwaTopHomeTheme.surfaceMute)
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.plain)
-            }
-
             if selectedDateEvents.isEmpty {
                 VStack(spacing: 10) {
                     Image(systemName: "calendar.badge.checkmark")
@@ -866,12 +893,9 @@ struct GwaTopCalendarView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    private var selectedDateTitle: String {
-        GwaTopDateFormatters.koMonthDayWeekday.string(from: selectedDate)
-    }
-
     private func moveMonth(by value: Int) {
         guard let newMonth = calendar.date(byAdding: .month, value: value, to: displayedMonth) else { return }
+        monthSlideForward = value > 0
         withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
             displayedMonth = newMonth
             selectedDate = newMonth
@@ -919,7 +943,6 @@ private struct GwaTopCalendarDayCell: View {
     let isToday: Bool
     var isSelected: Bool = false
     let events: [GwaTopCalendarEvent]
-    let onEventTap: (GwaTopCalendarEvent) -> Void
     let onCellTap: () -> Void
 
     var body: some View {
@@ -952,23 +975,21 @@ private struct GwaTopCalendarDayCell: View {
             }
 
             // 이벤트 pill (최대 2개) + 초과 시 +N
+            // pill 은 탭을 가로채지 않는 plain Text — 셀 어디를 눌러도 셀 전체의
+            // onTapGesture 가 받아 그 날짜로 이동 + 하단 일정 섹션을 연다.
+            // 일정 상세는 하단 섹션의 일정 행을 눌렀을 때만 진입한다.
             VStack(spacing: 2) {
                 ForEach(events.prefix(2)) { event in
-                    Button {
-                        onEventTap(event)
-                    } label: {
-                        Text(event.title)
-                            .font(.gwaTopSystem(size: 9, weight: .semibold))
-                            .foregroundStyle(event.course.color)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 2)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(event.course.color.opacity(0.18))
-                            .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
+                    Text(event.title)
+                        .font(.gwaTopSystem(size: 9, weight: .semibold))
+                        .foregroundStyle(event.course.color)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(event.course.color.opacity(0.18))
+                        .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
                 }
                 if events.count > 2 {
                     Text("+\(events.count - 2)")

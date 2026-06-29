@@ -2,16 +2,18 @@
 //  GwaTopAIStudyView.swift
 //  GwaTop
 //
-//  학습 탭 — 과목별 카드 세로 나열 + 각 카드 안에 강의 자료 행.
-//  PC(gwatop-web) /study 페이지 디자인 패턴을 따른다.
+//  학습 탭 — 과목을 흰 카드로 세로 나열. 각 카드 왼쪽엔 과목 고유색 "포인트 바".
 //
 //  레이아웃:
-//    [학습 ▼ 학기] (header)
+//    [학습                                                   ⬆︎] (header)
 //    [🔎 자료 이름으로 검색]
-//    [● 과목명                                                1개]
-//    [📄 17-Hashmaps.pdf   17주차 · 5월 28일 · ✓ 준비 완료     >]
+//    ┃┌──────────────────────────────────────────────┐
+//    ┃│  과목명                                         ⌄ │  ← 접힘: 제목 + 자료수
+//    ┃│  강의자료 2개                                      │     (┃ = 과목색 포인트 바)
+//    ┃└──────────────────────────────────────────────┘
+//      (탭하면 펼쳐져 교수/시간 + 우측 원형 화살표(→ 학습 상세) 표시)
 //
-//  과목 카드는 항상 펼쳐 보임 (collapse 없음).
+//  한 번에 하나만 펼쳐지는 아코디언(expandedCourseId).
 //  파일 검색은 모든 과목 파일에 대해 filename contains.
 //
 
@@ -30,8 +32,11 @@ struct GwaTopAIStudyView: View {
     @State private var searchText: String = ""
     /// 진행 중 파일이 있을 때 3초마다 자동 재조회 트리거.
     @State private var pollTick: Int = 0
-    /// 사용자가 접어둔 과목 id 집합. 기본은 펼침.
-    @State private var collapsedCourseIds: Set<String> = []
+    /// 자료 업로드 시트를 열 때 미리 선택할 과목 id.
+    /// 과목 상세에서 열면 그 과목으로, 헤더 버튼에서 열면 nil(직접 선택).
+    @State private var uploadCourseId: String? = nil
+    /// 펼쳐진(상세 정보 + 화살표 표시) 과목 id. 한 번에 하나만 펼쳐지는 아코디언.
+    @State private var expandedCourseId: String? = nil
 
     /// 백엔드 처리 중인 상태값들. 이 중 하나라도 있으면 폴링 계속.
     private static let inProgressStatuses: Set<String> = [
@@ -51,6 +56,7 @@ struct GwaTopAIStudyView: View {
                 VStack(spacing: 0) {
                     GwaTopScreenHeader(title: "학습") {
                         Button {
+                            uploadCourseId = nil
                             showUploadSheet = true
                         } label: {
                             Image(systemName: "doc.badge.arrow.up")
@@ -63,33 +69,47 @@ struct GwaTopAIStudyView: View {
                     }
 
                     ScrollView(showsIndicators: false) {
-                        VStack(spacing: 14) {
-                            // 백그라운드 업로드 진행 카드 — 시트가 닫혀도 여기에 표시.
-                            GwaTopUploadProgressBanner()
-
-                            searchBar
+                        VStack(alignment: .leading, spacing: 0) {
+                            // 상단(진행 배너 + 검색) — 좌우 여백 유지.
+                            VStack(spacing: 14) {
+                                // 백그라운드 업로드 진행 카드 — 시트가 닫혀도 여기에 표시.
+                                GwaTopUploadProgressBanner()
+                                searchBar
+                            }
+                            .padding(.horizontal, 18)
+                            .padding(.top, 6)
 
                             if let err = loadError {
                                 errorBanner(err) {
                                     Task { await loadAll() }
                                 }
+                                .padding(.horizontal, 18)
+                                .padding(.top, 14)
                             }
 
                             if isLoadingCourses && courses.isEmpty {
                                 ProgressView("불러오는 중…")
+                                    .frame(maxWidth: .infinity)
                                     .padding(.vertical, 40)
                             } else if courses.isEmpty {
                                 placeholder("등록된 과목이 없어요.\n학기/과목 관리에서 추가해 주세요.")
+                                    .padding(.horizontal, 18)
                             } else if filteredCourses.isEmpty {
                                 placeholder("\"\(searchText)\" 검색 결과가 없어요.")
+                                    .padding(.horizontal, 18)
                             } else {
-                                ForEach(filteredCourses) { course in
-                                    courseCard(course)
+                                // 과목 리스트 — 흰 카드 + 과목 고유색을 왼쪽 "포인트 바"로.
+                                // (흰 배경끼리 겹쳐 쌓으면 경계가 뭉개지므로, 카드 사이에 여백을
+                                //  두고 얇은 테두리 + 옅은 그림자로 분리한다.)
+                                VStack(spacing: 12) {
+                                    ForEach(filteredCourses) { course in
+                                        courseCard(course)
+                                    }
                                 }
+                                .padding(.horizontal, 18)
+                                .padding(.top, 12)
                             }
                         }
-                        .padding(.horizontal, 18)
-                        .padding(.top, 6)
                         .padding(.bottom, 32)
                     }
                     .refreshable { await loadAll() }
@@ -106,7 +126,7 @@ struct GwaTopAIStudyView: View {
                 }
             }
             .sheet(isPresented: $showUploadSheet) {
-                GwaTopMaterialUploadSheet(onUploadCompleted: {
+                GwaTopMaterialUploadSheet(preselectedCourseId: uploadCourseId, onUploadCompleted: {
                     // silent=true 로 호출해서 cache fresh bail-out 우회 + 스피너 안 띄움
                     // (사용자는 상단 진행 카드를 보고 있음).
                     Task { await reloadAllFiles(silent: true) }
@@ -169,180 +189,143 @@ struct GwaTopAIStudyView: View {
         .gwaTopCard(radius: 14)
     }
 
-    // MARK: - Course Card
+    // MARK: - Course Card (아코디언)
 
+    /// 과목 카드 — 흰(surface) 배경 + 왼쪽에 과목 고유색 "포인트 바".
+    /// 탭하면 인라인으로 펼쳐지며(아코디언) 교수/시간 상세 + 오른쪽 원형 화살표가 나타나고,
+    /// 화살표를 누르면 과목별 학습 상세(GwaTopCourseStudyDetailView)로 push.
+    /// (한 번에 하나만 펼쳐지는 아코디언. 펼침/접힘은 expandedCourseId 로 관리.)
     private func courseCard(_ course: GwaTopCourseDTO) -> some View {
-        let files = filesFor(course)
-        let isCollapsed = collapsedCourseIds.contains(course.id)
-        return VStack(spacing: 0) {
-            courseHeader(course, fileCount: files.count, isCollapsed: isCollapsed) {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    if isCollapsed {
-                        collapsedCourseIds.remove(course.id)
+        let isOpen = expandedCourseId == course.id
+        let materialCount = (filesByCourse[course.id] ?? []).filter { !$0.isSyllabus }.count
+        let accent = course.color.map(Color.gwaTopHex) ?? Color.gwaTopHex(GwaTopDefaultCourseColor)
+        let hasDetails = (course.professor?.isEmpty == false) || (course.schedule?.isEmpty == false)
+
+        return HStack(spacing: 0) {
+            // 왼쪽 포인트 바 — 과목 고유색. 카드 전체 높이를 채우고 둥근 모서리로 클립된다.
+            Rectangle()
+                .fill(accent)
+                .frame(width: 6)
+
+            VStack(alignment: .leading, spacing: 0) {
+                // ── 헤더 행: 과목명+자료수(탭 → 펼침/접힘) + 화살표(펼침) / ⌄(펼침 힌트) ──
+                HStack(alignment: .center, spacing: 12) {
+                    // 과목명 영역 전체가 펼침/접힘 토글.
+                    Button {
+                        withAnimation(.spring(response: 0.34, dampingFraction: 0.9)) {
+                            expandedCourseId = isOpen ? nil : course.id
+                        }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(course.name.isEmpty ? "이름 없는 과목" : course.name)
+                                .font(.gwaTopSystem(size: 19, weight: .bold))
+                                .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                                .lineLimit(isOpen ? nil : 1)
+                                .truncationMode(.tail)
+                                .multilineTextAlignment(.leading)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text("강의자료 \(materialCount)개")
+                                .font(.gwaTopSystem(size: 13, weight: .semibold))
+                                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    // 펼쳐졌을 때만 보이는 학습 페이지 진입 화살표. 접혀 있으면 펼침 힌트 ⌄.
+                    if isOpen {
+                        NavigationLink {
+                            GwaTopCourseStudyDetailView(
+                                course: course,
+                                files: filesByCourse[course.id] ?? [],
+                                isLoading: loadingCourseIds.contains(course.id),
+                                onSelectFile: { selectedFile = $0 },
+                                onUpload: {
+                                    uploadCourseId = course.id
+                                    showUploadSheet = true
+                                }
+                            )
+                        } label: {
+                            Image(systemName: "chevron.right")
+                                .font(.gwaTopSystem(size: 15, weight: .bold))
+                                .foregroundStyle(GwaTopHomeTheme.primary)
+                                .frame(width: 38, height: 38)
+                                .background(GwaTopHomeTheme.primary.opacity(0.12))
+                                .clipShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .transition(.opacity.combined(with: .scale(scale: 0.8)))
                     } else {
-                        collapsedCourseIds.insert(course.id)
+                        Image(systemName: "chevron.down")
+                            .font(.gwaTopSystem(size: 14, weight: .bold))
+                            .foregroundStyle(GwaTopHomeTheme.textTertiary)
+                            .frame(width: 38, height: 38)
                     }
                 }
-            }
-            if !isCollapsed {
-                if loadingCourseIds.contains(course.id) && files.isEmpty {
-                    HStack(spacing: 8) {
-                        ProgressView().scaleEffect(0.8)
-                        Text("자료 불러오는 중…")
-                            .font(.gwaTopSystem(size: 12))
-                            .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 20)
-                } else if files.isEmpty {
-                    Text("업로드된 자료가 없어요.")
-                        .font(.gwaTopSystem(size: 12, weight: .medium))
-                        .foregroundStyle(GwaTopHomeTheme.textTertiary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.vertical, 18)
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(files) { f in
-                            Button { selectedFile = f } label: { fileRow(f) }
-                                .buttonStyle(.plain)
+
+                // ── 상세 정보 (펼쳐졌을 때, 교수/시간이 있을 때만) ──
+                if isOpen && hasDetails {
+                    VStack(alignment: .leading, spacing: 9) {
+                        if let prof = course.professor, !prof.isEmpty {
+                            detailRow(icon: "person.fill", text: prof)
+                        }
+                        if let schedule = course.schedule, !schedule.isEmpty {
+                            detailRow(icon: "clock.fill", text: scheduleText(schedule))
                         }
                     }
+                    .padding(.top, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .transition(.opacity)
                 }
             }
+            .padding(.leading, 16)
+            .padding(.trailing, 12)
+            .padding(.vertical, isOpen ? 18 : 20)
         }
-        .gwaTopCard(radius: 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(GwaTopHomeTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(GwaTopHomeTheme.line, lineWidth: 1)
+        )
+        .shadow(color: GwaTopHomeTheme.cardShadow, radius: 6, x: 0, y: 3)
     }
 
-    private func courseHeader(
-        _ course: GwaTopCourseDTO,
-        fileCount: Int,
-        isCollapsed: Bool,
-        onToggle: @escaping () -> Void
-    ) -> some View {
-        Button(action: onToggle) {
-            HStack(spacing: 10) {
-                Circle()
-                    .fill(course.color.map(Color.gwaTopHex) ?? GwaTopHomeTheme.controlDisabled)
-                    .frame(width: 10, height: 10)
-
-                Text(course.name.isEmpty ? "이름 없는 과목" : course.name)
-                    .font(.gwaTopSystem(size: 16, weight: .bold))
-                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
-
-                Spacer()
-
-                Image(systemName: "chevron.down")
-                    .font(.gwaTopSystem(size: 12, weight: .bold))
-                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                    .rotationEffect(.degrees(isCollapsed ? -90 : 0))
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())   // 탭 영역은 유지, 원형 배경만 제거
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 14)
-            .padding(.bottom, isCollapsed ? 14 : (fileCount > 0 ? 10 : 12))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    // MARK: - File Row
-
-    private func fileRow(_ f: GwaTopFileSummary) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon(for: f.fileType))
-                .font(.gwaTopSystem(size: 16, weight: .semibold))
-                .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                .frame(width: 32, height: 32)
-                .background(GwaTopHomeTheme.surfaceMute)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(f.filename)
-                    .font(.gwaTopSystem(size: 14, weight: .semibold))
-                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                fileMeta(f)
-            }
-
-            Spacer()
-
-            Image(systemName: "chevron.right")
+    /// 펼쳐진 카드 안의 상세 정보 한 줄 (아이콘 + 텍스트).
+    private func detailRow(icon: String, text: String) -> some View {
+        HStack(spacing: 9) {
+            Image(systemName: icon)
                 .font(.gwaTopSystem(size: 12, weight: .semibold))
                 .foregroundStyle(GwaTopHomeTheme.textTertiary)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .contentShape(Rectangle())   // 행 전체(빈 공간 포함)를 탭 영역으로.
-    }
-
-    /// 주차 chip + 날짜 + 상태(준비 완료 / 처리 중 / 실패).
-    private func fileMeta(_ f: GwaTopFileSummary) -> some View {
-        HStack(spacing: 8) {
-            // 주차 chip (또는 미분류)
-            weekChip(f)
-
-            Text(Self.dateFormatter.string(from: f.createdAt))
-                .font(.gwaTopSystem(size: 11, weight: .medium))
+                .frame(width: 16)
+            Text(text)
+                .font(.gwaTopSystem(size: 14, weight: .medium))
                 .foregroundStyle(GwaTopHomeTheme.textSecondary)
-
-            statusIcon(f)
+                .lineLimit(2)
+            Spacer(minLength: 0)
         }
     }
 
-    private func weekChip(_ f: GwaTopFileSummary) -> some View {
-        let label: String = {
-            if let w = f.week { return "\(w)주차" }
-            switch f.status {
-            case "unclassified": return "미분류"
-            case "classifying":  return "분류 중"
-            case "extracted":    return "분류 대기"
-            default:             return "분류 대기"
-            }
-        }()
-        return Text(label)
-            .font(.gwaTopSystem(size: 10, weight: .bold))
-            .foregroundStyle(GwaTopHomeTheme.textSecondary)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(GwaTopHomeTheme.surfaceMute)
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+    /// 수업 시간 슬롯들을 "월 13:00–14:30, 수 …" 형태 문자열로.
+    private func scheduleText(_ slots: [GwaTopClassTimeDTO]) -> String {
+        slots
+            .map { "\(Self.dayLabel($0.day)) \($0.startTime)–\($0.endTime)" }
+            .joined(separator: ", ")
     }
 
-    /// 백엔드의 최종(준비 완료) 상태들. 자료는 classified/unclassified,
-    /// 강의계획서는 parsed 로 끝난다. 이 중 하나면 더 이상 "처리 중"이 아니다.
-    private static let readyStatuses: Set<String> = [
-        "classified", "unclassified", "parsed", "done"
-    ]
-
-    @ViewBuilder
-    private func statusIcon(_ f: GwaTopFileSummary) -> some View {
-        switch f.status {
-        case let s where Self.readyStatuses.contains(s):
-            HStack(spacing: 3) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.gwaTopSystem(size: 10, weight: .semibold))
-                    .foregroundStyle(GwaTopHomeTheme.primary)
-                Text("준비 완료")
-                    .font(.gwaTopSystem(size: 11, weight: .semibold))
-                    .foregroundStyle(GwaTopHomeTheme.primary)
-            }
-        case "failed":
-            HStack(spacing: 3) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.gwaTopSystem(size: 10, weight: .semibold))
-                Text("실패")
-                    .font(.gwaTopSystem(size: 11, weight: .semibold))
-            }
-            .foregroundStyle(GwaTopHomeTheme.danger)
-        default:
-            HStack(spacing: 3) {
-                ProgressView().scaleEffect(0.55)
-                Text("처리 중")
-                    .font(.gwaTopSystem(size: 11, weight: .semibold))
-                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
-            }
+    /// 백엔드 요일 코드(MON…SUN) → 한글 1글자.
+    private static func dayLabel(_ day: String) -> String {
+        switch day.uppercased() {
+        case "MON": return "월"
+        case "TUE": return "화"
+        case "WED": return "수"
+        case "THU": return "목"
+        case "FRI": return "금"
+        case "SAT": return "토"
+        case "SUN": return "일"
+        default:    return day
         }
     }
 
@@ -412,23 +395,6 @@ struct GwaTopAIStudyView: View {
         let q = searchText.trimmingCharacters(in: .whitespaces).lowercased()
         guard !q.isEmpty else { return base }
         return base.filter { $0.filename.lowercased().contains(q) }
-    }
-
-    private static let dateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "ko_KR")
-        f.dateFormat = "M월 d일"
-        return f
-    }()
-
-    private func icon(for fileType: String) -> String {
-        switch fileType {
-        case "pdf":   return "doc.richtext"
-        case "pptx":  return "rectangle.stack"
-        case "docx":  return "doc.text"
-        case "image": return "photo"
-        default:      return "doc"
-        }
     }
 
     // MARK: - Actions

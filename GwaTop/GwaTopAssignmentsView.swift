@@ -1,22 +1,23 @@
 import SwiftUI
 
-// MARK: - GwaTop Assignments View
-// 주간 할 일(ToDo) 화면. 백엔드 /v1/todos 와 연동.
+// MARK: - GwaTop Todo View (레퍼런스 PM 앱 스타일로 재구성)
+// 레이아웃: 주간 날짜 스트립 → 과목 진행도 카드 그리드 → 선택한 날짜의 할 일 카드 리스트.
+// 과목 카드 탭 → 과목별 과제 상세(요약 카드 + 번호 매긴 표). 백엔드 dashboard.upcoming_todos 와 연동.
 
 struct GwaTopAssignmentsView: View {
     @State private var assignments: [GwaTopAssignment] = []
-    @State private var selectedFilter: GwaTopAssignmentFilter = .all
+    /// 주간 스트립에서 선택된 날짜 — 이 날 마감인 과제만 리스트에 표시.
+    @State private var selectedDate: Date = Date()
     @State private var isLoading = false
     @State private var loadError: String? = nil
-    /// 동시에 다중 토글이 일어나는 걸 막기 위한 진행중 id 집합. 빠른 더블탭 시
-    /// 두 번째 요청은 무시되어 응답 순서가 뒤집혀도 UI가 잘못 고정되지 않는다.
+    /// 빠른 더블탭으로 토글이 중복 실행되는 걸 막는 진행중 id 집합.
     @State private var togglingIds: Set<String> = []
-    /// 접힌 과목 그룹의 course.id 집합. 기본값 비어 있음(모두 펼침).
-    @State private var collapsedCourseIds: Set<String> = []
-    /// 필터 선택 언더라인 슬라이드 애니메이션용 네임스페이스.
-    @Namespace private var filterNamespace
 
-    /// priority 정렬 가중치 (high가 먼저)
+    private let calendar = Calendar.current
+    private let weekdaySymbols = ["월", "화", "수", "목", "금", "토", "일"]
+
+    // MARK: - 파생 데이터
+
     private static func priorityWeight(_ p: GwaTopAssignmentPriority) -> Int {
         switch p {
         case .high: return 0
@@ -34,33 +35,60 @@ struct GwaTopAssignmentsView: View {
         }
     }
 
-    private var filteredAssignments: [GwaTopAssignment] {
-        switch selectedFilter {
-        case .all:
-            return sortedByPriorityThenDate(assignments)
-        case .active:
-            return sortedByPriorityThenDate(assignments.filter { !$0.isCompleted })
-        case .completed:
-            return assignments.filter { $0.isCompleted }.sorted { $0.dueDate < $1.dueDate }
-        }
+    /// 선택된 날짜가 속한 주(월~일) 7일.
+    private var weekDays: [Date] {
+        let weekday = calendar.component(.weekday, from: selectedDate) // 1=일 ... 7=토
+        let daysFromMonday = (weekday + 5) % 7
+        let start = calendar.startOfDay(for: selectedDate)
+        guard let monday = calendar.date(byAdding: .day, value: -daysFromMonday, to: start) else { return [] }
+        return (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: monday) }
     }
 
-    /// 필터 적용된 과제를 과목별로 묶어서 정렬한 결과.
-    /// 정렬 기준: (1) 활성 항목의 최소 마감일이 빠른 과목 우선, (2) 과목명 알파벳 순.
-    private var groupedAssignments: [GwaTopAssignmentCourseGroup] {
-        let base = filteredAssignments
-        let bucket = Dictionary(grouping: base, by: { $0.course.id })
-        return bucket.compactMap { _, items -> GwaTopAssignmentCourseGroup? in
+    /// 과목별 진행도 카드 데이터 — 로드된 전체 todo 기준 (완료/전체, 다음 마감).
+    private var courseProgressList: [GwaTopTodoCourseProgress] {
+        let groups = Dictionary(grouping: assignments, by: { $0.course.id })
+        return groups.compactMap { _, items -> GwaTopTodoCourseProgress? in
             guard let first = items.first else { return nil }
-            return GwaTopAssignmentCourseGroup(course: first.course, assignments: items)
+            let total = items.count
+            let done = items.filter(\.isCompleted).count
+            let nextDue = items.filter { !$0.isCompleted }.map(\.dueDate).min()
+            return GwaTopTodoCourseProgress(course: first.course, total: total, done: done, nextDue: nextDue)
         }
         .sorted { lhs, rhs in
-            let lhsKey = lhs.assignments.filter { !$0.isCompleted }.map(\.dueDate).min() ?? .distantFuture
-            let rhsKey = rhs.assignments.filter { !$0.isCompleted }.map(\.dueDate).min() ?? .distantFuture
-            if lhsKey != rhsKey { return lhsKey < rhsKey }
+            // 마감 임박한 과목 우선, 동률이면 이름순.
+            let l = lhs.nextDue ?? .distantFuture
+            let r = rhs.nextDue ?? .distantFuture
+            if l != r { return l < r }
             return lhs.course.name < rhs.course.name
         }
     }
+
+    /// 선택된 날짜에 마감인 과제 — 미완(우선순위·마감순) 먼저, 완료는 맨 아래로.
+    private var dayAssignments: [GwaTopAssignment] {
+        let base = assignments.filter { calendar.isDate($0.dueDate, inSameDayAs: selectedDate) }
+        let active = sortedByPriorityThenDate(base.filter { !$0.isCompleted })
+        let done = base.filter { $0.isCompleted }.sorted { $0.dueDate < $1.dueDate }
+        return active + done
+    }
+
+    /// 특정 과목의 과제 — 미완(마감 빠른 순) 먼저, 완료는 뒤로. 상세 표용.
+    private func assignmentsForCourse(_ id: String) -> [GwaTopAssignment] {
+        assignments
+            .filter { $0.course.id == id }
+            .sorted { a, b in
+                if a.isCompleted != b.isCompleted { return !a.isCompleted }
+                return a.dueDate < b.dueDate
+            }
+    }
+
+    private func relativeDayLabel(_ date: Date) -> String {
+        if calendar.isDateInToday(date) { return "오늘" }
+        if calendar.isDateInTomorrow(date) { return "내일" }
+        if calendar.isDateInYesterday(date) { return "어제" }
+        return GwaTopDateFormatters.koMonthDayShortWeekday.string(from: date)
+    }
+
+    // MARK: - Body
 
     var body: some View {
         NavigationStack {
@@ -69,39 +97,65 @@ struct GwaTopAssignmentsView: View {
                     .ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    GwaTopScreenHeader(title: "Todo")
+                    GwaTopScreenHeader(title: "Todo") {
+                        // 레퍼런스의 "July, 2025 ⌄" 위치 — 제목 줄 오른쪽. 탭하면 오늘로 복귀.
+                        Button {
+                            goToToday()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(GwaTopDateFormatters.koYearMonth.string(from: selectedDate))
+                                    .font(.gwaTopSystem(size: 14, weight: .bold))
+                                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                                Image(systemName: "chevron.down")
+                                    .font(.gwaTopSystem(size: 10, weight: .bold))
+                                    .foregroundStyle(GwaTopHomeTheme.textTertiary)
+                            }
+                            .padding(.horizontal, 12)
+                            .frame(height: 32)
+                            .background(GwaTopHomeTheme.surfaceMute)
+                            .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
 
                     ScrollView(showsIndicators: false) {
-                        VStack(spacing: 18) {
-                            filterSegment
-                                .padding(.top, 6)
-
+                        VStack(spacing: 20) {
                             if let err = loadError {
                                 errorState(err)
                             } else if isLoading && assignments.isEmpty {
                                 loadingState
-                            } else if filteredAssignments.isEmpty {
-                                emptyState
                             } else {
-                                VStack(spacing: 20) {
-                                    ForEach(groupedAssignments) { group in
-                                        courseGroupSection(group)
+                                weekStripView
+
+                                if assignments.isEmpty {
+                                    bigEmptyState
+                                } else {
+                                    if !courseProgressList.isEmpty {
+                                        courseCardsSection
                                     }
+                                    taskSection
                                 }
                             }
                         }
                         .padding(.horizontal, 20)
+                        .padding(.top, 6)
                         .padding(.bottom, 30)
                     }
-                    .refreshable {
-                        await load()
-                    }
+                    .refreshable { await load() }
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
-            .task {
-                if assignments.isEmpty { await load() }
+            .navigationDestination(for: String.self) { courseId in
+                if let item = courseProgressList.first(where: { $0.course.id == courseId }) {
+                    GwaTopCourseTodoDetailView(
+                        course: item.course,
+                        progress: item,
+                        assignments: assignmentsForCourse(courseId),
+                        onToggle: { toggleAssignment($0) }
+                    )
+                }
             }
+            .task { if assignments.isEmpty { await load() } }
             // 강의계획서 파싱 완료 → 자동 생성 과제가 즉시 목록에 반영되도록 강제 새로고침.
             .onReceive(NotificationCenter.default.publisher(for: .syllabusParseCompleted)) { _ in
                 Task { await load(force: true) }
@@ -109,92 +163,128 @@ struct GwaTopAssignmentsView: View {
         }
     }
 
-    /// 과목별 그룹 섹션 — 과목 헤더와 그 과목의 과제들을 "하나의 카드"로 묶는다.
-    /// 헤더 탭 → 접기/펴기 토글. 카드 테두리는 과목 색으로 옅게 틴트.
-    @ViewBuilder
-    private func courseGroupSection(_ group: GwaTopAssignmentCourseGroup) -> some View {
-        let isCollapsed = collapsedCourseIds.contains(group.course.id)
-        VStack(spacing: 0) {
-            Button {
-                // 펴기/접기는 부드러운 ease-in-out — spring은 콘텐츠가 튕기는 느낌을 만든다.
-                withAnimation(.easeInOut(duration: 0.22)) {
-                    if isCollapsed {
-                        collapsedCourseIds.remove(group.course.id)
-                    } else {
-                        collapsedCourseIds.insert(group.course.id)
-                    }
+    // MARK: - 주간 날짜 스트립 (레퍼런스 상단 week strip)
+
+    private var weekStripView: some View {
+        // 월 표시는 헤더로 올림. 카드 없이 투명 배경의 ‹ 요일행 › 한 줄 — 위아래 폭 최소화.
+        HStack(spacing: 2) {
+            weekArrow("chevron.left") { shiftWeek(-1) }
+
+            HStack(spacing: 4) {
+                ForEach(Array(weekDays.enumerated()), id: \.element) { idx, day in
+                    dayCell(day, label: weekdaySymbols[idx])
                 }
-            } label: {
-                courseGroupHeader(group, isCollapsed: isCollapsed)
             }
-            .buttonStyle(.plain)
 
-            if !isCollapsed {
-                // 같은 카드 안에서 헤더 → 헤어라인 → 과제 행 순으로 쌓는다 (애플 그룹 리스트 스타일).
-                VStack(spacing: 0) {
-                    ForEach(group.assignments) { assignment in
-                        Divider()
-                            .background(GwaTopHomeTheme.line)
-                            .padding(.leading, 16)
+            weekArrow("chevron.right") { shiftWeek(1) }
+        }
+        .padding(.vertical, 2)
+    }
 
-                        GwaTopAssignmentRow(
+    private func weekArrow(_ icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.gwaTopSystem(size: 13, weight: .bold))
+                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                .frame(width: 26, height: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func shiftWeek(_ direction: Int) {
+        if let d = calendar.date(byAdding: .day, value: 7 * direction, to: selectedDate) {
+            withAnimation(.easeInOut(duration: 0.2)) { selectedDate = d }
+        }
+    }
+
+    private func goToToday() {
+        withAnimation(.easeInOut(duration: 0.2)) { selectedDate = Date() }
+    }
+
+    private func dayCell(_ day: Date, label: String) -> some View {
+        let isSelected = calendar.isDate(day, inSameDayAs: selectedDate)
+        let isToday = calendar.isDateInToday(day)
+        let hasTasks = assignments.contains { calendar.isDate($0.dueDate, inSameDayAs: day) }
+        let dayNum = calendar.component(.day, from: day)
+        return Button {
+            withAnimation(.easeInOut(duration: 0.18)) { selectedDate = day }
+        } label: {
+            VStack(spacing: 3) {
+                Text(label)
+                    .font(.gwaTopSystem(size: 10, weight: .bold))
+                    .foregroundStyle(isSelected ? Color.white.opacity(0.9) : GwaTopHomeTheme.textSecondary)
+                Text("\(dayNum)")
+                    .font(.system(size: 14, weight: .heavy, design: .rounded))
+                    .foregroundStyle(isSelected ? .white : (isToday ? GwaTopHomeTheme.primary : GwaTopHomeTheme.textPrimary))
+                Circle()
+                    .fill(isSelected ? Color.white : GwaTopHomeTheme.primary)
+                    .frame(width: 4, height: 4)
+                    .opacity(hasTasks ? 1 : 0)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .background(isSelected ? GwaTopHomeTheme.primary : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - 과목 진행도 카드 (레퍼런스 Pinned Project 그리드)
+
+    private var courseCardsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("내 과목")
+                .font(.gwaTopSystem(size: 18, weight: .bold))
+                .foregroundStyle(GwaTopHomeTheme.textPrimary)
+
+            LazyVGrid(
+                columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
+                spacing: 12
+            ) {
+                ForEach(courseProgressList) { item in
+                    NavigationLink(value: item.course.id) {
+                        GwaTopTodoCourseCard(item: item)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    // MARK: - 할 일 리스트 (레퍼런스 Task 카드)
+
+    private var taskSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("할 일")
+                    .font(.gwaTopSystem(size: 18, weight: .bold))
+                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                Text("\(dayAssignments.count)")
+                    .font(.system(size: 14, weight: .heavy, design: .rounded))
+                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                Spacer()
+                Text(relativeDayLabel(selectedDate))
+                    .font(.gwaTopSystem(size: 13, weight: .semibold))
+                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+            }
+
+            if dayAssignments.isEmpty {
+                emptyDayState
+            } else {
+                VStack(spacing: 12) {
+                    ForEach(dayAssignments) { assignment in
+                        GwaTopTodoTaskCard(
                             assignment: assignment,
                             onToggle: { toggleAssignment(assignment) }
                         )
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
                     }
                 }
-                // 슬라이드 in/out 제거 → 자연스러운 fade. 위에서 떨어지는 듯한 튕김 현상 해소.
-                .transition(.opacity)
             }
         }
-        // 홈 카드와 동일한 플랫 스타일 — 그림자/테두리 없음(코랄 테두리 제거해 미니멀 통일).
-        .gwaTopCard(radius: 18)
     }
 
-    private func courseGroupHeader(_ group: GwaTopAssignmentCourseGroup, isCollapsed: Bool) -> some View {
-        let activeCount = group.assignments.filter { !$0.isCompleted }.count
-        return HStack(spacing: 12) {
-            // 홈 "내 과목" 카드와 동일한 톤다운 아이콘 타일 — 컬러 채움 대신 13% 틴트.
-            ZStack {
-                RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .fill(group.course.color.opacity(0.13))
-                    .frame(width: 42, height: 42)
-                Image(systemName: group.course.iconName)
-                    .font(.gwaTopSystem(size: 17, weight: .bold))
-                    .foregroundStyle(group.course.color)
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(group.course.name)
-                    .font(.gwaTopSystem(size: 16, weight: .bold))
-                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                    .lineLimit(1)
-                Text(activeCount > 0 ? "남은 과제 \(activeCount)개" : "모두 완료")
-                    .font(.gwaTopSystem(size: 12, weight: .medium))
-                    .foregroundStyle(activeCount > 0 ? GwaTopHomeTheme.textSecondary : GwaTopHomeTheme.success)
-            }
-
-            Spacer()
-
-            // 컬러 캡슐 배지 제거 → 홈 진행률 % 처럼 단정한 컬러 숫자만.
-            if activeCount > 0 {
-                Text("\(activeCount)")
-                    .font(.system(size: 15, weight: .heavy, design: .rounded))
-                    .foregroundStyle(group.course.color)
-            }
-
-            Image(systemName: "chevron.down")
-                .font(.gwaTopSystem(size: 12, weight: .semibold))
-                .foregroundStyle(GwaTopHomeTheme.textTertiary)
-                .rotationEffect(.degrees(isCollapsed ? -90 : 0))
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        // Spacer 영역까지 포함해 헤더 전체가 접기/펴기 탭 영역이 되도록.
-        .contentShape(Rectangle())
-    }
+    // MARK: - 상태 뷰
 
     private var loadingState: some View {
         VStack(spacing: 12) {
@@ -205,8 +295,7 @@ struct GwaTopAssignmentsView: View {
         }
         .padding(40)
         .frame(maxWidth: .infinity)
-        .background(GwaTopHomeTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .gwaTopCard(radius: 24)
     }
 
     private func errorState(_ message: String) -> some View {
@@ -233,23 +322,53 @@ struct GwaTopAssignmentsView: View {
         }
         .padding(28)
         .frame(maxWidth: .infinity)
-        .background(GwaTopHomeTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .gwaTopCard(radius: 24)
     }
+
+    /// 등록된 todo 자체가 하나도 없을 때.
+    private var bigEmptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "checkmark.seal.fill")
+                .font(.gwaTopSystem(size: 42, weight: .bold))
+                .foregroundStyle(GwaTopHomeTheme.success)
+            Text("아직 할 일이 없어요")
+                .font(.gwaTopSystem(size: 19, weight: .bold))
+                .foregroundStyle(GwaTopHomeTheme.textPrimary)
+            Text("강의계획서를 업로드하면 과제와 일정이 자동으로 채워져요.")
+                .font(.gwaTopSystem(size: 14, weight: .medium))
+                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(30)
+        .frame(maxWidth: .infinity)
+        .gwaTopCard(radius: 24)
+    }
+
+    /// 선택한 날짜에만 할 일이 없을 때 (다른 날엔 있음).
+    private var emptyDayState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "checkmark.circle")
+                .font(.gwaTopSystem(size: 30, weight: .semibold))
+                .foregroundStyle(GwaTopHomeTheme.textTertiary)
+            Text("이 날은 할 일이 없어요")
+                .font(.gwaTopSystem(size: 14, weight: .semibold))
+                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 34)
+    }
+
+    // MARK: - 데이터 로드 / 토글
 
     @MainActor
     private func load(force: Bool = false) async {
-        // 과제탭은 홈 ToDo 리스트와 "완전히 동일한" 항목을 보여줘야 한다.
-        // 홈은 GET /v1/home/dashboard 의 upcoming_todos 를 렌더하는데, 과제탭이 예전엔
-        // GET /v1/todos?start=오늘 을 따로 호출해서 마감 지난(overdue) 과제가 전부 빠졌다.
-        // → 소스를 dashboard.upcoming_todos 로 통일해 항상 홈과 같은 항목을 표시한다.
-        // (과제탭은 풀 리스트이므로 limit 을 넉넉히 줘 홈의 항목을 모두 포함한다.)
+        // 홈 ToDo 와 동일한 항목을 보여주려고 소스를 dashboard.upcoming_todos 로 통일.
+        // (과제탭은 풀 리스트이므로 limit 을 넉넉히 줘 홈 항목을 모두 포함한다.)
         let store = GwaTopAppDataStore.shared
 
-        // 0) 스플래시 prefetch 캐시 hydrate — 깜빡임 제거. 홈과 같은 dashboard 캐시 사용.
+        // 0) 스플래시 prefetch 캐시 hydrate — 깜빡임 제거.
         if let cachedTodos = store.dashboard?.upcomingTodos, !cachedTodos.isEmpty {
             assignments = cachedTodos.map(GwaTopAssignment.init(dto:))
-            // force(파싱 완료 알림 등) 일 때는 캐시를 건너뛰고 무조건 네트워크에서 다시 받는다.
             if !force && store.isCacheFresh {
                 isLoading = false
                 loadError = nil
@@ -265,7 +384,6 @@ struct GwaTopAssignmentsView: View {
             let dash = try await GwaTopHomeService.shared.fetchDashboard(upcomingLimit: 100)
             assignments = dash.upcomingTodos.map(GwaTopAssignment.init(dto:))
         } catch {
-            // SwiftUI 라이프사이클로 task가 취소된 경우는 무시 (이전 데이터 유지)
             if isCancellation(error) { return }
             loadError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
@@ -279,69 +397,13 @@ struct GwaTopAssignmentsView: View {
         }
     }
 
-    /// 원래 status로 명시 복원 — 외부 reload 등으로 중간에 상태가 바뀌어도 toggle 누적 오차 없음.
+    /// 원래 status로 명시 복원 — 외부 reload 등으로 상태가 바뀌어도 toggle 누적 오차 없음.
     @MainActor
     private func restoreStatus(id: String, status: GwaTopAssignmentStatus) {
         guard let index = assignments.firstIndex(where: { $0.id == id }) else { return }
         withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
             assignments[index].status = status
         }
-    }
-
-    /// 초미니멀 필터 — 알약/테두리/채움 없이 텍스트만, 화면 가로 중앙에 묶어서 배치.
-    /// 선택 항목은 굵게 + 아래 얇은 코랄 언더라인. (Spacer 없이 intrinsic 폭 → 부모가 중앙 정렬)
-    private var filterSegment: some View {
-        HStack(spacing: 32) {
-            ForEach(GwaTopAssignmentFilter.allCases) { filter in
-                let isSelected = selectedFilter == filter
-                Button {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                        selectedFilter = filter
-                    }
-                } label: {
-                    VStack(spacing: 6) {
-                        Text(filter.title)
-                            .font(.gwaTopSystem(size: 15, weight: isSelected ? .heavy : .semibold))
-                            .foregroundStyle(isSelected ? GwaTopHomeTheme.textPrimary : GwaTopHomeTheme.textTertiary)
-
-                        // 선택 언더라인 — 미선택 칸은 같은 높이의 투명 막대로 자리만 유지(레이아웃 점프 방지).
-                        Group {
-                            if isSelected {
-                                Capsule()
-                                    .fill(GwaTopHomeTheme.primary)
-                                    .matchedGeometryEffect(id: "filterUnderline", in: filterNamespace)
-                            } else {
-                                Capsule().fill(.clear)
-                            }
-                        }
-                        .frame(height: 2.5)
-                    }
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private var emptyState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "checkmark.seal.fill")
-                .font(.gwaTopSystem(size: 42, weight: .bold))
-                .foregroundStyle(GwaTopHomeTheme.success)
-
-            Text("표시할 과제가 없어요")
-                .font(.gwaTopSystem(size: 19, weight: .bold))
-                .foregroundStyle(GwaTopHomeTheme.textPrimary)
-
-            Text("필터를 바꾸거나 새 과제를 추가하면 여기에 나타납니다.")
-                .font(.gwaTopSystem(size: 14, weight: .medium))
-                .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                .multilineTextAlignment(.center)
-        }
-        .padding(30)
-        .frame(maxWidth: .infinity)
-        .background(GwaTopHomeTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     private func toggleAssignment(_ assignment: GwaTopAssignment) {
@@ -376,81 +438,368 @@ struct GwaTopAssignmentsView: View {
     }
 }
 
-private struct GwaTopAssignmentCourseGroup: Identifiable {
+// MARK: - 과목 진행도 모델
+
+private struct GwaTopTodoCourseProgress: Identifiable {
     let course: GwaTopCourseSummary
-    let assignments: [GwaTopAssignment]
+    let total: Int
+    let done: Int
+    let nextDue: Date?
+
     var id: String { course.id }
+    var progress: Double { total > 0 ? Double(done) / Double(total) : 0 }
+    var remaining: Int { max(0, total - done) }
 }
 
-private enum GwaTopAssignmentFilter: String, CaseIterable, Identifiable {
-    case all
-    case active
-    case completed
+// MARK: - 공통 작은 컴포넌트
 
-    var id: String { rawValue }
+/// 얇은 진행바 — 홈 과목 카드와 동일 톤.
+private struct GwaTopThinProgressBar: View {
+    let progress: Double
+    let color: Color
 
-    var title: String {
-        switch self {
-        case .all: return "전체"
-        case .active: return "진행 중"
-        case .completed: return "완료"
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule().fill(GwaTopHomeTheme.line)
+                Capsule()
+                    .fill(color)
+                    .frame(width: max(0, proxy.size.width * CGFloat(min(max(progress, 0), 1))))
+            }
+        }
+        .frame(height: 7)
+    }
+}
+
+/// 둥근 체크박스 — 미완: 과목색 얇은 링 / 완료: success 채움 + 흰 체크.
+/// (홈 "오늘 마감" 스트립에서도 재사용 — internal)
+struct GwaTopTodoCheckbox: View {
+    let isCompleted: Bool
+    let color: Color
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .strokeBorder(color.opacity(0.5), lineWidth: 1.6)
+                .opacity(isCompleted ? 0 : 1)
+            Circle()
+                .fill(GwaTopHomeTheme.success)
+                .opacity(isCompleted ? 1 : 0)
+            Image(systemName: "checkmark")
+                .font(.gwaTopSystem(size: 11, weight: .bold))
+                .foregroundStyle(.white)
+                .opacity(isCompleted ? 1 : 0)
+        }
+        .frame(width: 24, height: 24)
+        .frame(width: 34, height: 34)        // 넉넉한 탭 영역
+        .contentShape(Circle())
+    }
+}
+
+// MARK: - 과목 진행도 카드 (그리드 셀)
+
+private struct GwaTopTodoCourseCard: View {
+    let item: GwaTopTodoCourseProgress
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        .fill(item.course.color.opacity(0.13))
+                        .frame(width: 42, height: 42)
+                    Image(systemName: "folder.fill")
+                        .font(.gwaTopSystem(size: 17, weight: .bold))
+                        .foregroundStyle(item.course.color)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.gwaTopSystem(size: 12, weight: .semibold))
+                    .foregroundStyle(GwaTopHomeTheme.textTertiary)
+            }
+
+            Spacer(minLength: 14)
+
+            Text(item.course.name)
+                .font(.gwaTopSystem(size: 15, weight: .bold))
+                .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                .lineLimit(1)
+
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(item.course.color)
+                    .frame(width: 7, height: 7)
+                Text("\(item.done)/\(item.total) 완료")
+                    .font(.gwaTopSystem(size: 12, weight: .semibold))
+                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+            }
+            .padding(.top, 6)
+
+            GwaTopThinProgressBar(progress: item.progress, color: item.course.color)
+                .padding(.top, 8)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 148, alignment: .topLeading)
+        .gwaTopCard(radius: 20)
+    }
+}
+
+// MARK: - 할 일 카드 (리스트 셀)
+
+private struct GwaTopTodoTaskCard: View {
+    let assignment: GwaTopAssignment
+    let onToggle: () -> Void
+
+    private var isCompleted: Bool { assignment.isCompleted }
+    /// 마감이 오늘이거나 지났는데 아직 미완 → "진행 중"(긴급) 으로 강조.
+    private var isUrgent: Bool { !isCompleted && Date.gwaTopDDayFromToday(to: assignment.dueDate) <= 0 }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                // 과목 라벨 (레퍼런스의 회색 카테고리 라벨 → 과목색으로)
+                Text(assignment.course.name)
+                    .font(.gwaTopSystem(size: 12, weight: .bold))
+                    .foregroundStyle(assignment.course.color)
+                    .lineLimit(1)
+
+                Text(assignment.title)
+                    .font(.gwaTopSystem(size: 16, weight: .bold))
+                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                    .strikethrough(isCompleted, color: GwaTopHomeTheme.textSecondary)
+                    .opacity(isCompleted ? 0.55 : 1)
+                    .lineLimit(2)
+
+                // 설명이 있으면(수동 등록 todo) 표시, 없으면 생략.
+                if !assignment.description.isEmpty {
+                    Text(assignment.description)
+                        .font(.gwaTopSystem(size: 13, weight: .medium))
+                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                        .lineLimit(2)
+                }
+
+                // 메타 행: 과목색 점 + 마감 시각 + D-Day
+                HStack(spacing: 7) {
+                    Circle()
+                        .fill(isCompleted ? GwaTopHomeTheme.controlDisabled : assignment.course.color)
+                        .frame(width: 7, height: 7)
+                    Text(GwaTopDateFormatters.koMonthDayTime.string(from: assignment.dueDate))
+                        .font(.gwaTopSystem(size: 12, weight: .medium))
+                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                    Text("·")
+                        .font(.gwaTopSystem(size: 12, weight: .medium))
+                        .foregroundStyle(GwaTopHomeTheme.textTertiary)
+                    Text(assignment.dDayText)
+                        .font(.gwaTopSystem(size: 12, weight: .heavy))
+                        .foregroundStyle(isCompleted
+                                         ? GwaTopHomeTheme.success
+                                         : (isUrgent ? GwaTopHomeTheme.primary : GwaTopHomeTheme.textSecondary))
+                }
+                .padding(.top, 2)
+            }
+
+            Spacer(minLength: 4)
+
+            Button(action: onToggle) {
+                GwaTopTodoCheckbox(isCompleted: isCompleted, color: assignment.course.color)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(16)
+        .gwaTopCard(radius: 20)
+    }
+}
+
+// MARK: - 과목별 과제 상세 (레퍼런스 Project 상세 화면)
+// 요약 카드(다음 마감·진행률·완료 진행바) + 번호 매긴 과제 표(진행 중/완료 상태 표시).
+
+private struct GwaTopCourseTodoDetailView: View {
+    let course: GwaTopCourseSummary
+    let progress: GwaTopTodoCourseProgress
+    let assignments: [GwaTopAssignment]
+    let onToggle: (GwaTopAssignment) -> Void
+
+    private var nextDueText: String {
+        guard let d = progress.nextDue else { return "없음" }
+        return GwaTopDateFormatters.koMonthDayTime.string(from: d)
+    }
+
+    var body: some View {
+        ZStack {
+            GwaTopHomeTheme.background
+                .ignoresSafeArea()
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    summaryCard
+                    tableSection
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.bottom, 30)
+            }
+        }
+        .navigationTitle(course.name)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var summaryCard: some View {
+        VStack(spacing: 16) {
+            HStack(alignment: .center, spacing: 14) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("다음 마감")
+                        .font(.gwaTopSystem(size: 12, weight: .semibold))
+                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                    Text(nextDueText)
+                        .font(.gwaTopSystem(size: 16, weight: .bold))
+                        .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Rectangle()
+                    .fill(GwaTopHomeTheme.line)
+                    .frame(width: 1, height: 36)
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("진행률")
+                        .font(.gwaTopSystem(size: 12, weight: .semibold))
+                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                    Text("\(Int(progress.progress * 100))%")
+                        .font(.system(size: 16, weight: .heavy, design: .rounded))
+                        .foregroundStyle(course.color)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Rectangle()
+                .fill(GwaTopHomeTheme.line)
+                .frame(height: 1)
+
+            VStack(spacing: 8) {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(course.color)
+                        .frame(width: 7, height: 7)
+                    Text("\(progress.done)/\(progress.total) 완료")
+                        .font(.gwaTopSystem(size: 13, weight: .semibold))
+                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                    Spacer()
+                }
+                GwaTopThinProgressBar(progress: progress.progress, color: course.color)
+            }
+        }
+        .padding(18)
+        .gwaTopCard(radius: 22)
+    }
+
+    private var tableSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("과제 \(assignments.count)")
+                    .font(.gwaTopSystem(size: 18, weight: .heavy))
+                    .foregroundStyle(GwaTopHomeTheme.textPrimary)
+                Spacer()
+                Text("상태")
+                    .font(.gwaTopSystem(size: 12, weight: .semibold))
+                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+            }
+            .padding(.horizontal, 4)
+
+            if assignments.isEmpty {
+                Text("등록된 과제가 없어요.")
+                    .font(.gwaTopSystem(size: 14, weight: .medium))
+                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 28)
+                    .gwaTopCard(radius: 20)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(assignments.enumerated()), id: \.element.id) { idx, assignment in
+                        GwaTopCourseTodoRow(
+                            index: idx + 1,
+                            assignment: assignment,
+                            courseColor: course.color,
+                            onToggle: { onToggle(assignment) }
+                        )
+                        if idx < assignments.count - 1 {
+                            Divider()
+                                .background(GwaTopHomeTheme.line)
+                                .padding(.leading, 60)
+                        }
+                    }
+                }
+                .gwaTopCard(radius: 20)
+            }
         }
     }
 }
 
-/// 과목 그룹 카드 안에 들어가는 과제 한 줄. 자체 카드 chrome 없이 행(row) 으로만 동작.
-/// 홈 `GwaTopTodayTaskRow` 와 동일한 미니멀 언어 — 알약/배지 없이 작은 체크박스 +
-/// 제목 + 단정한 회색 메타 한 줄 + 우측 plain 컬러 D-Day 텍스트.
-private struct GwaTopAssignmentRow: View {
+/// 상세 표의 한 줄 — 번호 원(완료=체크/진행중=채움/대기=옅은) + 제목 + 상태 보조줄 + 체크박스.
+private struct GwaTopCourseTodoRow: View {
+    let index: Int
     let assignment: GwaTopAssignment
+    let courseColor: Color
     let onToggle: () -> Void
 
+    private var isCompleted: Bool { assignment.isCompleted }
+    private var isOngoing: Bool { !isCompleted && Date.gwaTopDDayFromToday(to: assignment.dueDate) <= 0 }
+
+    private var numberFill: Color {
+        if isCompleted { return GwaTopHomeTheme.success }
+        if isOngoing { return courseColor }
+        return courseColor.opacity(0.12)
+    }
+
+    private var secondaryText: String {
+        if isCompleted { return "완료됨" }
+        if isOngoing { return "진행 중 · \(assignment.dDayText)" }
+        if !assignment.description.isEmpty { return assignment.description }
+        return "\(GwaTopDateFormatters.koMonthDayTime.string(from: assignment.dueDate)) · \(assignment.dDayText)"
+    }
+
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            // 미니멀 체크박스 — 빨강(우선순위색) 대신 차분한 과목색 얇은 링 / 완료: success 채움.
-            Button(action: onToggle) {
-                ZStack {
-                    Circle()
-                        .strokeBorder(assignment.course.color.opacity(0.5), lineWidth: 1.6)
-                        .opacity(assignment.isCompleted ? 0 : 1)
-                    Circle()
-                        .fill(GwaTopHomeTheme.success)
-                        .opacity(assignment.isCompleted ? 1 : 0)
+        HStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(numberFill)
+                    .frame(width: 30, height: 30)
+                if isCompleted {
                     Image(systemName: "checkmark")
-                        .font(.gwaTopSystem(size: 11, weight: .bold))
+                        .font(.gwaTopSystem(size: 13, weight: .bold))
                         .foregroundStyle(.white)
-                        .opacity(assignment.isCompleted ? 1 : 0)
+                } else {
+                    Text("\(index)")
+                        .font(.system(size: 14, weight: .heavy, design: .rounded))
+                        .foregroundStyle(isOngoing ? .white : courseColor)
                 }
-                .frame(width: 22, height: 22)
-                .frame(width: 32, height: 32)        // 넉넉한 탭 영역
-                .contentShape(Circle())
             }
-            .buttonStyle(.plain)
-            .padding(.top, -5)                        // 제목 첫 줄 중심과 정렬
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(assignment.title)
                     .font(.gwaTopSystem(size: 15, weight: .semibold))
                     .foregroundStyle(GwaTopHomeTheme.textPrimary)
-                    .strikethrough(assignment.isCompleted, color: GwaTopHomeTheme.textSecondary)
-                    .opacity(assignment.isCompleted ? 0.55 : 1)
+                    .strikethrough(isCompleted, color: GwaTopHomeTheme.textSecondary)
+                    .opacity(isCompleted ? 0.55 : 1)
                     .lineLimit(2)
 
-                // 글자 최소화 — 우선순위/AI 라벨·요일 다 빼고 마감일시만 한 줄 회색으로.
-                Text(GwaTopDateFormatters.koMonthDayTime.string(from: assignment.dueDate))
-                    .font(.gwaTopSystem(size: 12, weight: .medium))
-                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                Text(secondaryText)
+                    .font(.gwaTopSystem(size: 12, weight: isOngoing ? .bold : .medium))
+                    .foregroundStyle(isOngoing ? courseColor : GwaTopHomeTheme.textSecondary)
                     .lineLimit(1)
             }
 
             Spacer(minLength: 8)
 
-            // 우측 D-Day — 빨강 제거, 차분한 회색 텍스트. 완료면 success.
-            Text(assignment.isCompleted ? "완료" : assignment.dDayText)
-                .font(.gwaTopSystem(size: 12, weight: .heavy).monospacedDigit())
-                .foregroundStyle(assignment.isCompleted ? GwaTopHomeTheme.success : GwaTopHomeTheme.textSecondary)
-                .padding(.top, 1)
+            Button(action: onToggle) {
+                GwaTopTodoCheckbox(isCompleted: isCompleted, color: courseColor)
+            }
+            .buttonStyle(.plain)
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 13)
+        .contentShape(Rectangle())
     }
 }
 

@@ -11,6 +11,9 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct GwaTopMaterialUploadSheet: View {
+    /// 시트 진입 시 미리 선택할 과목 id. 과목 상세에서 열 때 그 과목으로 고정된다.
+    /// nil 이면 첫 번째 과목이 기본 선택된다.
+    var preselectedCourseId: String? = nil
     var onUploadCompleted: () -> Void = {}
 
     @Environment(\.dismiss) private var dismiss

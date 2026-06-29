@@ -20,28 +20,28 @@ struct GwaTopMainTabView: View {
             GwaTopHomeView(user: user)
                 .tabItem {
                     Image(systemName: "house.fill")
-                    Text("홈")
+                        .accessibilityLabel("홈")
                 }
                 .tag(GwaTopTab.home)
 
             GwaTopCalendarView()
                 .tabItem {
                     Image(systemName: "calendar")
-                    Text("캘린더")
+                        .accessibilityLabel("캘린더")
                 }
                 .tag(GwaTopTab.calendar)
 
             GwaTopAIStudyView()
                 .tabItem {
                     Image(systemName: "book.closed.fill")
-                    Text("학습")
+                        .accessibilityLabel("학습")
                 }
                 .tag(GwaTopTab.ai)
 
             GwaTopAssignmentsView()
                 .tabItem {
                     Image(systemName: "checklist")
-                    Text("Todo")
+                        .accessibilityLabel("Todo")
                 }
                 .tag(GwaTopTab.tasks)
 
@@ -49,7 +49,7 @@ struct GwaTopMainTabView: View {
             GwaTopSettingsView(user: user, onLogout: onLogout, isAdmin: isAdmin)
                 .tabItem {
                     Image(systemName: "gearshape.fill")
-                    Text("설정")
+                        .accessibilityLabel("설정")
                 }
                 .tag(GwaTopTab.settings)
         }

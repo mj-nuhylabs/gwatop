@@ -2,9 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- 홈 스크린/스위처에 표시되는 한글 이름. CFBundleName(=GwaTop) 보다 우선. -->
-	<key>CFBundleDisplayName</key>
-	<string>과탑</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -21,23 +18,7 @@
 	<key>GIDClientID</key>
 	<string>166115611136-d42e728kfojf7resv9um0fcpgeffo8lp.apps.googleusercontent.com</string>
 	<key>GwaTopAPIBaseURL</key>
-	<!-- 운영 API — Caddy(Let's Encrypt) HTTPS 종단 → localhost:8000 프록시. 도메인은 .co.kr (.com 아님). -->
 	<string>https://api.gwatop.co.kr</string>
-	<!-- Pretendard Variable — gwatop-web 와 동일한 한글+라틴 단일 가변 폰트 -->
-	<key>UIAppFonts</key>
-	<array>
-		<string>PretendardVariable.ttf</string>
-	</array>
-	<!--
-	  Apple 캘린더 통합 — EventKit 읽기 권한.
-	  iOS 17+ 는 NSCalendarsFullAccessUsageDescription 필요 (write 도 가능한 풀 액세스).
-	  iOS 16 이하는 NSCalendarsUsageDescription 으로 fallback.
-	  현재 통합은 read-only — 사용자의 Apple 캘린더 이벤트를 우리 캘린더에 함께 표시만 함.
-	-->
-	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>Apple 캘린더의 일정을 과탑 캘린더에 함께 표시해드려요. 일정을 수정하거나 추가하지는 않아요.</string>
-	<key>NSCalendarsUsageDescription</key>
-	<string>Apple 캘린더의 일정을 과탑 캘린더에 함께 표시해드려요.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSExceptionDomains</key>
@@ -49,5 +30,9 @@
 			</dict>
 		</dict>
 	</dict>
+	<key>UIAppFonts</key>
+	<array>
+		<string>PretendardVariable.ttf</string>
+	</array>
 </dict>
 </plist>
