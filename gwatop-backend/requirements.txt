@@ -16,3 +16,5 @@ greenlet==3.5.1
 boto3==1.43.18
 openai==2.38.0
 pymupdf==1.27.2.3
+python-pptx==1.0.2
+python-docx==1.1.2

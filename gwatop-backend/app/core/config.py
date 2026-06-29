@@ -16,10 +16,10 @@ class Settings(BaseSettings):
     # presigned URL 발급 시 허용할 최대 파일 크기(바이트). 기본 50MB.
     MAX_UPLOAD_BYTES: int = 50 * 1024 * 1024
     # 허용 file_type (앱 화이트리스트와 일치해야 함).
-    # 현재 추출 파이프라인은 PDF만 안정 지원한다. pptx/docx/image를 허용하면
-    # "업로드 성공" 후 텍스트 없는 extracted 상태가 되어 학습 기능이 깨진다.
-    # 해당 포맷 추출기를 추가하기 전까지 기본 정책은 pdf로 제한한다.
-    ALLOWED_FILE_TYPES: str = "pdf"
+    # pdf(PyMuPDF) / pptx(python-pptx) / docx(python-docx) 추출기를 갖췄다.
+    # image 는 아직 추출기가 없어 제외한다(허용 시 텍스트 없는 extracted 상태가 되어
+    # 학습 기능이 깨진다). 유튜브 링크는 별도 resource_type 흐름(후속)으로 처리한다.
+    ALLOWED_FILE_TYPES: str = "pdf,pptx,docx"
 
     # --- 관리자 (출시 전 테스트용) ---
     # 이 이메일 목록의 사용자만 /v1/admin/* 엔드포인트 접근 가능. 콤마 구분.

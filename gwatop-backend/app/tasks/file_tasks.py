@@ -49,6 +49,7 @@ from app.services.embedding_classifier import (
 )
 from app.services.auto_classifier import detect_kind, guess_course_name
 from app.services.course_matcher import CourseMatchError, match_or_create_course
+from app.services.doc_text import extract_text_from_docx_bytes, extract_text_from_pptx_bytes
 from app.services.pdf_text import extract_tables_from_pdf, extract_text_from_pdf_bytes
 from app.services.syllabus_parser import SyllabusParseError, parse_syllabus
 from app.services.todo_generator import build_auto_todos
@@ -204,6 +205,22 @@ async def _extract_text_into(session: AsyncSession, file_row: File) -> tuple[str
                 logger.warning(
                     "extract_text: OCR fallback failed file=%s: %s", file_row.id, exc,
                 )
+
+    elif file_row.file_type == "pptx":
+        try:
+            text = await asyncio.to_thread(extract_text_from_pptx_bytes, data)
+        except Exception as exc:
+            logger.exception("extract_text: python-pptx failed for %s", file_row.id)
+            await _mark_failed(session, file_row, f"PPTX text extraction failed: {exc}")
+            return None, False
+
+    elif file_row.file_type == "docx":
+        try:
+            text = await asyncio.to_thread(extract_text_from_docx_bytes, data)
+        except Exception as exc:
+            logger.exception("extract_text: python-docx failed for %s", file_row.id)
+            await _mark_failed(session, file_row, f"DOCX text extraction failed: {exc}")
+            return None, False
 
     file_row.extracted_text = text
     # 강의계획서인데 텍스트가 비어 있으면 parse를 트리거할 수 없다 → 명시적 실패.
