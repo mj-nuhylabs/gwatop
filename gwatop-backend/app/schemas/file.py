@@ -4,7 +4,7 @@ from uuid import UUID
 from typing import Literal
 
 
-FILE_TYPES = Literal["pdf", "pptx", "docx", "image", "other"]
+FILE_TYPES = Literal["pdf", "pptx", "docx", "image", "other", "youtube"]
 
 
 class PresignedUrlRequest(BaseModel):
@@ -12,6 +12,11 @@ class PresignedUrlRequest(BaseModel):
     file_type: FILE_TYPES
     file_size_bytes: int
     is_syllabus: bool = False
+
+
+class YouTubeUploadRequest(BaseModel):
+    """유튜브 영상 링크 등록 — S3 업로드 없이 자막을 추출해 학습 자료로 만든다."""
+    youtube_url: str
 
 
 class PresignedUrlResponse(BaseModel):
@@ -27,12 +32,13 @@ class FileResponse(BaseModel):
     course_id: UUID | None
     filename: str
     file_type: str
-    s3_key: str
+    s3_key: str | None = None
     size_bytes: int | None
     status: str
     week: int | None
     ai_confidence: float | None
     is_syllabus: bool
+    external_url: str | None = None
     classification_source: str | None = None
     parse_error: str | None
     created_at: datetime

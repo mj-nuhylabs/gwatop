@@ -124,7 +124,7 @@ struct GwaTopFileThumbnail: View {
             } else {
                 Image(systemName: placeholderIcon)
                     .font(.gwaTopSystem(size: 30, weight: .regular))
-                    .foregroundStyle(GwaTopHomeTheme.textTertiary)
+                    .foregroundStyle(file.fileType == "youtube" ? Color.red : GwaTopHomeTheme.textTertiary)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -149,6 +149,7 @@ struct GwaTopFileThumbnail: View {
         case "pptx":  return "rectangle.stack"
         case "docx":  return "doc.text"
         case "image": return "photo"
+        case "youtube": return "play.rectangle.fill"
         default:      return "doc"
         }
     }

@@ -170,6 +170,10 @@ async def _extract_text_into(session: AsyncSession, file_row: File) -> tuple[str
     file_row.parse_error = None
     await session.commit()
 
+    # 유튜브: S3 객체가 없는 리소스 → 자막을 추출한다(S3 다운로드 우회).
+    if file_row.file_type == "youtube":
+        return await _extract_youtube_into(session, file_row)
+
     try:
         data = await asyncio.to_thread(s3.download_to_bytes, file_row.s3_key)
     except Exception as exc:
@@ -255,6 +259,38 @@ async def _extract_text_into(session: AsyncSession, file_row: File) -> tuple[str
     logger.info(
         "extract_text: file=%s chars=%d preview=%r",
         file_row.id, len(text or ""), text_preview,
+    )
+    return text, True
+
+
+async def _extract_youtube_into(session: AsyncSession, file_row: File) -> tuple[str | None, bool]:
+    """유튜브 영상 자막을 추출해 extracted_text 에 채운다(S3 우회).
+
+    youtube 는 항상 강의자료(material)다 — 후속 디스패치는 호출자(_run_extract)가 담당.
+    """
+    from app.services.youtube_extractor import (
+        fetch_transcript_for_url,
+        YouTubeTranscriptUnavailable,
+    )
+
+    url = file_row.external_url or ""
+    try:
+        text = await asyncio.to_thread(fetch_transcript_for_url, url)
+    except YouTubeTranscriptUnavailable as exc:
+        # 사용자에게 보여줄 친화적 메시지가 담긴 예외 — 그대로 parse_error 로.
+        await _mark_failed(session, file_row, str(exc))
+        return None, False
+    except Exception as exc:
+        logger.exception("extract_text: youtube transcript 예외 file=%s", file_row.id)
+        await _mark_failed(session, file_row, f"유튜브 자막 추출 실패: {exc}")
+        return None, False
+
+    file_row.extracted_text = text
+    file_row.status = "extracted"
+    await session.commit()
+    logger.info(
+        "extract_text(youtube): file=%s chars=%d url=%s",
+        file_row.id, len(text or ""), url,
     )
     return text, True
 

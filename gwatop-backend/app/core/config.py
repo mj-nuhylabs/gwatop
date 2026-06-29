@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     # 유튜브 링크는 별도 resource_type 흐름(후속)으로 처리한다.
     ALLOWED_FILE_TYPES: str = "pdf,pptx,docx,image"
 
+    # 유튜브 자막 추출용 선택적 프록시. EC2 IP 가 YouTube 에 차단될 때 .env 에
+    # 프록시 URL(예: "http://user:pass@host:port")을 넣으면 youtube_extractor 가 우회한다.
+    # 비어 있으면 직접 요청(데모/소량엔 충분, 대량/연속 요청 시 차단 가능).
+    YOUTUBE_PROXY_URL: str = ""
+
     # --- 관리자 (출시 전 테스트용) ---
     # 이 이메일 목록의 사용자만 /v1/admin/* 엔드포인트 접근 가능. 콤마 구분.
     # 예: "hyunnow28@gmail.com,admin@gwatop.com"

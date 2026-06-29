@@ -20,6 +20,7 @@ struct GwaTopFileSummary: Decodable, Identifiable, Equatable {
     let classificationSource: String?
     let isSyllabus: Bool
     let parseError: String?
+    let externalURL: String?
     let createdAt: Date
     let updatedAt: Date
 
@@ -34,6 +35,7 @@ struct GwaTopFileSummary: Decodable, Identifiable, Equatable {
         case classificationSource = "classification_source"
         case isSyllabus = "is_syllabus"
         case parseError = "parse_error"
+        case externalURL = "external_url"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }

@@ -27,6 +27,7 @@ struct GwaTopMaterialUploadSheet: View {
     @State private var isUploading = false
     @State private var uploadMessage: String? = nil
     @State private var uploadError: String? = nil
+    @State private var youtubeURL = ""
 
     private static let allowedTypes: [UTType] = {
         var t: [UTType] = [.pdf]
@@ -195,6 +196,8 @@ struct GwaTopMaterialUploadSheet: View {
             .opacity(selectedCourseId == nil || isUploading ? 0.55 : 1.0)
             .disabled(selectedCourseId == nil || isUploading)
 
+            youtubeSection
+
             Text("강의계획서(syllabus)는 캘린더 탭에서 따로 업로드해 주세요.")
                 .font(.gwaTopSystem(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
@@ -202,6 +205,74 @@ struct GwaTopMaterialUploadSheet: View {
         }
         .padding(18)
         .gwaTopCard(radius: 22)
+    }
+
+    private var youtubeSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Rectangle().fill(GwaTopHomeTheme.surfaceMute).frame(height: 1)
+                Text("또는 유튜브 영상")
+                    .font(.gwaTopSystem(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+                Rectangle().fill(GwaTopHomeTheme.surfaceMute).frame(height: 1)
+            }
+
+            HStack(spacing: 10) {
+                Image(systemName: "play.rectangle.fill")
+                    .font(.gwaTopSystem(size: 18, weight: .bold))
+                    .foregroundStyle(.red)
+                TextField("유튜브 영상 링크 붙여넣기", text: $youtubeURL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled(true)
+                    .keyboardType(.URL)
+                    .font(.gwaTopSystem(size: 14, weight: .medium))
+                    .submitLabel(.go)
+                    .onSubmit { submitYouTube() }
+                if !youtubeURL.isEmpty {
+                    Button {
+                        youtubeURL = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(GwaTopHomeTheme.textTertiary)
+                    }
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(GwaTopHomeTheme.surfaceMute)
+            )
+
+            Button {
+                submitYouTube()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.gwaTopSystem(size: 16, weight: .bold))
+                    Text("영상 추가")
+                        .font(.gwaTopSystem(size: 14, weight: .bold))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 11)
+                .foregroundStyle(youtubeSubmitEnabled ? .red : GwaTopHomeTheme.textTertiary)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color.red.opacity(youtubeSubmitEnabled ? 0.10 : 0.04))
+                )
+            }
+            .disabled(!youtubeSubmitEnabled)
+
+            Text("자막이 있는 영상만 학습에 활용할 수 있어요.")
+                .font(.gwaTopSystem(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var youtubeSubmitEnabled: Bool {
+        selectedCourseId != nil && !isUploading
+            && !youtubeURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func successBanner(_ message: String) -> some View {
@@ -319,6 +390,27 @@ struct GwaTopMaterialUploadSheet: View {
         uploadMessage = "‘\(filename)’ 업로드를 시작했어요. 학습 탭 상단에서 진행 상태를 확인할 수 있어요."
 
         // 짧은 토스트 효과 후 시트 자동 dismiss.
+        Task {
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            await MainActor.run {
+                onUploadCompleted()
+                dismiss()
+            }
+        }
+    }
+
+    @MainActor
+    private func submitYouTube() {
+        guard youtubeSubmitEnabled, let courseId = selectedCourseId else { return }
+        let url = youtubeURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        uploadError = nil
+        uploadMessage = nil
+
+        // 백그라운드 진행에 위임 — 시트가 닫혀도 학습 탭 상단 진행 카드에서 계속 추적.
+        GwaTopUploadProgress.shared.startYouTubeUpload(youtubeURL: url, courseId: courseId)
+        youtubeURL = ""
+        uploadMessage = "유튜브 영상을 추가하고 있어요. 자막을 가져오는 동안 학습 탭 상단에서 진행 상태를 확인할 수 있어요."
+
         Task {
             try? await Task.sleep(nanoseconds: 1_200_000_000)
             await MainActor.run {

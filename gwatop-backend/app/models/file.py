@@ -19,8 +19,12 @@ class File(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     filename: Mapped[str] = mapped_column(String, nullable=False)
+    # "pdf" | "pptx" | "docx" | "image" | "other" | "youtube"
     file_type: Mapped[str] = mapped_column(String, nullable=False, default="other")
-    s3_key: Mapped[str] = mapped_column(String, nullable=False)
+    # 유튜브 등 S3 객체가 없는 리소스는 s3_key=NULL. 파일 업로드는 storage key 를 갖는다.
+    s3_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    # 외부 리소스 URL (file_type="youtube" 일 때 영상 링크). 파일 업로드는 NULL.
+    external_url: Mapped[str | None] = mapped_column(String, nullable=True)
     size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String, nullable=False, default="uploading")
     week: Mapped[int | None] = mapped_column(Integer, nullable=True)

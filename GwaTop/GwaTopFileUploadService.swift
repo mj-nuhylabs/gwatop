@@ -179,6 +179,20 @@ actor GwaTopFileUploadService {
         return presigned.fileId
     }
 
+    /// 유튜브 영상 링크를 강의자료로 등록. S3 업로드 없이 백엔드가 자막을 추출한다.
+    /// - Returns: 생성된 file_id (자막 추출/분류는 비동기로 진행)
+    func addYouTubeLink(courseId: String, youtubeURL: String) async throws -> String {
+        struct Req: Encodable {
+            let youtubeURL: String
+            enum CodingKeys: String, CodingKey { case youtubeURL = "youtube_url" }
+        }
+        let resp: GwaTopFileConfirmResponse = try await GwaTopAPIClient.shared.post(
+            "/v1/courses/\(courseId)/files/youtube",
+            body: Req(youtubeURL: youtubeURL)
+        )
+        return resp.file.id
+    }
+
     /// 파일 파싱 완료까지 폴링.
     /// - Returns: (성공 여부, 마지막 status, 에러 메시지, 최종 schedules_count)
     func waitForParseCompletion(

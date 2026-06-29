@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -13,7 +14,13 @@ from app.models.user import User
 from app.models.course import Course
 from app.models.semester import Semester
 from app.models.file import File
-from app.schemas.file import PresignedUrlRequest, PresignedUrlResponse, FileResponse, FileConfirmResponse
+from app.schemas.file import (
+    PresignedUrlRequest,
+    PresignedUrlResponse,
+    FileResponse,
+    FileConfirmResponse,
+    YouTubeUploadRequest,
+)
 from app.services import s3
 from app.tasks.file_tasks import classify_file_task, extract_text_task
 
@@ -143,6 +150,55 @@ async def confirm_upload(
     if file_record.status in ("pending", "uploading"):
         _verify_uploaded_object(file_record)
         extract_text_task.delay(str(file_id))
+
+    return FileConfirmResponse(file=FileResponse.model_validate(file_record))
+
+
+# ---------- 유튜브 영상 링크 (S3 업로드 없음) ----------
+
+
+@router.post("/courses/{course_id}/files/youtube", response_model=FileConfirmResponse, status_code=status.HTTP_201_CREATED)
+async def add_youtube_link(
+    course_id: uuid.UUID,
+    body: YouTubeUploadRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """유튜브 영상 링크를 강의자료로 등록한다.
+
+    파일 업로드와 달리 presigned/S3/confirm 단계가 없다 — File 행을 만들고
+    바로 extract_text_task 를 큐잉해 자막을 추출한다. 자막 추출/분류는 워커가 담당.
+    """
+    from app.services.youtube_extractor import parse_video_id, fetch_video_title
+
+    await owned_course(course_id, current_user, db)
+
+    url = (body.youtube_url or "").strip()
+    if not parse_video_id(url):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="유효한 유튜브 영상 링크가 아니에요. 영상 주소를 다시 확인해 주세요.",
+        )
+
+    # 제목은 oembed 로 best-effort 조회 — 실패하면 URL 을 표시명으로.
+    # 동기 httpx 호출이라 이벤트 루프를 막지 않도록 스레드로 던진다.
+    title = await asyncio.to_thread(fetch_video_title, url)
+    filename = title or url
+
+    file_record = File(
+        course_id=course_id,
+        filename=filename,
+        file_type="youtube",
+        s3_key=None,
+        external_url=url,
+        is_syllabus=False,
+        status="pending",
+    )
+    db.add(file_record)
+    await db.commit()
+    await db.refresh(file_record)
+
+    extract_text_task.delay(str(file_record.id))
 
     return FileConfirmResponse(file=FileResponse.model_validate(file_record))
 
@@ -529,6 +585,12 @@ async def get_presigned_download(
 ) -> dict:
     """학습 탭의 PDF 보기에서 사용할 일회용 GET URL. 기본 1시간 유효."""
     file_row, _ = await owned_file(file_id, current_user, db)
+    # 유튜브 등 S3 객체가 없는 리소스는 다운로드 URL 이 없다 — 클라이언트는 external_url 을 쓴다.
+    if not file_row.s3_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="이 자료는 다운로드할 수 있는 파일이 아니에요.",
+        )
     try:
         url = s3.generate_presigned_get_url(file_row.s3_key, expires_in=3600)
     except Exception:

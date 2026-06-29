@@ -206,6 +206,51 @@ final class GwaTopUploadProgress: ObservableObject {
         tasks[jobId] = task
     }
 
+    /// 유튜브 영상 링크 등록 — S3 업로드 없이 백엔드가 자막을 추출한다.
+    /// 강의자료(material)와 동일한 진행/알림 흐름을 따른다.
+    func startYouTubeUpload(youtubeURL: String, courseId: String) {
+        let jobId = begin(filename: "유튜브 영상")
+        updateProgress(id: jobId, progress: 0.2)
+
+        let task = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let fileId = try await GwaTopFileUploadService.shared.addYouTubeLink(
+                    courseId: courseId, youtubeURL: youtubeURL
+                )
+                if Task.isCancelled { return }
+                self.updateProgress(id: jobId, progress: 1.0)
+                self.setPhase(id: jobId, phase: .processing)
+                NotificationCenter.default.post(
+                    name: .materialUploadCompleted,
+                    object: nil,
+                    userInfo: ["course_id": courseId, "file_id": fileId]
+                )
+
+                let finalStatus = await GwaTopFileUploadService.shared
+                    .waitForMaterialSettled(fileId: fileId)
+                if Task.isCancelled { return }
+
+                NotificationCenter.default.post(
+                    name: .materialUploadCompleted,
+                    object: nil,
+                    userInfo: ["course_id": courseId, "file_id": fileId]
+                )
+
+                if finalStatus == "failed" {
+                    self.fail(id: jobId, message: "영상 자막을 가져오지 못했어요. 자막이 있는 영상인지 확인해 주세요.")
+                } else {
+                    self.setPhase(id: jobId, phase: .done)
+                }
+            } catch {
+                if Task.isCancelled { return }
+                let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                self.fail(id: jobId, message: msg)
+            }
+        }
+        tasks[jobId] = task
+    }
+
     /// 무차별(auto) 업로드 — 강의계획서/강의자료를 구분하지 않고 아무 파일이나 올린다.
     /// 종류 판정은 백엔드가 하므로 과목/타입을 미리 받지 않는다. 홈 화면 버튼에서 시트 없이
     /// 바로 호출되며, 화면을 떠나도 이 singleton 에 묶여 백그라운드로 계속 진행된다.
