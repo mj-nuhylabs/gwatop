@@ -25,9 +25,13 @@ logger = logging.getLogger(__name__)
 _MAX_CHARS = 8000
 
 # 키워드 게이트 — 시험/과제 마커 ∩ (날짜 or 변경 마커) 둘 다 있을 때만 LLM 호출.
+# 영문 강의자료(발표/제출 공지 등)도 잡도록 영어 마커 보강. "slide/ppt" 처럼 모든 슬라이드덱에
+# 흔한 단어는 과탐(매 pptx마다 LLM 호출)을 유발하므로 제외하고, 제출물성 단어만 추가한다.
 _EVENT_MARKERS = (
     "시험", "고사", "중간", "기말", "퀴즈", "quiz", "exam", "midterm", "final",
     "과제", "assignment", "발표", "프로젝트", "제출", "마감", "due", "homework", "hw",
+    "present", "presentation", "submit", "submission", "report",
+    "deadline", "project", "essay", "paper", "team",
 )
 _DATE_CHANGE_MARKERS = (
     "변경", "연기", "조정", "순연", "앞당", "미뤄", "미룸", "일정", "날짜", "일자",
@@ -69,14 +73,16 @@ _SYSTEM_PROMPT = """\
 규칙:
 - existing_schedules 에 있는 일정의 날짜/시간/장소가 바뀌었다는 공지면 "updates" 에 넣고,
   반드시 그 일정의 정확한 title 을 existing_title 로 적는다(목록에 없는 제목이면 update 가 아니다).
-- 목록에 없는 새 시험/퀴즈/과제 공지면 "new_events" 에 넣는다.
+- 목록에 없는 새 시험/퀴즈/과제/발표(presentation) 공지면 "new_events" 에 넣는다.
+  - 예: "Team 9 Present on 7/30", "발표 7/30", "Final report due 8/2" → 모두 new_events.
+  - "7/30" 처럼 연도 없는 M/D 는 context_year 를 붙여 YYYY-MM-DD 로.
   - 날짜가 명확하면 date 를 YYYY-MM-DD 로 채운다.
   - **시험/과제임은 분명한데 정확한 날짜가 안 적혀 있으면 date 를 null 로 두고 그래도 new_events 에 넣는다**
     (예: "기말 프로젝트 보고서 제출 예정 — 날짜 추후 공지"). 단순 수업 내용·복습 안내는 넣지 마라.
 - 단순 수업 내용이거나 시험/과제 공지가 전혀 아니면 아무것도 넣지 마라(빈 배열).
 - 날짜는 YYYY-MM-DD. 연도가 안 적혀 있으면 context_year 를 사용한다. 날짜를 모르면 null.
 - 시간은 HH:MM(24시간) 또는 생략.
-- type 은 "exam"(시험/퀴즈/고사) 또는 "assignment"(과제/제출/프로젝트).
+- type 은 "exam"(시험/퀴즈/고사) 또는 "assignment"(과제/제출/프로젝트/발표/presentation).
 
 오직 아래 JSON 만 출력:
 {"updates":[{"existing_title":"...","type":"exam|assignment","new_date":"YYYY-MM-DD","new_start_time":"HH:MM(optional)","new_location":"(optional)","note":"무엇이 어떻게 바뀌었는지 한 줄"}],
