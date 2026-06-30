@@ -701,6 +701,37 @@ async def set_file_week(
     return FileResponse.model_validate(file_row)
 
 
+class FileRenameRequest(BaseModel):
+    filename: str = Field(..., min_length=1, max_length=255)
+
+
+@router.patch("/files/{file_id}/rename", response_model=FileResponse)
+async def rename_file(
+    file_id: uuid.UUID,
+    body: FileRenameRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """사용자가 파일 표시 이름을 변경한다.
+
+    S3 객체 키(s3_key)는 그대로 두고 DB 의 filename 만 갱신한다 — 다운로드/추출
+    파이프라인은 key 기반이라 영향 없음. 확장자 강제는 하지 않는다(표시용 이름).
+    """
+    file_row, _ = await owned_file(file_id, current_user, db)
+
+    new_name = body.filename.strip()
+    if not new_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="파일 이름은 비울 수 없어요.",
+        )
+
+    file_row.filename = new_name
+    await db.commit()
+    await db.refresh(file_row)
+    return FileResponse.model_validate(file_row)
+
+
 @router.delete("/files/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_file(
     file_id: uuid.UUID,
