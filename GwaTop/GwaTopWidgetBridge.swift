@@ -32,7 +32,9 @@ enum GwaTopWidgetBridge {
     private static func writeSnapshot(dashboard: GwaTopHomeDashboardDTO, schedules: [GwaTopScheduleDTO]) {
         // baseURL 은 위젯 직접 fetch(B)에서 쓰므로 함께 최신화.
         GwaTopWidgetStore.saveBaseURL(GwaTopAPI.baseURL)
-        let snapshot = makeSnapshot(from: dashboard, schedules: schedules)
+        let store = GwaTopAppDataStore.shared
+        let snapshot = makeSnapshot(from: dashboard, schedules: schedules,
+                                    courses: store.courses, semesters: store.semesters)
         GwaTopWidgetStore.saveSnapshot(snapshot)
         reload()
     }
@@ -57,7 +59,9 @@ enum GwaTopWidgetBridge {
     // MARK: - DTO → 위젯 스냅샷 매핑
 
     private static func makeSnapshot(from dash: GwaTopHomeDashboardDTO,
-                                     schedules: [GwaTopScheduleDTO]) -> GwaTopWidgetSnapshot {
+                                     schedules: [GwaTopScheduleDTO],
+                                     courses: [GwaTopCourseDTO] = [],
+                                     semesters: [GwaTopSemesterDTO] = []) -> GwaTopWidgetSnapshot {
         let todaySchedules = dash.todaySchedules.map { scheduleItem($0) }
 
         let todos = dash.upcomingTodos.map { t in
@@ -83,7 +87,7 @@ enum GwaTopWidgetBridge {
             .prefix(15)
             .map { scheduleItem($0) }
 
-        return GwaTopWidgetSnapshot(
+        var snapshot = GwaTopWidgetSnapshot(
             generatedAt: Date(),
             todaySchedules: todaySchedules,
             upcomingTodos: todos,
@@ -94,6 +98,37 @@ enum GwaTopWidgetBridge {
             nextEventDueDate: dash.nextEvent?.dueDate,
             nextEventCourseName: dash.nextEvent?.courseName,
             nextEventColorHex: dash.nextEvent?.courseColor
+        )
+
+        // 수업(시간표) 발생을 '다가오는/다음 일정'에 합친다 — schedules 엔 없고 Course.schedule 에만 있음.
+        let now = Date()
+        let classItems = classOccurrences(courses: courses, semesters: semesters, now: now)
+        snapshot.mergeUpcomingClasses(classItems, now: now)
+        return snapshot
+    }
+
+    /// 활성 학기의 수업 발생을 위젯 아이템으로 펼친다 (앱 인메모리 DTO 기반, 추가 네트워크 없음).
+    private static func classOccurrences(courses: [GwaTopCourseDTO],
+                                         semesters: [GwaTopSemesterDTO],
+                                         now: Date) -> [GwaTopWidgetItem] {
+        guard !courses.isEmpty else { return [] }
+        // 활성 학기: is_active 우선, 없으면 오늘이 [start,end] 안에 드는 학기.
+        let cal = Calendar.current
+        let active = semesters.first(where: { $0.isActive })
+            ?? semesters.first(where: { sem in
+                let end = cal.date(byAdding: .day, value: 1, to: sem.endDate) ?? sem.endDate
+                return now >= sem.startDate && now <= end
+            })
+        let inputs: [GwaTopWidgetClassInput] = courses
+            .filter { active == nil || $0.semesterId == active!.id }
+            .compactMap { c in
+                let slots = (c.schedule ?? []).map { (day: $0.day, startTime: $0.startTime) }
+                guard !slots.isEmpty else { return nil }
+                return GwaTopWidgetClassInput(courseName: c.name, colorHex: c.color, slots: slots)
+            }
+        return GwaTopWidgetClassExpander.upcomingClassItems(
+            courses: inputs, now: now, horizonDays: 14,
+            semesterStart: active?.startDate, semesterEnd: active?.endDate
         )
     }
 

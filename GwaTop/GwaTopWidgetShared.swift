@@ -80,6 +80,104 @@ struct GwaTopWidgetSnapshot: Codable, Hashable {
     }
 }
 
+// MARK: - 수업(시간표) → 다가오는 일정 확장
+
+/// 수업 발생을 만들기 위한 최소 입력 (앱 DTO / 위젯 디코드 양쪽에서 채워 넣는다).
+/// 수업은 schedules 테이블이 아니라 Course.schedule(주간 슬롯)에만 있어, 위젯의
+/// '다음/다가오는 일정'에 포함하려면 클라이언트에서 발생 시각을 펼쳐야 한다.
+struct GwaTopWidgetClassInput {
+    var courseName: String
+    var colorHex: String?
+    /// (요일 "MON"…"SUN", 시작시각 "HH:MM")
+    var slots: [(day: String, startTime: String)]
+}
+
+enum GwaTopWidgetClassExpander {
+    /// 요일 문자열 → Gregorian weekday(1=일 … 7=토).
+    private static let weekdayOf: [String: Int] = [
+        "SUN": 1, "MON": 2, "TUE": 3, "WED": 4, "THU": 5, "FRI": 6, "SAT": 7,
+    ]
+
+    /// 수업 시각은 KST 벽시계("HH:MM")이므로 KST 기준으로 절대시각을 만든다.
+    private static var kstCalendar: Calendar {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "Asia/Seoul") ?? .current
+        return cal
+    }
+
+    /// `now` 부터 `horizonDays` 일까지, (주어지면) 학기 [start,end] 안의 수업 발생을
+    /// 위젯 아이템으로 만든다. title=과목명, courseName="수업", type="lecture".
+    static func upcomingClassItems(
+        courses: [GwaTopWidgetClassInput],
+        now: Date,
+        horizonDays: Int = 14,
+        semesterStart: Date? = nil,
+        semesterEnd: Date? = nil
+    ) -> [GwaTopWidgetItem] {
+        guard !courses.isEmpty else { return [] }
+        let cal = kstCalendar
+        let startOfNow = cal.startOfDay(for: now)
+        let semStartDay = semesterStart.map { cal.startOfDay(for: $0) }
+        let semEndDay = semesterEnd.map { cal.startOfDay(for: $0) }
+        let iso = ISO8601DateFormatter()
+        var items: [GwaTopWidgetItem] = []
+
+        for offset in 0...max(0, horizonDays) {
+            guard let day = cal.date(byAdding: .day, value: offset, to: startOfNow) else { continue }
+            if let s = semStartDay, day < s { continue }       // 학기 시작 전
+            if let e = semEndDay, day > e { continue }          // 학기 종료 후
+            let weekday = cal.component(.weekday, from: day)
+
+            for course in courses {
+                for slot in course.slots {
+                    guard let wd = weekdayOf[slot.day.uppercased()], wd == weekday else { continue }
+                    let hm = slot.startTime.split(separator: ":")
+                    guard hm.count == 2, let h = Int(hm[0]), let m = Int(hm[1]),
+                          let occur = cal.date(bySettingHour: h, minute: m, second: 0, of: day),
+                          occur >= now
+                    else { continue }
+                    items.append(GwaTopWidgetItem(
+                        id: "class-\(course.courseName)-\(iso.string(from: occur))",
+                        kind: .schedule,
+                        title: course.courseName,
+                        courseName: "수업",
+                        courseColorHex: course.colorHex,
+                        dueDate: occur,
+                        typeOrPriority: "lecture",
+                        isDone: false
+                    ))
+                }
+            }
+        }
+        return items
+    }
+}
+
+extension GwaTopWidgetSnapshot {
+    /// 수업 발생을 '다가오는 일정'에 합치고(오늘 0시 이후·정렬·상한 15) '다음 일정'도
+    /// 재계산한다 — 지금 이후 가장 가까운 항목이 수업이면 다음 일정이 수업이 된다.
+    mutating func mergeUpcomingClasses(_ classItems: [GwaTopWidgetItem], now: Date) {
+        guard !classItems.isEmpty else { return }
+        let cal = Calendar(identifier: .gregorian)
+        let startOfToday = cal.startOfDay(for: now)
+        let merged = (upcomingSchedules + classItems)
+            .filter { ($0.dueDate ?? .distantPast) >= startOfToday }
+            .sorted { ($0.dueDate ?? .distantFuture) < ($1.dueDate ?? .distantFuture) }
+        upcomingSchedules = Array(merged.prefix(15))
+
+        // 다음 일정: 지금 이후 가장 가까운 일정(수업 포함). 기존보다 더 가까울 때만 교체
+        // (기존 '다음 일정'을 절대 더 늦게 만들지 않는다 — 순수하게 수업을 더할 뿐).
+        guard let soonest = merged.first(where: { ($0.dueDate ?? .distantPast) >= now }),
+              let soonestDue = soonest.dueDate
+        else { return }
+        if let cur = nextEventDueDate, soonestDue >= cur { return }
+        nextEventTitle = soonest.title
+        nextEventDueDate = soonestDue
+        nextEventCourseName = soonest.courseName
+        nextEventColorHex = soonest.courseColorHex
+    }
+}
+
 // MARK: - App Group 저장소
 
 /// 앱과 위젯이 공유하는 App Group UserDefaults 래퍼.
