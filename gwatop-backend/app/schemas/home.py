@@ -24,9 +24,10 @@ class NextEvent(BaseModel):
     type: str
     due_date: datetime
     d_day: int  # >=0 이면 미래/오늘, <0 이면 과거 (지금 시점엔 next라 보통 미래)
-    course_id: UUID
-    course_name: str
-    course_color: str | None
+    # 외부(Apple) 일정이 next 가 될 수 있어 course 정보는 nullable.
+    course_id: UUID | None = None
+    course_name: str | None = None
+    course_color: str | None = None
 
 
 class HomeDashboardResponse(BaseModel):
