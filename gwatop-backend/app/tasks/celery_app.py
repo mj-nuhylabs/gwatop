@@ -41,22 +41,13 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,
     # 5) 부팅 시 브로커(Redis) 연결 재시도 (Celery 5 권장 기본값).
     broker_connection_retry_on_startup=True,
-    # ===== 작업 우선순위 (Redis 단일 큐 내 priority) =====
-    # 배경: 파일 학습 화면 진입 시 prefetch 가 5종 콘텐츠를 '투기적으로' 큐잉한다.
-    #       concurrency 가 작을 때(현재 2) 이 5개가 큐를 채우면, 정작 중요한 실작업
-    #       (텍스트 추출/분류/강의계획서 파싱/요약/사용자가 직접 누른 생성)이 뒤로 밀린다.
-    # 해결: Redis transport 의 priority 를 켜고 prefetch 만 낮은 우선순위로 보낸다.
-    #       Redis 규칙상 **숫자가 작을수록 먼저 소비**(0=최우선, 9=최후순위).
-    #       단일 'celery' 큐 안에서 동작하므로 워커 -Q 옵션/별도 큐가 필요 없다 — 워커
-    #       재시작만으로 적용. (worker_prefetch_multiplier=1 이 위에 있어 priority 가 실효.)
-    # 안전: 미지원/오설정이어도 최악은 "전부 동일 우선순위 = 오늘과 같은 FIFO" — 순수 상향.
-    task_queue_max_priority=9,
-    task_default_priority=5,        # 일반 작업 기본(중간). prefetch(9)보다 항상 먼저 처리됨.
-    broker_transport_options={
-        "priority_steps": list(range(10)),
-        "sep": ":",
-        "queue_order_strategy": "priority",
-    },
+    # NOTE: hyunnow(b5f2a14)가 추가했던 Redis priority 설정(broker_transport_options 의
+    #       priority_steps/sep/queue_order_strategy + task_queue_max_priority/
+    #       task_default_priority)은 이 kombu/celery 버전에서 **워커가 태스크를 전혀
+    #       소비하지 못하고**(celery / celery:5 큐에 적체) pidbox control 명령
+    #       (inspect·watchdog ping)이 ValueError("not enough values to unpack")로
+    #       깨지는 회귀를 일으켜 제거했다. → 검증된 단일 'celery' 큐 FIFO 로 복귀.
+    #       prefetch 강등 최적화는 보류(prefetch 호출의 priority= 인자는 무시되어 안전).
     # Day 7: Celery Beat 스케줄
     # 매일 09:00 KST에 D-Day 알림(24h 이내 마감 todos/schedules)을 보낸다.
     beat_schedule={
