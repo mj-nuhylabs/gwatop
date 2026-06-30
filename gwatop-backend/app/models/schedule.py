@@ -21,6 +21,8 @@ class Schedule(Base):
     title: Mapped[str] = mapped_column(String, nullable=False)
     type: Mapped[str] = mapped_column(String, nullable=False)
     due_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    # 종료 시각 — 주로 외부(Apple 캘린더) 일정의 end. 과목 일정/시간 미지정이면 NULL.
+    end_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_auto: Mapped[bool] = mapped_column(Boolean, default=False)
     # 출처: None/"manual"/"ai_parsed"(과목 일정) 또는 "apple_calendar"(외부 동기화).

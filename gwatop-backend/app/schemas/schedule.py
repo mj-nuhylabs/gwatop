@@ -35,6 +35,8 @@ class ScheduleResponse(BaseModel):
     title: str
     type: str
     due_date: datetime
+    # 종료 시각(주로 외부 Apple 일정). 없으면 null.
+    end_date: datetime | None = None
     description: str | None
     is_auto: bool
     source: str | None = None

@@ -34,6 +34,7 @@ def _to_response(schedule: Schedule, course: Course | None) -> ScheduleResponse:
         title=schedule.title,
         type=schedule.type,
         due_date=schedule.due_date,
+        end_date=schedule.end_date,
         description=schedule.description,
         is_auto=schedule.is_auto,
         source=schedule.source,
@@ -84,6 +85,7 @@ async def list_schedules(
             title=s.title,
             type=s.type,
             due_date=s.due_date,
+            end_date=s.end_date,
             description=s.description,
             is_auto=s.is_auto,
             source=s.source,
@@ -220,7 +222,7 @@ async def sync_external_events(
     - external_id 로 기존 행 매칭 → 변경분만 update, 없으면 create.
     - 이번 스냅샷에 없는 같은 source 의 기존 외부 일정은 삭제(Apple 에서 지운 일정 반영).
     - 토글 OFF 시 앱이 events=[] 로 호출하면 해당 source 외부 일정이 전부 삭제된다.
-    외부 개인 일정엔 auto todo 를 만들지 않는다(start_date 만 due_date 로 저장, end 는 보관 안 함).
+    외부 개인 일정엔 auto todo 를 만들지 않는다(start_date→due_date, end_date→end_date 저장).
     """
     source = body.source or "apple_calendar"
 
@@ -239,6 +241,7 @@ async def sync_external_events(
     for ev in body.events:
         seen.add(ev.external_id)
         due = to_naive_kst(ev.start_date) or ev.start_date
+        end = to_naive_kst(ev.end_date) if ev.end_date else None
         title = ev.title.strip() or "(제목 없음)"
         desc = (ev.location or None)
         row = by_ext.get(ev.external_id)
@@ -250,6 +253,7 @@ async def sync_external_events(
                     title=title,
                     type="meeting",
                     due_date=due,
+                    end_date=end,
                     description=desc,
                     is_auto=False,
                     source=source,
@@ -258,8 +262,8 @@ async def sync_external_events(
             )
             created += 1
         else:
-            if (row.title, row.due_date, row.description) != (title, due, desc):
-                row.title, row.due_date, row.description = title, due, desc
+            if (row.title, row.due_date, row.end_date, row.description) != (title, due, end, desc):
+                row.title, row.due_date, row.end_date, row.description = title, due, end, desc
                 updated += 1
 
     stale_ids = [s.id for s in existing if (s.external_id or "") not in seen]
