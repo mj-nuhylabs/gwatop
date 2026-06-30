@@ -28,12 +28,14 @@ Structured Outputs(`response_format={"type":"json_schema", ..., "strict": True}`
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Awaitable, Callable, Type
 
 from openai import AsyncOpenAI, BadRequestError, OpenAIError
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.core import metrics
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +110,8 @@ async def run_structured_completion(
     if settings.OPENAI_STRUCTURED_OUTPUTS and model not in _disabled_models:
         try:
             schema = build_strict_schema(schema_model)
-            return await client.chat.completions.create(
+            t0 = time.perf_counter()
+            resp = await client.chat.completions.create(
                 model=model,
                 temperature=temperature,
                 max_tokens=max_tokens,
@@ -122,6 +125,8 @@ async def run_structured_completion(
                 },
                 messages=messages,
             )
+            _record(schema_name, resp, t0)
+            return resp
         except BadRequestError as exc:
             # 스키마 거부 / 모델 미지원 — 결정론적. 이 프로세스에서 이 모델은 비활성화.
             _disabled_models.add(model)
@@ -137,13 +142,26 @@ async def run_structured_completion(
             )
 
     # ----- 폴백: 기존 json_object 모드 (OpenAIError 는 호출자가 처리) -----
-    return await client.chat.completions.create(
+    t0 = time.perf_counter()
+    resp = await client.chat.completions.create(
         model=model,
         temperature=temperature,
         max_tokens=max_tokens,
         response_format={"type": "json_object"},
         messages=messages,
     )
+    _record(schema_name, resp, t0)
+    return resp
+
+
+def _record(schema_name: str, resp: Any, t0: float) -> None:
+    """완료된 응답 1건을 metrics 에 기록. 실패해도 호출 흐름에 영향 없음."""
+    try:
+        ms = (time.perf_counter() - t0) * 1000.0
+        tokens = resp.usage.total_tokens if getattr(resp, "usage", None) else 0
+        metrics.record_llm_call(schema_name, getattr(resp, "model", "?"), tokens, ms)
+    except Exception:  # noqa: BLE001 — 계측은 절대 본 로직을 깨면 안 됨
+        pass
 
 
 async def structured_chat_json(
@@ -219,6 +237,7 @@ async def stream_structured_completion(
             stream_options={"include_usage": True},
         )
 
+    t0 = time.perf_counter()
     stream = None
     if settings.OPENAI_STRUCTURED_OUTPUTS and model not in _disabled_models:
         try:
@@ -267,4 +286,10 @@ async def stream_structured_completion(
         if getattr(ch, "finish_reason", None):
             finish_reason = ch.finish_reason
 
+    try:
+        metrics.record_llm_call(
+            schema_name, resp_model, total_tokens, (time.perf_counter() - t0) * 1000.0
+        )
+    except Exception:  # noqa: BLE001
+        pass
     return "".join(parts), resp_model, total_tokens, finish_reason

@@ -122,6 +122,40 @@ class Settings(BaseSettings):
     # 임베딩 비교에 사용할 파일 텍스트 앞부분 길이(자).
     CLASSIFY_EMBEDDING_INPUT_CHARS: int = 4000
 
+    # --- 문서 분류 (추출신호 + doc_type 1회 통합 호출) ---
+    # 빠른 모델 우선 → 저신뢰 시 큰 모델로 1회만 승급. 대부분 파일은 빠른 모델 1회로 끝난다.
+    CLASSIFY_FAST_MODEL: str = "gpt-4.1-nano"
+    CLASSIFY_ESCALATE_MODEL: str = "gpt-4o-mini"
+    # 이 confidence 미만이거나 doc_type=='불확실' 이면 큰 모델로 1회 재시도.
+    CLASSIFY_CONFIDENCE_THRESHOLD: float = 0.70
+    # 승급 후에도 이 confidence 미만이면 '확인 필요'(needs_review)로 두고 자동 결정 보류.
+    CLASSIFY_REVIEW_THRESHOLD: float = 0.50
+    # 통합 분류 LLM 에 보낼 본문 앞부분 길이(자). 강의계획서 신호(과목정보·평가비율·주차일정)는
+    # 보통 앞쪽에 몰려 있어 앞부분만 봐도 충분하고 입력 토큰이 줄어 지연시간이 크게 준다.
+    CLASSIFY_DOC_INPUT_CHARS: int = 4000
+    # 동일 콘텐츠 재업로드 시 분류 결과 재사용(콘텐츠 해시 dedup). Redis 불가 시 silent miss.
+    CLASSIFY_CACHE_ENABLED: bool = True
+    CLASSIFY_CACHE_TTL_SECONDS: int = 7 * 24 * 60 * 60
+    # 자동 배치 업로드 시 파일별 추출+분류를 동시에 처리하는 최대 개수.
+    # 각 파일 분류는 독립적이라 병렬화해도 안전하며, LLM/임베딩 대기를 겹쳐 지연을 줄인다.
+    BATCH_INGEST_CONCURRENCY: int = 4
+
+    # --- 과목 매칭 (규칙 우선 → 모호할 때만 LLM) ---
+    # 최고 후보가 이 점수 이상이면 규칙만으로 매칭 확정.
+    COURSE_MATCH_FUZZY_THRESHOLD: float = 0.70
+    # 1위-2위 점수 차가 이 값 미만이면 '모호'로 보고 LLM 디스앰비규에이션을 시도.
+    COURSE_MATCH_AMBIGUOUS_MARGIN: float = 0.15
+    COURSE_MATCH_LLM_ENABLED: bool = True
+    COURSE_MATCH_MODEL: str = "gpt-4.1-nano"
+
+    # --- 변경 탐지 (키워드 게이트 → LLM, 자동반영 금지·승인 후에만 DB 갱신) ---
+    CHANGE_DETECTION_ENABLED: bool = True
+    CHANGE_DETECTION_MODEL: str = "gpt-4o-mini"
+    # 본문에서 변경 관련 부분을 LLM 에 보낼 길이(자).
+    CHANGE_DETECTION_INPUT_CHARS: int = 6000
+    # 이 confidence 미만 변경 후보는 제안에서 제외.
+    CHANGE_DETECTION_MIN_CONFIDENCE: float = 0.55
+
     # --- Day 7: APNs 푸시 알림 ---
     # 키가 비어 있으면 services/apns.py가 placeholder mode (로그만, 네트워크 호출 없음)로 동작.
     # 4개 모두 채우면 실제 APNs HTTP/2 push 활성화.

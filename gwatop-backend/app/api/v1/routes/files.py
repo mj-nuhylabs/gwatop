@@ -17,7 +17,12 @@ from app.models.schedule import Schedule
 from app.models.todo import Todo
 from app.schemas.file import PresignedUrlRequest, PresignedUrlResponse, FileResponse, FileConfirmResponse
 from app.services import s3
-from app.tasks.file_tasks import classify_file_task, extract_text_task
+from app.tasks.file_tasks import (
+    classify_file_task,
+    dispatch_material_task,
+    extract_text_task,
+    parse_syllabus_task,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -378,6 +383,35 @@ async def list_in_flight_syllabi(
     return result.scalars().all()
 
 
+@router.get("/files/needs-review", response_model=list[FileResponse])
+async def list_needs_review_files(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """자동 분류가 '확인 필요'(needs_review)로 보류한 파일 목록.
+
+    유형(강의계획서/학습자료)이 불확실하거나 저신뢰여서 자동 결정을 보류한 파일들.
+    웹에서 '이 파일이 강의계획서가 맞나요?' 확인 UI 로 노출하고, 사용자가
+    confirm-kind 로 확정하면 후속 처리가 진행된다.
+    course 가 아직 없을 수 있어 uploaded_by_user_id 로도 소유권을 확인한다.
+    """
+    stmt = (
+        select(File)
+        .outerjoin(Course, File.course_id == Course.id)
+        .outerjoin(Semester, Course.semester_id == Semester.id)
+        .where(
+            File.status == "needs_review",
+            or_(
+                File.uploaded_by_user_id == current_user.id,
+                Semester.user_id == current_user.id,
+            ),
+        )
+        .order_by(File.created_at.desc())
+    )
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+
 @router.get("/courses/{course_id}/files", response_model=list[FileResponse])
 async def list_files(
     course_id: uuid.UUID,
@@ -486,6 +520,51 @@ async def reclassify_file(
 
     classify_file_task.delay(str(file_id))
     return {"file_id": str(file_id), "status": "queued"}
+
+
+class ConfirmKindRequest(BaseModel):
+    is_syllabus: bool
+
+
+@router.post("/files/{file_id}/confirm-kind", response_model=FileResponse)
+async def confirm_file_kind(
+    file_id: uuid.UUID,
+    body: ConfirmKindRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """자동 분류가 '확인 필요'(needs_review)로 보류한 파일의 유형을 사용자가 확정한다.
+
+    - is_syllabus=True  → 강의계획서로 확정 → 파싱(일정/주차 추출) 큐잉
+    - is_syllabus=False → 학습자료로 확정 → 과목 매칭 + 주차 분류 큐잉
+    통합 분류는 콘텐츠 해시 캐시가 있어 재호출돼도 LLM 0회로 끝난다.
+    """
+    file_row, _ = await owned_file(file_id, current_user, db)
+
+    # 확인 요청 상태인 파일만 확정 가능 — 이미 처리된 파일의 중복/오확정 방지.
+    if file_row.status != "needs_review":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="확인이 필요한 상태의 파일이 아니에요.",
+        )
+
+    file_row.is_syllabus = body.is_syllabus
+    file_row.ai_confidence = 1.0  # 사용자가 직접 확정
+    if body.is_syllabus:
+        file_row.classification_source = "manual_syllabus"
+        # 'parsing'/'parsed' 로 두면 parse 태스크가 중복 처리로 보고 스킵한다(파서 스킵 조건).
+        # 추출 완료 상태로 되돌려 파싱이 정상 진행되게 한다.
+        file_row.status = "extracted"
+        await db.commit()
+        parse_syllabus_task.delay(str(file_id))
+    else:
+        file_row.classification_source = "auto_material_pending"
+        file_row.status = "classifying"
+        await db.commit()
+        dispatch_material_task.delay(str(file_id))
+
+    await db.refresh(file_row)
+    return FileResponse.model_validate(file_row)
 
 
 class ManualWeekUpdate(BaseModel):
