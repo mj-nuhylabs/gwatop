@@ -20,8 +20,9 @@ struct GwaTopNextEventDTO: Decodable {
     let type: String
     let dueDate: Date
     let dDay: Int
-    let courseId: String
-    let courseName: String
+    // 외부(Apple) 일정이 next 일 수 있어 course 정보는 옵셔널.
+    let courseId: String?
+    let courseName: String?
     let courseColor: String?
 
     enum CodingKeys: String, CodingKey {

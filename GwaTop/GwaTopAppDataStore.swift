@@ -95,6 +95,7 @@ final class GwaTopAppDataStore: ObservableObject {
                 guard let self else { return }
                 let dash = try await GwaTopHomeService.shared.fetchDashboard(upcomingLimit: 5)
                 self.dashboard = dash
+                GwaTopWidgetBridge.publish(dashboard: dash)
             },
             Stage(label: "다가오는 할 일 정리 중…") { [weak self] in
                 guard let self else { return }
@@ -187,6 +188,8 @@ final class GwaTopAppDataStore: ObservableObject {
         }
 
         lastRefreshedAt = Date()
+        // 모든 prefetch(대시보드+전체 일정+할일) 완료 — 위젯에 완전한 스냅샷 publish.
+        GwaTopWidgetBridge.publishFromStore()
         await markFinished()
     }
 
@@ -236,7 +239,10 @@ final class GwaTopAppDataStore: ObservableObject {
 
         let (freshCourses, dash, todos, schedules) = await (coursesTask, dashTask, todosTask, schedulesTask)
         if let freshCourses { self.courses = freshCourses }
-        if let dash { self.dashboard = dash }
+        if let dash {
+            self.dashboard = dash
+            GwaTopWidgetBridge.publish(dashboard: dash)
+        }
         if let todos { self.upcomingTodos = todos }
         if let schedules { self.allSchedules = schedules }
 
@@ -259,6 +265,8 @@ final class GwaTopAppDataStore: ObservableObject {
         }
 
         self.lastRefreshedAt = Date()
+        // 파싱으로 새 일정/할일이 생겼을 수 있으니 위젯 스냅샷도 완전 갱신.
+        GwaTopWidgetBridge.publishFromStore()
     }
 
     /// 로그아웃 시 캐시 초기화 — 다른 사용자가 같은 디바이스에 로그인해도 잔재가 안 보이게.

@@ -61,11 +61,15 @@ enum GwaTopAuthTokenStore {
         store(accessToken, account: accessAccount)
         store(refreshToken, account: refreshAccount)
         clearLegacyDefaults()
+        // 홈 화면 위젯이 직접 fetch(B) 할 수 있도록 access token + baseURL 을 App Group 에 미러링.
+        GwaTopWidgetStore.saveAccessToken(accessToken)
+        GwaTopWidgetStore.saveBaseURL(GwaTopAPI.baseURL)
     }
 
     static func replaceAccessToken(_ token: String) {
         store(token, account: accessAccount)
         UserDefaults.standard.removeObject(forKey: accessAccount)
+        GwaTopWidgetStore.saveAccessToken(token)
     }
 
     static func currentAccessToken() -> String? {
@@ -80,6 +84,8 @@ enum GwaTopAuthTokenStore {
         delete(account: accessAccount)
         delete(account: refreshAccount)
         clearLegacyDefaults()
+        // 로그아웃 — 위젯이 보던 스냅샷/토큰도 비운다.
+        GwaTopWidgetBridge.clearAuth()
     }
 
     private static func store(_ value: String, account: String) {

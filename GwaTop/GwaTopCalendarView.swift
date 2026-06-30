@@ -51,8 +51,11 @@ struct GwaTopCalendarView: View {
     @ObservedObject private var appleCalSvc = GwaTopAppleCalendarService.shared
 
     /// 서버 일정 + Apple 일정 합본. 모든 monthGrid/eventsForDate 등이 이걸 본다.
+    /// 주의: 서버에도 동기화된 Apple 일정(source=="apple_calendar")이 함께 내려오므로,
+    /// 로컬 EventKit 이벤트와 중복되지 않게 서버쪽 apple 사본은 빼고 로컬 것을 표시한다.
     private var mergedEvents: [GwaTopCalendarEvent] {
-        appleCalendarEnabled ? events + appleEvents : events
+        let serverOnly = events.filter { $0.source != "apple_calendar" }
+        return appleCalendarEnabled ? serverOnly + appleEvents : serverOnly
     }
 
     private let calendar = Calendar.current
@@ -111,9 +114,13 @@ struct GwaTopCalendarView: View {
                                 timetableTabContent
                             }
                         }
-                        .padding(.horizontal, 20)
+                        // 시간표 탭은 그리드를 좌우로 더 넓게 — 여백을 줄인다.
+                        .padding(.horizontal, selectedTopTab == .timetable ? 6 : 20)
                         .padding(.bottom, 96)   // FAB 가림 방지 여유
                     }
+                    // 화면을 빠르게 두 번 탭하면 캘린더 ↔ 시간표 토글.
+                    // (셀/이벤트 행의 단일 탭 제스처가 우선하므로 충돌 없음)
+                    .onTapGesture(count: 2) { toggleTopTab() }
                 }
 
                 // 펼쳐졌을 때 바깥을 탭하면 닫히도록 투명 레이어 — 화면은 어둡게 하지 않음.
@@ -254,6 +261,10 @@ struct GwaTopCalendarView: View {
             .onChange(of: displayedMonth) { _, _ in
                 Task { await loadAppleEvents() }
             }
+            // 연동 토글 변경 시 즉시 재로드 + 서버 동기화(켜짐=업로드, 꺼짐=서버에서 정리).
+            .onChange(of: appleCalendarEnabled) { _, _ in
+                Task { await loadAppleEvents() }
+            }
             // 시간표 탭으로 전환하면 펼쳐둔 FAB 메뉴는 닫는다 (시간표 FAB 는 단일 동작).
             .onChange(of: selectedTopTab) { _, _ in
                 isFabExpanded = false
@@ -371,6 +382,17 @@ struct GwaTopCalendarView: View {
 
     // MARK: - 상단 탭 전환
 
+    /// 화면 더블탭으로 캘린더 ↔ 시간표 전환 — 헤더 토글 버튼과 동일한 애니메이션/로딩 처리.
+    private func toggleTopTab() {
+        let next: TopTab = selectedTopTab == .calendar ? .timetable : .calendar
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+            selectedTopTab = next
+        }
+        if next == .timetable {
+            Task { await loadCoursesIfNeeded() }
+        }
+    }
+
     private var topTabSwitcher: some View {
         // 미니멀 아이콘 토글 — 헤더 우측, 캘린더 텍스트와 같은 높이.
         // 선택: primary 코랄 fill / 비선택: 배경 없음, 아이콘만.
@@ -471,12 +493,16 @@ struct GwaTopCalendarView: View {
     private func loadAppleEvents() async {
         guard appleCalendarEnabled, appleCalSvc.hasAccess else {
             appleEvents = []
+            // 토글 OFF/권한 없음: 서버의 외부 일정도 정리(빈 스냅샷 전치환) → 웹/위젯에서 사라짐.
+            await appleCalSvc.syncToServer()
             return
         }
         let cal = Calendar.current
         let start = cal.date(byAdding: .month, value: -2, to: displayedMonth) ?? displayedMonth
         let end = cal.date(byAdding: .month, value: 2, to: displayedMonth) ?? displayedMonth
         appleEvents = appleCalSvc.fetchEvents(from: start, to: end)
+        // 표시와 함께 서버로 동기화 → 웹·위젯에도 반영.
+        await appleCalSvc.syncToServer()
     }
 
     /// 백그라운드에서 파싱 중인 강의계획서가 있을 때 보여주는 카드.

@@ -353,11 +353,12 @@ struct GwaTopHomeView: View {
         for sched in todaySchedules where sched.type.lowercased() != "assignment" {
             let comps = cal.dateComponents([.hour, .minute], from: sched.dueDate)
             let mins = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
-            let courseName = sched.courseName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let courseName = (sched.courseName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let courseSuffix = courseName.isEmpty ? "" : " · \(courseName)"
             items.append(GwaTopTodayTimelineItem(
                 id: "sched-\(sched.id)",
                 title: sched.title,
-                subtitle: "\(Self.scheduleTypeLabel(sched.type)) · \(sched.courseName)",
+                subtitle: "\(Self.scheduleTypeLabel(sched.type))\(courseSuffix)",
                 typeLabel: Self.scheduleTypeLabel(sched.type),
                 location: courseName.isEmpty ? nil : courseName,
                 startText: GwaTopDateFormatters.koTimeOnly.string(from: sched.dueDate),

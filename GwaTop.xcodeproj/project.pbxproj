@@ -10,10 +10,41 @@
 		2CD991D92FBC583B00C9A6BA /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 2CD991D82FBC583B00C9A6BA /* GoogleSignIn */; };
 		2CD991DB2FBC583B00C9A6BA /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 2CD991DA2FBC583B00C9A6BA /* GoogleSignInSwift */; };
 		2D2F078F2FBB2D0E008E28A5 /* Kingfisher in Frameworks */ = {isa = PBXBuildFile; productRef = 2D2F078E2FBB2D0E008E28A5 /* Kingfisher */; };
+		2D7070AD2FF2BC5C00C60BCB /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2D7070AC2FF2BC5C00C60BCB /* WidgetKit.framework */; };
+		2D7070AF2FF2BC5C00C60BCB /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2D7070AE2FF2BC5C00C60BCB /* SwiftUI.framework */; };
+		2D7070C02FF2BC5D00C60BCB /* GwaTopWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 2D7070AA2FF2BC5C00C60BCB /* GwaTopWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		2D7070BE2FF2BC5D00C60BCB /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 2D2F07702FBB2B32008E28A5 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 2D7070A92FF2BC5C00C60BCB;
+			remoteInfo = GwaTopWidgetExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		2D7070C52FF2BC5D00C60BCB /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				2D7070C02FF2BC5D00C60BCB /* GwaTopWidgetExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		2D2F07782FBB2B32008E28A5 /* GwaTop.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GwaTop.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		2D7070AA2FF2BC5C00C60BCB /* GwaTopWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = GwaTopWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		2D7070AC2FF2BC5C00C60BCB /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		2D7070AE2FF2BC5C00C60BCB /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		2D7072542FF2CBE900C60BCB /* GwaTopWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = GwaTopWidgetExtension.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -24,6 +55,20 @@
 			);
 			target = 2D2F07772FBB2B32008E28A5 /* GwaTop */;
 		};
+		2D7070C42FF2BC5D00C60BCB /* Exceptions for "GwaTopWidget" folder in "GwaTopWidgetExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 2D7070A92FF2BC5C00C60BCB /* GwaTopWidgetExtension */;
+		};
+		2D70724E2FF2C0ED00C60BCB /* Exceptions for "GwaTop" folder in "GwaTopWidgetExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				GwaTopWidgetShared.swift,
+			);
+			target = 2D7070A92FF2BC5C00C60BCB /* GwaTopWidgetExtension */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -31,8 +76,17 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				2C99FB972FBC59A100EB1B3B /* Exceptions for "GwaTop" folder in "GwaTop" target */,
+				2D70724E2FF2C0ED00C60BCB /* Exceptions for "GwaTop" folder in "GwaTopWidgetExtension" target */,
 			);
 			path = GwaTop;
+			sourceTree = "<group>";
+		};
+		2D7070B02FF2BC5C00C60BCB /* GwaTopWidget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				2D7070C42FF2BC5D00C60BCB /* Exceptions for "GwaTopWidget" folder in "GwaTopWidgetExtension" target */,
+			);
+			path = GwaTopWidget;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -48,13 +102,25 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		2D7070A72FF2BC5C00C60BCB /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2D7070AF2FF2BC5C00C60BCB /* SwiftUI.framework in Frameworks */,
+				2D7070AD2FF2BC5C00C60BCB /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		2D2F076F2FBB2B32008E28A5 = {
 			isa = PBXGroup;
 			children = (
+				2D7072542FF2CBE900C60BCB /* GwaTopWidgetExtension.entitlements */,
 				2D2F077A2FBB2B32008E28A5 /* GwaTop */,
+				2D7070B02FF2BC5C00C60BCB /* GwaTopWidget */,
+				2D7070AB2FF2BC5C00C60BCB /* Frameworks */,
 				2D2F07792FBB2B32008E28A5 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -63,8 +129,18 @@
 			isa = PBXGroup;
 			children = (
 				2D2F07782FBB2B32008E28A5 /* GwaTop.app */,
+				2D7070AA2FF2BC5C00C60BCB /* GwaTopWidgetExtension.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		2D7070AB2FF2BC5C00C60BCB /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				2D7070AC2FF2BC5C00C60BCB /* WidgetKit.framework */,
+				2D7070AE2FF2BC5C00C60BCB /* SwiftUI.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -77,10 +153,12 @@
 				2D2F07742FBB2B32008E28A5 /* Sources */,
 				2D2F07752FBB2B32008E28A5 /* Frameworks */,
 				2D2F07762FBB2B32008E28A5 /* Resources */,
+				2D7070C52FF2BC5D00C60BCB /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				2D7070BF2FF2BC5D00C60BCB /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				2D2F077A2FBB2B32008E28A5 /* GwaTop */,
@@ -95,6 +173,28 @@
 			productReference = 2D2F07782FBB2B32008E28A5 /* GwaTop.app */;
 			productType = "com.apple.product-type.application";
 		};
+		2D7070A92FF2BC5C00C60BCB /* GwaTopWidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2D7070C12FF2BC5D00C60BCB /* Build configuration list for PBXNativeTarget "GwaTopWidgetExtension" */;
+			buildPhases = (
+				2D7070A62FF2BC5C00C60BCB /* Sources */,
+				2D7070A72FF2BC5C00C60BCB /* Frameworks */,
+				2D7070A82FF2BC5C00C60BCB /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				2D7070B02FF2BC5C00C60BCB /* GwaTopWidget */,
+			);
+			name = GwaTopWidgetExtension;
+			packageProductDependencies = (
+			);
+			productName = GwaTopWidgetExtension;
+			productReference = 2D7070AA2FF2BC5C00C60BCB /* GwaTopWidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -106,6 +206,9 @@
 				LastUpgradeCheck = 2620;
 				TargetAttributes = {
 					2D2F07772FBB2B32008E28A5 = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					2D7070A92FF2BC5C00C60BCB = {
 						CreatedOnToolsVersion = 26.2;
 					};
 				};
@@ -129,12 +232,20 @@
 			projectRoot = "";
 			targets = (
 				2D2F07772FBB2B32008E28A5 /* GwaTop */,
+				2D7070A92FF2BC5C00C60BCB /* GwaTopWidgetExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		2D2F07762FBB2B32008E28A5 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2D7070A82FF2BC5C00C60BCB /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -151,7 +262,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		2D7070A62FF2BC5C00C60BCB /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		2D7070BF2FF2BC5D00C60BCB /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 2D7070A92FF2BC5C00C60BCB /* GwaTopWidgetExtension */;
+			targetProxy = 2D7070BE2FF2BC5D00C60BCB /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		2D2F07832FBB2B33008E28A5 /* Debug */ = {
@@ -273,6 +399,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = GwaTop/GwaTop.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = F4L969R757;
@@ -320,6 +447,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = GwaTop/GwaTop.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = F4L969R757;
@@ -362,6 +490,73 @@
 			};
 			name = Release;
 		};
+		2D7070C22FF2BC5D00C60BCB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = GwaTopWidgetExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = F4L969R757;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = GwaTopWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = GwaTopWidget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.minjunkwon.gwatop.dev.GwaTopWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		2D7070C32FF2BC5D00C60BCB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = GwaTopWidgetExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = F4L969R757;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = GwaTopWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = GwaTopWidget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.minjunkwon.gwatop.dev.GwaTopWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -379,6 +574,15 @@
 			buildConfigurations = (
 				2D2F07862FBB2B33008E28A5 /* Debug */,
 				2D2F07872FBB2B33008E28A5 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		2D7070C12FF2BC5D00C60BCB /* Build configuration list for PBXNativeTarget "GwaTopWidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2D7070C22FF2BC5D00C60BCB /* Debug */,
+				2D7070C32FF2BC5D00C60BCB /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -37,6 +37,13 @@ struct GwaTopAIStudyView: View {
     @State private var uploadCourseId: String? = nil
     /// 펼쳐진(상세 정보 + 화살표 표시) 과목 id. 한 번에 하나만 펼쳐지는 아코디언.
     @State private var expandedCourseId: String? = nil
+    /// 길게 눌러 드래그하는 동안의 과목 id — 드롭 대상 카드를 강조하기 위한 상태.
+    @State private var draggingCourseId: String? = nil
+    /// 과목 순서 편집 모드 — iOS 홈 화면처럼 카드를 길게 누르면 켜지고 "완료"로 끈다.
+    @State private var isEditingCourses = false
+
+    /// 사용자가 직접 정한 과목 순서(학습/Todo 공유) — 길게 눌러 드래그로 재정렬.
+    @ObservedObject private var orderStore = GwaTopCourseOrderStore.shared
 
     /// 백엔드 처리 중인 상태값들. 이 중 하나라도 있으면 폴링 계속.
     private static let inProgressStatuses: Set<String> = [
@@ -55,16 +62,31 @@ struct GwaTopAIStudyView: View {
 
                 VStack(spacing: 0) {
                     GwaTopScreenHeader(title: "학습") {
-                        Button {
-                            uploadCourseId = nil
-                            showUploadSheet = true
-                        } label: {
-                            Image(systemName: "doc.badge.arrow.up")
-                                .font(.gwaTopSystem(size: 15, weight: .bold))
-                                .foregroundStyle(GwaTopHomeTheme.primary)
-                                .frame(width: 38, height: 38)
-                                .background(GwaTopHomeTheme.surface)
-                                .clipShape(Circle())
+                        if isEditingCourses {
+                            // 편집 모드 — iOS 홈 화면처럼 "완료" 로 빠져나간다.
+                            Button {
+                                withAnimation(.easeOut(duration: 0.18)) { isEditingCourses = false }
+                            } label: {
+                                Text("완료")
+                                    .font(.gwaTopSystem(size: 15, weight: .bold))
+                                    .foregroundStyle(GwaTopHomeTheme.primary)
+                                    .frame(height: 38)
+                                    .padding(.horizontal, 14)
+                                    .background(GwaTopHomeTheme.surface)
+                                    .clipShape(Capsule())
+                            }
+                        } else {
+                            Button {
+                                uploadCourseId = nil
+                                showUploadSheet = true
+                            } label: {
+                                Image(systemName: "doc.badge.arrow.up")
+                                    .font(.gwaTopSystem(size: 15, weight: .bold))
+                                    .foregroundStyle(GwaTopHomeTheme.primary)
+                                    .frame(width: 38, height: 38)
+                                    .background(GwaTopHomeTheme.surface)
+                                    .clipShape(Circle())
+                            }
                         }
                     }
 
@@ -102,12 +124,28 @@ struct GwaTopAIStudyView: View {
                                 // (흰 배경끼리 겹쳐 쌓으면 경계가 뭉개지므로, 카드 사이에 여백을
                                 //  두고 얇은 테두리 + 옅은 그림자로 분리한다.)
                                 VStack(spacing: 12) {
-                                    ForEach(filteredCourses) { course in
+                                    ForEach(Array(filteredCourses.enumerated()), id: \.element.id) { idx, course in
                                         courseCard(course)
+                                            .modifier(GwaTopCourseReorderModifier(
+                                                courseId: course.id,
+                                                index: idx,
+                                                isEditing: isEditingCourses,
+                                                // 검색 중에는 일부만 보이므로 편집/재정렬 비활성화.
+                                                enabled: searchText.trimmingCharacters(in: .whitespaces).isEmpty,
+                                                draggingId: $draggingCourseId,
+                                                onEnterEdit: { enterCourseEditMode() },
+                                                onMove: { dragged in
+                                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
+                                                        orderStore.move(dragged, before: course.id,
+                                                                        in: filteredCourses.map(\.id))
+                                                    }
+                                                }
+                                            ))
                                     }
                                 }
                                 .padding(.horizontal, 18)
                                 .padding(.top, 12)
+                                .animation(.spring(response: 0.3, dampingFraction: 0.86), value: orderStore.order)
                             }
                         }
                         .padding(.bottom, 32)
@@ -378,13 +416,24 @@ struct GwaTopAIStudyView: View {
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
+    // MARK: - Edit Mode
+
+    /// 카드를 길게 눌렀을 때 — 햅틱과 함께 과목 순서 편집 모드로 진입.
+    private func enterCourseEditMode() {
+        guard !isEditingCourses else { return }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        withAnimation(.easeOut(duration: 0.18)) { isEditingCourses = true }
+    }
+
     // MARK: - Derived
 
     /// 검색어가 비었으면 모든 과목, 있으면 해당 파일이 1개 이상 매치되는 과목만.
+    /// 항상 사용자가 정한 커스텀 순서(orderStore)로 정렬한다.
     private var filteredCourses: [GwaTopCourseDTO] {
+        let ordered = orderStore.ordered(courses) { $0.id }
         let q = searchText.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !q.isEmpty else { return courses }
-        return courses.filter { course in
+        guard !q.isEmpty else { return ordered }
+        return ordered.filter { course in
             filesFor(course).contains { $0.filename.lowercased().contains(q) }
         }
     }

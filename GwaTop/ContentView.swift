@@ -40,6 +40,8 @@ struct ContentView: View {
             } else {
                 GwaTopLoginView { user in
                     persist(user)
+                    // 로그인 직후(Bearer 확보) 알림 권한 요청 + APNs 등록.
+                    GwaTopAppDelegate.requestAuthorizationAndRegister()
                     startWarmup()
                     withAnimation(.spring(response: 0.45, dampingFraction: 0.86)) {
                         signedInUser = user
@@ -98,12 +100,19 @@ struct ContentView: View {
         }
 
         // 앱 콜드 스타트 직후 자동 로그인 — 메인 탭이 그리기 전에 스플래시로 prefetch.
+        // 세션 복구 시에도 APNs 토큰을 재등록(토큰 회전/새 기기 대비, 등록은 멱등 upsert).
+        GwaTopAppDelegate.requestAuthorizationAndRegister()
         startWarmup()
         signedInUser = user
     }
 
     private func logout() {
-        GwaTopAuthTokenStore.clear()
+        // 디바이스 등록 해제는 Bearer 가 유효할 때 먼저 시도하고, 끝난 뒤 토큰을 정리한다.
+        // (unregister API 가 인증을 요구하므로 토큰을 먼저 지우면 401 로 실패한다.)
+        Task {
+            await GwaTopAppDelegate.unregisterCurrentDevice()
+            GwaTopAuthTokenStore.clear()
+        }
         signedInUserJSON = ""
 
         Task { @MainActor in

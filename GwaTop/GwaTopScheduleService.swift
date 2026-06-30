@@ -13,14 +13,17 @@ import SwiftUI
 
 struct GwaTopScheduleDTO: Decodable, Identifiable {
     let id: String
-    let courseId: String
-    let courseName: String
+    // 외부(Apple 캘린더) 일정은 과목이 없어 course_id/course_name 이 null 이다.
+    let courseId: String?
+    let courseName: String?
     let courseColor: String?
     let title: String
     let type: String
     let dueDate: Date
     let description: String?
     let isAuto: Bool
+    let source: String?       // "apple_calendar" 면 외부 동기화 일정
+    let externalId: String?
     let createdAt: Date
 
     enum CodingKeys: String, CodingKey {
@@ -33,8 +36,40 @@ struct GwaTopScheduleDTO: Decodable, Identifiable {
         case dueDate      = "due_date"
         case description
         case isAuto       = "is_auto"
+        case source
+        case externalId   = "external_id"
         case createdAt    = "created_at"
     }
+}
+
+/// Apple 캘린더 → 서버 동기화 페이로드(전체 스냅샷 전치환).
+struct GwaTopExternalEventItem: Encodable {
+    let externalId: String
+    let title: String
+    let startDate: String     // ISO 8601
+    let endDate: String?
+    let location: String?
+    let allDay: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case externalId = "external_id"
+        case title
+        case startDate  = "start_date"
+        case endDate    = "end_date"
+        case location
+        case allDay     = "all_day"
+    }
+}
+
+struct GwaTopExternalSyncRequest: Encodable {
+    let source: String
+    let events: [GwaTopExternalEventItem]
+}
+
+struct GwaTopExternalSyncResult: Decodable {
+    let created: Int
+    let updated: Int
+    let deleted: Int
 }
 
 struct GwaTopScheduleCreateRequest: Encodable {
@@ -151,6 +186,17 @@ actor GwaTopScheduleService {
     func delete(id: String) async throws {
         try await GwaTopAPIClient.shared.deleteNoContent("/v1/schedules/\(id)")
     }
+
+    /// 외부(Apple 캘린더) 일정 전체 스냅샷을 서버에 전치환 동기화.
+    /// events=[] 로 호출하면 서버의 해당 source 외부 일정이 전부 삭제된다(토글 OFF 시).
+    @discardableResult
+    func syncExternalEvents(
+        _ events: [GwaTopExternalEventItem],
+        source: String = "apple_calendar"
+    ) async throws -> GwaTopExternalSyncResult {
+        let body = GwaTopExternalSyncRequest(source: source, events: events)
+        return try await GwaTopAPIClient.shared.post("/v1/schedules/external/sync", body: body)
+    }
 }
 
 extension GwaTopCalendarEvent {
@@ -165,12 +211,13 @@ extension GwaTopCalendarEvent {
         default:           type = .assignment
         }
 
+        let isApple = dto.source == "apple_calendar"
         let course = GwaTopCourseSummary(
-            id: dto.courseId,
-            name: dto.courseName,
-            professor: "",
-            colorHex: dto.courseColor ?? "#4F8EF7",
-            iconName: "book.closed.fill",
+            id: dto.courseId ?? "external/\(dto.id)",
+            name: dto.courseName ?? (isApple ? "Apple 캘린더" : ""),
+            professor: isApple ? "Apple 캘린더" : "",
+            colorHex: dto.courseColor ?? (isApple ? "#9CA3AF" : "#4F8EF7"),
+            iconName: isApple ? "calendar" : "book.closed.fill",
             currentWeek: 0,
             progress: 0.0
         )
@@ -184,7 +231,7 @@ extension GwaTopCalendarEvent {
             endDate: nil,
             location: "—",
             memo: dto.description ?? "",
-            source: dto.isAuto ? "ai_parsed" : "manual"
+            source: dto.source ?? (dto.isAuto ? "ai_parsed" : "manual")
         )
     }
 }

@@ -92,6 +92,39 @@ final class GwaTopAppleCalendarService: ObservableObject {
         return ekEvents.compactMap { Self.mapToGwaTopEvent($0) }
     }
 
+    /// 토글 상태에 따라 Apple 캘린더 일정을 서버로 동기화(웹·위젯 반영용).
+    /// - 켜짐 + 권한 있음: 현재 기간(−30일~+120일) 일정을 업로드(전치환 upsert).
+    /// - 꺼짐 또는 권한 없음: 빈 목록으로 보내 서버의 외부 일정을 정리(삭제).
+    /// 서버 ScheduleService 가 external_id 로 upsert + 누락분 삭제하므로 호출만 하면 멱등.
+    func syncToServer() async {
+        let enabled = UserDefaults.standard.bool(forKey: UserDefaults.gwaTopAppleCalendarEnabledKey)
+        var items: [GwaTopExternalEventItem] = []
+        if enabled && hasAccess {
+            let cal = Calendar.current
+            let now = Date()
+            let start = cal.date(byAdding: .day, value: -30, to: now) ?? now
+            let end = cal.date(byAdding: .day, value: 120, to: now) ?? now
+            let predicate = store.predicateForEvents(withStart: start, end: end, calendars: nil)
+            items = store.events(matching: predicate).compactMap { ek -> GwaTopExternalEventItem? in
+                guard let s = ek.startDate as Date? else { return nil }
+                let ident = ek.eventIdentifier ?? UUID().uuidString
+                return GwaTopExternalEventItem(
+                    externalId: ident,
+                    title: ek.title ?? "(제목 없음)",
+                    startDate: GwaTopScheduleService.encode(s),
+                    endDate: (ek.endDate as Date?).map(GwaTopScheduleService.encode),
+                    location: ek.location,
+                    allDay: ek.isAllDay
+                )
+            }
+        }
+        do {
+            _ = try await GwaTopScheduleService.shared.syncExternalEvents(items)
+        } catch {
+            // 동기화 실패는 조용히 무시 — 다음 트리거(앱 전환/변경 알림)에서 재시도.
+        }
+    }
+
     /// EKEvent → GwaTopCalendarEvent 매핑.
     /// 식별자는 "apple_event/" prefix 로 우리 서버 일정과 ID 충돌 회피.
     /// 캘린더 색은 EKCalendar.cgColor 그대로 사용해서 사용자에게 익숙한 색감 유지.

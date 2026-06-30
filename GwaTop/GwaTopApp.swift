@@ -10,6 +10,9 @@ import GoogleSignIn
 
 @main
 struct GwaTopApp: App {
+    /// SwiftUI 앱에서 APNs 토큰 콜백을 받기 위한 UIApplicationDelegate 연결.
+    @UIApplicationDelegateAdaptor(GwaTopAppDelegate.self) private var appDelegate
+
     /// 강의계획서 파싱 진행 상태를 전역에서 추적 (시트 닫혀도 백그라운드 폴링).
     @StateObject private var syllabusWatcher = GwaTopSyllabusWatcher.shared
     @Environment(\.scenePhase) private var scenePhase

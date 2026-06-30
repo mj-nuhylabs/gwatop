@@ -67,11 +67,23 @@ struct GwaTopTimetableCourseSheet: View {
     @State private var professor: String
     @State private var location: String
     @State private var color: String
-    @State private var times: [GwaTopClassTimeDTO]
+
+    // 수업 시간 모델 — "공통 시간 + 반복 요일" 을 기본으로, 다른 시간/강의실인 요일만 예외로.
+    // 저장 시에는 백엔드 포맷(요일별 슬롯 배열)으로 다시 펼친다.
+    /// 공통 수업 시간(시작/종료).
+    @State private var commonStart: Date
+    @State private var commonEnd: Date
+    /// 공통 시간으로 반복되는 요일들.
+    @State private var commonDays: Set<String>
+    /// 예외 — 특정 요일만 다른 시간/강의실. 각 항목은 요일 1개짜리 슬롯.
+    @State private var exceptions: [GwaTopClassTimeDTO]
 
     @State private var isSubmitting = false
     @State private var error: String? = nil
     @State private var confirmDelete = false
+
+    /// 저장/요일 정렬용 표준 요일 순서.
+    private let dayOrder = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
 
     init(course: GwaTopCourseDTO,
          onSaved: ((GwaTopCourseDTO) -> Void)? = nil,
@@ -83,7 +95,58 @@ struct GwaTopTimetableCourseSheet: View {
         _professor = State(initialValue: course.professor ?? "")
         _location = State(initialValue: course.location ?? "")
         _color = State(initialValue: course.color ?? GwaTopCoursePalette[0])
-        _times = State(initialValue: course.schedule ?? [])
+
+        // 기존 슬롯을 "공통 시간 + 예외" 로 분해한다.
+        let decomposed = Self.decompose(course.schedule ?? [])
+        _commonStart = State(initialValue: gwaTopDate(fromHHMM: decomposed.start))
+        _commonEnd = State(initialValue: gwaTopDate(fromHHMM: decomposed.end))
+        _commonDays = State(initialValue: decomposed.commonDays)
+        _exceptions = State(initialValue: decomposed.exceptions)
+    }
+
+    /// 요일별 슬롯 배열을 "가장 흔한 시간(=공통) + 나머지(=예외)" 로 분해.
+    /// 공통 시간과 정확히 같고 슬롯 전용 강의실이 없는 요일만 공통으로 묶고,
+    /// 시간이 다르거나 요일 전용 강의실이 있는 슬롯은 예외로 남긴다.
+    private static func decompose(_ slots: [GwaTopClassTimeDTO]) -> (start: String, end: String, commonDays: Set<String>, exceptions: [GwaTopClassTimeDTO]) {
+        guard !slots.isEmpty else { return ("09:00", "10:30", [], []) }
+
+        // 가장 많이 등장하는 (시작-종료) 쌍을 공통 시간으로 채택.
+        let groups = Dictionary(grouping: slots) { "\($0.startTime)-\($0.endTime)" }
+        let commonGroup = groups.max { a, b in a.value.count < b.value.count }!.value
+        let cStart = commonGroup[0].startTime
+        let cEnd = commonGroup[0].endTime
+
+        var commonDays: Set<String> = []
+        var exceptions: [GwaTopClassTimeDTO] = []
+        for slot in slots {
+            let hasCustomRoom = (slot.location?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+            if slot.startTime == cStart, slot.endTime == cEnd, !hasCustomRoom {
+                commonDays.insert(slot.day)
+            } else {
+                exceptions.append(slot)
+            }
+        }
+        return (cStart, cEnd, commonDays, exceptions)
+    }
+
+    /// 편집 상태(공통 + 예외)를 백엔드 포맷(요일별 슬롯 배열)으로 펼친다.
+    /// 예외가 지정된 요일은 예외가 우선하고, 공통에서는 빠진다.
+    private func buildSchedule() -> [GwaTopClassTimeDTO] {
+        let exceptionDays = Set(exceptions.map(\.day))
+        let cStart = gwaTopHHMM(from: commonStart)
+        let cEnd = gwaTopHHMM(from: commonEnd)
+
+        var result: [GwaTopClassTimeDTO] = []
+        for code in dayOrder where commonDays.contains(code) && !exceptionDays.contains(code) {
+            result.append(GwaTopClassTimeDTO(day: code, startTime: cStart, endTime: cEnd, location: nil))
+        }
+        // 예외는 요일 순서대로 뒤에 붙인다.
+        for code in dayOrder {
+            for ex in exceptions where ex.day == code {
+                result.append(ex)
+            }
+        }
+        return result
     }
 
     var body: some View {
@@ -191,32 +254,58 @@ struct GwaTopTimetableCourseSheet: View {
     }
 
     private var timesCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("수업 시간")
+                .font(.gwaTopSystem(size: 13, weight: .bold))
+                .foregroundStyle(GwaTopHomeTheme.textSecondary)
+
+            // ── 공통: 반복 요일 + 한 번만 지정하는 수업 시간 ──
+            VStack(alignment: .leading, spacing: 8) {
+                fieldLabel("반복 요일")
+                commonDayPicker
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                fieldLabel("수업 시간")
+                HStack(spacing: 10) {
+                    DatePicker("", selection: $commonStart, displayedComponents: .hourAndMinute)
+                        .labelsHidden()
+                    Image(systemName: "arrow.right")
+                        .font(.gwaTopSystem(size: 12, weight: .bold))
+                        .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                    DatePicker("", selection: $commonEnd, displayedComponents: .hourAndMinute)
+                        .labelsHidden()
+                    Spacer()
+                }
+            }
+            Text("선택한 요일은 모두 같은 시간으로 저장돼요.")
+                .font(.gwaTopSystem(size: 11, weight: .medium))
+                .foregroundStyle(GwaTopHomeTheme.textTertiary)
+
+            Divider().padding(.vertical, 2)
+
+            // ── 예외: 특정 요일만 다른 시간/강의실 ──
             HStack {
-                Text("수업 시간")
-                    .font(.gwaTopSystem(size: 13, weight: .bold))
-                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
+                fieldLabel("예외 — 다른 시간·강의실")
                 Spacer()
                 Button {
-                    addRow()
+                    addException()
                 } label: {
-                    Label("시간 추가", systemImage: "plus.circle.fill")
+                    Label("예외 추가", systemImage: "plus.circle.fill")
                         .font(.gwaTopSystem(size: 13, weight: .bold))
                         .foregroundStyle(GwaTopHomeTheme.primary)
                 }
             }
 
-            if times.isEmpty {
-                Text("저장된 수업 시간이 없어요. '+ 시간 추가' 로 만들어보세요.")
-                    .font(.gwaTopSystem(size: 13, weight: .medium))
-                    .foregroundStyle(GwaTopHomeTheme.textSecondary)
-                    .padding(.vertical, 8)
+            if exceptions.isEmpty {
+                Text("특정 요일만 시간이 다르면 예외를 추가하세요.")
+                    .font(.gwaTopSystem(size: 12, weight: .medium))
+                    .foregroundStyle(GwaTopHomeTheme.textTertiary)
             } else {
                 VStack(spacing: 8) {
-                    ForEach(Array(times.enumerated()), id: \.offset) { idx, _ in
+                    ForEach(Array(exceptions.enumerated()), id: \.offset) { idx, _ in
                         GwaTopClassTimeRow(
-                            time: $times[idx],
-                            onDelete: { times.remove(at: idx) }
+                            time: $exceptions[idx],
+                            onDelete: { exceptions.remove(at: idx) }
                         )
                     }
                 }
@@ -228,8 +317,52 @@ struct GwaTopTimetableCourseSheet: View {
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    private func addRow() {
-        times.append(GwaTopClassTimeDTO(day: "MON", startTime: "09:00", endTime: "10:30"))
+    /// 공통 시간으로 반복할 요일을 여러 개 토글. 예외로 지정된 요일은 예외가 우선하므로
+    /// 여기서는 비활성(예외 칩 스타일)으로 표시한다.
+    private var commonDayPicker: some View {
+        HStack(spacing: 6) {
+            ForEach(GwaTopDayLabels, id: \.code) { d in
+                let isException = exceptions.contains { $0.day == d.code }
+                let isOn = commonDays.contains(d.code)
+                Button {
+                    if commonDays.contains(d.code) {
+                        commonDays.remove(d.code)
+                    } else {
+                        commonDays.insert(d.code)
+                    }
+                } label: {
+                    Text(d.label)
+                        .font(.gwaTopSystem(size: 13, weight: .bold))
+                        .foregroundStyle(dayForeground(isOn: isOn, isException: isException))
+                        .frame(width: 30, height: 30)
+                        .background(dayBackground(isOn: isOn, isException: isException))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .disabled(isException)
+            }
+        }
+    }
+
+    private func dayForeground(isOn: Bool, isException: Bool) -> Color {
+        if isException { return GwaTopHomeTheme.primary }
+        return isOn ? .white : GwaTopHomeTheme.textPrimary
+    }
+
+    private func dayBackground(isOn: Bool, isException: Bool) -> Color {
+        if isException { return GwaTopHomeTheme.primary.opacity(0.16) }
+        return isOn ? GwaTopHomeTheme.primary : GwaTopHomeTheme.surfaceMute
+    }
+
+    /// 예외 추가 — 아직 안 쓴 요일을 기본값으로, 시간은 공통 시간으로 채운다.
+    private func addException() {
+        let used = commonDays.union(exceptions.map(\.day))
+        let day = dayOrder.first { !used.contains($0) } ?? "MON"
+        exceptions.append(GwaTopClassTimeDTO(
+            day: day,
+            startTime: gwaTopHHMM(from: commonStart),
+            endTime: gwaTopHHMM(from: commonEnd)
+        ))
     }
 
     private var saveButton: some View {
@@ -286,7 +419,7 @@ struct GwaTopTimetableCourseSheet: View {
                 professor: professor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : professor,
                 color: color,
                 location: location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : location,
-                schedule: times
+                schedule: buildSchedule()
             )
             onSaved?(updated)
             dismiss()
