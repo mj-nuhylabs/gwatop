@@ -17,9 +17,10 @@ content_type 별로 정의된 JSON 스키마를 반환한다. 모든 결과는 a
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
-from typing import Any
+from typing import Any, Callable
 
 from openai import AsyncOpenAI, OpenAIError
 from pydantic import BaseModel, Field, ValidationError, field_validator
@@ -45,6 +46,18 @@ def _get_client() -> AsyncOpenAI:
     if not settings.OPENAI_API_KEY:
         raise ContentGeneratorError("OPENAI_API_KEY is not configured")
     return get_async_openai()
+
+
+# SSE 스트리밍 생성용 콜백. 같은 task 안에서 set 하면 _generate_json 이 토큰 델타를 흘려보낸다.
+# 미설정(기본 None)이면 기존 비스트리밍 경로 그대로 — Celery 워커/기존 호출엔 영향 없음.
+_stream_cb_var: contextvars.ContextVar[Callable[[str], None] | None] = (
+    contextvars.ContextVar("content_gen_stream_cb", default=None)
+)
+
+
+def set_generation_stream_callback(cb: Callable[[str], None] | None) -> None:
+    """현재 async task 컨텍스트에서 생성 토큰 델타를 받을 콜백 등록(SSE 엔드포인트 전용)."""
+    _stream_cb_var.set(cb)
 
 
 def _truncate(text: str, limit: int = MAX_INPUT_CHARS) -> str:
@@ -81,24 +94,67 @@ async def _generate_json(
     이 경우 명확한 에러를 던져 사용자에게 안내한다 (단순 'invalid JSON' 보다 진단 쉬움).
     """
     client = _get_client()
-    try:
-        response = await client.chat.completions.create(
-            model=settings.OPENAI_SUMMARY_MODEL,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-        )
-    except OpenAIError as exc:
-        logger.exception("OpenAI generation failed")
-        raise ContentGeneratorError(f"OpenAI request failed: {exc}") from exc
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
+    stream_cb = _stream_cb_var.get()
 
-    choice = response.choices[0]
-    raw = choice.message.content or ""
-    finish_reason = getattr(choice, "finish_reason", None)
+    if stream_cb is not None:
+        # SSE 경로 — 토큰을 흘려보내며 누적. finish_reason/usage 는 마지막 청크에서.
+        try:
+            stream = await client.chat.completions.create(
+                model=settings.OPENAI_SUMMARY_MODEL,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                response_format={"type": "json_object"},
+                messages=messages,
+                stream=True,
+                stream_options={"include_usage": True},
+            )
+            parts: list[str] = []
+            finish_reason = None
+            model_name = settings.OPENAI_SUMMARY_MODEL
+            total_tokens = 0
+            async for chunk in stream:
+                if getattr(chunk, "usage", None):
+                    total_tokens = chunk.usage.total_tokens
+                if getattr(chunk, "model", None):
+                    model_name = chunk.model
+                if not chunk.choices:
+                    continue
+                ch = chunk.choices[0]
+                if ch.finish_reason:
+                    finish_reason = ch.finish_reason
+                delta = (ch.delta.content or "") if ch.delta else ""
+                if delta:
+                    parts.append(delta)
+                    try:
+                        stream_cb(delta)
+                    except Exception:
+                        pass  # 콜백 오류가 생성을 깨면 안 됨
+            raw = "".join(parts)
+        except OpenAIError as exc:
+            logger.exception("OpenAI streaming generation failed")
+            raise ContentGeneratorError(f"OpenAI request failed: {exc}") from exc
+    else:
+        try:
+            response = await client.chat.completions.create(
+                model=settings.OPENAI_SUMMARY_MODEL,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                response_format={"type": "json_object"},
+                messages=messages,
+            )
+        except OpenAIError as exc:
+            logger.exception("OpenAI generation failed")
+            raise ContentGeneratorError(f"OpenAI request failed: {exc}") from exc
+
+        choice = response.choices[0]
+        raw = choice.message.content or ""
+        finish_reason = getattr(choice, "finish_reason", None)
+        model_name = response.model
+        total_tokens = response.usage.total_tokens if response.usage else 0
 
     if finish_reason == "length":
         # GPT 가 max_tokens 한도 직전에 멈춰서 JSON 이 잘렸다.
@@ -123,11 +179,7 @@ async def _generate_json(
     # 퀴즈/플래시카드/마인드맵/암기/주요 주제 모두 수식을 포함할 수 있어 공통 적용.
     payload = repair_latex_in_payload(payload)
 
-    return (
-        payload,
-        response.model,
-        (response.usage.total_tokens if response.usage else 0),
-    )
+    return (payload, model_name, total_tokens)
 
 
 # ---------- 1) Quiz ----------

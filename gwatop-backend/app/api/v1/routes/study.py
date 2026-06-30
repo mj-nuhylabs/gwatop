@@ -258,6 +258,131 @@ async def study_generate_ai_content(
     }
 
 
+@router.post("/files/{file_id}/ai-contents/{content_type}/generate/stream")
+async def study_generate_ai_content_stream(
+    file_id: uuid.UUID,
+    content_type: str,
+    body: GenerateRequest | None = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """SSE 로 학습 콘텐츠를 '인라인' 생성하며 토큰 진행을 흘려보낸다.
+
+    Celery 큐잉 경로(/generate)와 별개의 동기 스트리밍 경로 — 큐 대기 없이 즉시 생성,
+    끝나는 즉시 done 으로 결과를 준다. 콘텐츠는 JSON 이라 부분 렌더는 못 하지만 delta 길이로
+    진행 표시가 가능하다. 이벤트(`data: <JSON>\\n\\n`): start / delta / done / error.
+    """
+    if content_type not in GENERATOR_REGISTRY:
+        raise HTTPException(status_code=400, detail=f"Unsupported content_type: {content_type}")
+    file_row, _ = await owned_file(file_id, current_user, db)
+    if not file_row.extracted_text:
+        raise HTTPException(status_code=400, detail="이 파일은 아직 텍스트 추출이 완료되지 않았어요.")
+
+    req = body or GenerateRequest()
+    scope = _scope_with_difficulty(_normalize_scope(req.pages), req.difficulty)
+    base_scope, _, _diff = scope.partition("#")
+    difficulty = _diff or "easy"
+    should_regen = req.force or bool(req.exclude_questions)
+
+    existing = (await db.execute(
+        select(AIContent).where(and_(
+            AIContent.file_id == file_row.id,
+            AIContent.content_type == content_type,
+            AIContent.scope == scope,
+        )).order_by(AIContent.generated_at.desc())
+    )).scalars().first()
+    cached_content = existing.content if (existing is not None and not should_regen) else None
+    existing_id = existing.id if (existing is not None and should_regen) else None
+
+    text = slice_text_by_pages(
+        file_row.extracted_text, None if base_scope == "all" else base_scope
+    )
+    analysis_payload: dict | None = None
+    if cached_content is None:
+        analysis_row = (await db.execute(
+            select(AIContent).where(and_(
+                AIContent.file_id == file_row.id,
+                AIContent.content_type == "analysis",
+            )).order_by(AIContent.generated_at.desc())
+        )).scalars().first()
+        if analysis_row is not None and isinstance(analysis_row.content, dict):
+            analysis_payload = analysis_row.content
+
+    filename = file_row.filename
+    fid = file_row.id
+    uid = current_user.id
+    exclude_questions = req.exclude_questions
+
+    async def event_stream():
+        import asyncio
+        from app.core.database import AsyncSessionLocal as async_session_maker
+        from app.services.content_generators import set_generation_stream_callback
+
+        yield 'data: {"type":"start"}\n\n'
+
+        if cached_content is not None:
+            yield f"data: {json.dumps({'type': 'done', 'content': cached_content}, ensure_ascii=False)}\n\n"
+            return
+        if not text.strip():
+            yield f"data: {json.dumps({'type': 'error', 'message': '생성할 텍스트가 없어요.'}, ensure_ascii=False)}\n\n"
+            return
+
+        queue: asyncio.Queue = asyncio.Queue()
+
+        def on_delta(chunk: str):
+            try:
+                queue.put_nowait(chunk)
+            except Exception:
+                pass
+
+        async def run():
+            try:
+                set_generation_stream_callback(on_delta)
+                payload = await generate_content(
+                    content_type, text, filename=filename,
+                    analysis=analysis_payload, exclude_questions=exclude_questions,
+                    difficulty=difficulty,
+                )
+                async with async_session_maker() as s:
+                    if existing_id is not None:
+                        await s.execute(delete(AIContent).where(AIContent.id == existing_id))
+                    s.add(AIContent(
+                        file_id=fid, content_type=content_type, scope=scope,
+                        content=payload, requested_by_user_id=uid,
+                    ))
+                    try:
+                        await s.commit()
+                    except IntegrityError:
+                        await s.rollback()  # 다른 경로가 먼저 저장 — 그대로 둠
+                return ("done", payload)
+            except ContentGeneratorError as exc:
+                return ("error", str(exc))
+            except Exception:
+                logger.exception("generate stream failed file=%s type=%s", fid, content_type)
+                return ("error", "생성 중 오류가 발생했어요.")
+            finally:
+                set_generation_stream_callback(None)
+                await queue.put(None)  # 종료 sentinel (델타는 항상 str)
+
+        task = asyncio.create_task(run())
+        while True:
+            chunk = await queue.get()
+            if chunk is None:
+                break
+            yield f"data: {json.dumps({'type': 'delta', 'text': chunk}, ensure_ascii=False)}\n\n"
+        kind, result = await task
+        if kind == "done":
+            yield f"data: {json.dumps({'type': 'done', 'content': result}, ensure_ascii=False)}\n\n"
+        else:
+            yield f"data: {json.dumps({'type': 'error', 'message': result}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 # ---------- Speculative prefetch ----------
 
 PREFETCH_TYPES = ("quiz", "flashcard", "mindmap", "memorize", "topics")
