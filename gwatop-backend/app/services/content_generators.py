@@ -17,10 +17,9 @@ content_type 별로 정의된 JSON 스키마를 반환한다. 모든 결과는 a
 
 from __future__ import annotations
 
-import contextvars
 import json
 import logging
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable, Literal, Optional
 
 from openai import AsyncOpenAI, OpenAIError
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
@@ -29,6 +28,11 @@ from app.core.config import settings
 from app.services.analyzer import analysis_to_markdown
 from app.services.openai_client import get_async_openai
 from app.services.latex_repair import repair_latex_in_payload
+from app.services.structured_llm import stream_structured_completion, structured_chat_json
+
+# SSE 스트리밍 생성 시 각 텍스트 청크를 받는 async 콜백. None 이면 비스트리밍.
+# (모듈 레벨 런타임 값이라 `| None` 대신 Optional — Python 3.9 호환.)
+OnDelta = Optional[Callable[[str], Awaitable[None]]]
 
 logger = logging.getLogger(__name__)
 
@@ -46,18 +50,6 @@ def _get_client() -> AsyncOpenAI:
     if not settings.OPENAI_API_KEY:
         raise ContentGeneratorError("OPENAI_API_KEY is not configured")
     return get_async_openai()
-
-
-# SSE 스트리밍 생성용 콜백. 같은 task 안에서 set 하면 _generate_json 이 토큰 델타를 흘려보낸다.
-# 미설정(기본 None)이면 기존 비스트리밍 경로 그대로 — Celery 워커/기존 호출엔 영향 없음.
-_stream_cb_var: contextvars.ContextVar[Callable[[str], None] | None] = (
-    contextvars.ContextVar("content_gen_stream_cb", default=None)
-)
-
-
-def set_generation_stream_callback(cb: Callable[[str], None] | None) -> None:
-    """현재 async task 컨텍스트에서 생성 토큰 델타를 받을 콜백 등록(SSE 엔드포인트 전용)."""
-    _stream_cb_var.set(cb)
 
 
 def _truncate(text: str, limit: int = MAX_INPUT_CHARS) -> str:
@@ -88,12 +80,9 @@ def _build_input(text: str, analysis: dict | None) -> str:
 def _tag_pages(text: str) -> tuple[str, bool]:
     """form-feed(\\f)로 페이지를 나눠 각 페이지 앞에 [p.N] 마커를 붙인다.
 
-    신규 추출 데이터는 페이지를 \\f 로 구분한다(slice_text_by_pages 전제와 동일).
     \\f 가 없으면 마커 없이 원문 그대로 반환하고 has_pages=False — 이 경우 프롬프트
-    규칙상 모델은 pages 를 비운다(페이지 환각 방지).
-
-    'all' scope 에선 \\f 가 보존돼 [p.N] = 실제 PDF 페이지번호. 범위 슬라이스는
-    slice_text_by_pages 가 \\f 를 합쳐 마커가 없어지므로 pages 가 비워진다.
+    규칙상 모델은 pages 를 비운다(페이지 환각 방지). 'all' scope 에선 \\f 가 보존돼
+    [p.N] = 실제 PDF 페이지번호.
     """
     if "\f" not in (text or ""):
         return text or "", False
@@ -113,8 +102,7 @@ def _tag_pages(text: str) -> tuple[str, bool]:
 def _build_paged_input(text: str, analysis: dict | None) -> str:
     """memorize/topics 전용 입력 — 페이지 마커를 주입해 페이지 인용을 가능케 한다.
 
-    인용 가능한 본문은 페이지 태깅된 원문이다. 분석본이 있으면 참고용으로 앞에 덧붙인다
-    (분석본엔 페이지 정보가 없으므로 인용 소스로는 쓰지 않는다).
+    인용 소스는 페이지 태깅된 원문. 분석본이 있으면 참고용으로 앞에 덧붙인다.
     """
     paged, has_pages = _tag_pages(text or "")
     paged = _truncate(paged, MAX_INPUT_CHARS)
@@ -127,75 +115,51 @@ def _build_paged_input(text: str, analysis: dict | None) -> str:
 
 
 async def _generate_json(
-    *, system: str, user: str, max_tokens: int, temperature: float = 0.3,
+    *, system: str, user: str, schema_model: type[BaseModel], schema_name: str,
+    max_tokens: int, temperature: float = 0.3,
+    on_delta: OnDelta = None,
 ) -> tuple[dict[str, Any], str, int]:
     """공통 GPT JSON 호출. (payload, model, total_tokens) 반환.
+
+    Structured Outputs(strict json_schema)로 `schema_model` 형태를 모델에 강제한다 —
+    필드 누락/타입 오류/추가 산문이 불가능해져 생성 실패가 급감. 미지원 모델·스키마 거부
+    시 자동으로 json_object 모드로 폴백(서킷 브레이커)하므로 안전하다. (구조가 보장돼도
+    아래 per-item 검증은 안전망으로 그대로 유지.)
+
+    `on_delta` 가 주어지면 **스트리밍** 호출로 전환 — 각 텍스트 청크를 콜백으로 흘려보내고
+    생성이 끝나는 즉시 결과를 돌려준다(SSE 엔드포인트용). 없으면 기존 비스트리밍 경로.
 
     truncation 감지: finish_reason='length' 면 max_tokens 한도 초과로 JSON 잘림.
     이 경우 명확한 에러를 던져 사용자에게 안내한다 (단순 'invalid JSON' 보다 진단 쉬움).
     """
     client = _get_client()
-    messages = [
-        {"role": "system", "content": system},
-        {"role": "user", "content": user},
-    ]
-    stream_cb = _stream_cb_var.get()
-
-    if stream_cb is not None:
-        # SSE 경로 — 토큰을 흘려보내며 누적. finish_reason/usage 는 마지막 청크에서.
-        try:
-            stream = await client.chat.completions.create(
+    try:
+        if on_delta is not None:
+            raw, model, tokens, finish_reason = await stream_structured_completion(
+                client,
                 model=settings.OPENAI_SUMMARY_MODEL,
-                temperature=temperature,
+                system=system,
+                user=user,
+                schema_model=schema_model,
+                schema_name=schema_name,
                 max_tokens=max_tokens,
-                response_format={"type": "json_object"},
-                messages=messages,
-                stream=True,
-                stream_options={"include_usage": True},
+                temperature=temperature,
+                on_delta=on_delta,
             )
-            parts: list[str] = []
-            finish_reason = None
-            model_name = settings.OPENAI_SUMMARY_MODEL
-            total_tokens = 0
-            async for chunk in stream:
-                if getattr(chunk, "usage", None):
-                    total_tokens = chunk.usage.total_tokens
-                if getattr(chunk, "model", None):
-                    model_name = chunk.model
-                if not chunk.choices:
-                    continue
-                ch = chunk.choices[0]
-                if ch.finish_reason:
-                    finish_reason = ch.finish_reason
-                delta = (ch.delta.content or "") if ch.delta else ""
-                if delta:
-                    parts.append(delta)
-                    try:
-                        stream_cb(delta)
-                    except Exception:
-                        pass  # 콜백 오류가 생성을 깨면 안 됨
-            raw = "".join(parts)
-        except OpenAIError as exc:
-            logger.exception("OpenAI streaming generation failed")
-            raise ContentGeneratorError(f"OpenAI request failed: {exc}") from exc
-    else:
-        try:
-            response = await client.chat.completions.create(
+        else:
+            raw, model, tokens, finish_reason = await structured_chat_json(
+                client,
                 model=settings.OPENAI_SUMMARY_MODEL,
-                temperature=temperature,
+                system=system,
+                user=user,
+                schema_model=schema_model,
+                schema_name=schema_name,
                 max_tokens=max_tokens,
-                response_format={"type": "json_object"},
-                messages=messages,
+                temperature=temperature,
             )
-        except OpenAIError as exc:
-            logger.exception("OpenAI generation failed")
-            raise ContentGeneratorError(f"OpenAI request failed: {exc}") from exc
-
-        choice = response.choices[0]
-        raw = choice.message.content or ""
-        finish_reason = getattr(choice, "finish_reason", None)
-        model_name = response.model
-        total_tokens = response.usage.total_tokens if response.usage else 0
+    except OpenAIError as exc:
+        logger.exception("OpenAI generation failed")
+        raise ContentGeneratorError(f"OpenAI request failed: {exc}") from exc
 
     if finish_reason == "length":
         # GPT 가 max_tokens 한도 직전에 멈춰서 JSON 이 잘렸다.
@@ -220,7 +184,7 @@ async def _generate_json(
     # 퀴즈/플래시카드/마인드맵/암기/주요 주제 모두 수식을 포함할 수 있어 공통 적용.
     payload = repair_latex_in_payload(payload)
 
-    return (payload, model_name, total_tokens)
+    return payload, model, tokens
 
 
 # ---------- 1) Quiz ----------
@@ -285,6 +249,25 @@ class _QuizShort(BaseModel):
     explanation: str = ""
 
 
+class _QuizItem(BaseModel):
+    """Structured Outputs 스키마 전용 평면 문항 모델.
+
+    객관식/주관식을 하나의 형태로 표현한다(union 보다 strict json_schema 호환성이 안정적).
+    주관식은 choices/answer_index 가 null, 객관식은 answer 가 null 로 채워진다.
+    실제 검증/정규화는 기존 _QuizMC / _QuizShort 가 type 별로 담당한다.
+    """
+    type: Literal["multiple_choice", "short_answer"]
+    question: str
+    choices: list[str] | None = None
+    answer_index: int | None = None
+    answer: str | None = None
+    explanation: str = ""
+
+
+class _QuizResponse(BaseModel):
+    questions: list[_QuizItem]
+
+
 # 난이도별 출력 토큰 상한 — 쉬움은 문제 수·해설을 줄여 출력을 확 줄여 가장 빠르게.
 _QUIZ_MAX_TOKENS = {"easy": 1400, "medium": 2400, "hard": 3500}
 
@@ -314,6 +297,7 @@ _QUIZ_DIFFICULTY_BLOCK = {
 async def generate_quiz(
     text: str, *, filename: str | None, analysis: dict | None = None,
     exclude_questions: list[str] | None = None, difficulty: str = "easy",
+    on_delta: OnDelta = None,
 ) -> dict[str, Any]:
     exclusion_block = ""
     if exclude_questions:
@@ -346,8 +330,10 @@ async def generate_quiz(
     # 어려움(3500)은 길어진 수식·해설로 잘림(finish_reason=length) 방지 여유. (실사용 토큰만큼만 과금)
     payload, model, tokens = await _generate_json(
         system=QUIZ_SYSTEM, user=user_prompt,
+        schema_model=_QuizResponse, schema_name="quiz",
         max_tokens=_QUIZ_MAX_TOKENS.get(difficulty, _QUIZ_MAX_TOKENS["easy"]),
         temperature=temp,
+        on_delta=on_delta,
     )
     questions_raw = payload.get("questions", [])
     validated: list[dict[str, Any]] = []
@@ -398,9 +384,14 @@ class _FlashCard(BaseModel):
     hint: str | None = None
 
 
+class _FlashcardResponse(BaseModel):
+    cards: list[_FlashCard]
+
+
 async def generate_flashcards(
     text: str, *, filename: str | None, analysis: dict | None = None,
     exclude_fronts: list[str] | None = None,
+    on_delta: OnDelta = None,
 ) -> dict[str, Any]:
     """플래시카드 생성. exclude_fronts 가 주어지면 그 용어들을 피해서 새 카드를 만든다
     — '더 만들기' 기능에서 기존 카드와 중복되지 않는 새 카드를 얻기 위해 사용.
@@ -426,7 +417,10 @@ async def generate_flashcards(
         "위 자료에서 플래시카드를 JSON으로 만들어주세요."
     )
     payload, model, tokens = await _generate_json(
-        system=FLASHCARD_SYSTEM, user=user_prompt, max_tokens=1800,
+        system=FLASHCARD_SYSTEM, user=user_prompt,
+        schema_model=_FlashcardResponse, schema_name="flashcards",
+        max_tokens=1800,
+        on_delta=on_delta,
     )
     raw = payload.get("cards", [])
     validated = []
@@ -527,6 +521,7 @@ def _coerce_mindmap_recursive(node: Any, depth: int, max_depth: int = 3) -> dict
 
 async def generate_mindmap(
     text: str, *, filename: str | None, analysis: dict | None = None,
+    on_delta: OnDelta = None,
 ) -> dict[str, Any]:
     user_prompt = (
         f"[파일명] {filename or '(미상)'}\n\n"
@@ -534,7 +529,10 @@ async def generate_mindmap(
         "위 자료를 마인드맵 트리 JSON으로 변환하시오."
     )
     payload, model, tokens = await _generate_json(
-        system=MINDMAP_SYSTEM, user=user_prompt, max_tokens=1500,
+        system=MINDMAP_SYSTEM, user=user_prompt,
+        schema_model=_Mindmap, schema_name="mindmap",
+        max_tokens=1500,
+        on_delta=on_delta,
     )
 
     # 1단계: 입력을 정상화 (문자열 leaf → dict, 깊이 제한, 라벨 길이 제한).
@@ -632,8 +630,13 @@ class _MemPoint(BaseModel):
         return v
 
 
+class _MemorizeResponse(BaseModel):
+    points: list[_MemPoint]
+
+
 async def generate_memorize(
     text: str, *, filename: str | None, analysis: dict | None = None,
+    on_delta: OnDelta = None,
 ) -> dict[str, Any]:
     user_prompt = (
         f"[파일명] {filename or '(미상)'}\n\n"
@@ -641,7 +644,10 @@ async def generate_memorize(
         "위 자료에서 시험에 나올 만한 암기 포인트를 JSON으로 정리하시오."
     )
     payload, model, tokens = await _generate_json(
-        system=MEMORIZE_SYSTEM, user=user_prompt, max_tokens=2400, temperature=0.2,
+        system=MEMORIZE_SYSTEM, user=user_prompt,
+        schema_model=_MemorizeResponse, schema_name="memorize",
+        max_tokens=2400, temperature=0.2,
+        on_delta=on_delta,
     )
     raw = payload.get("points", [])
     validated = []
@@ -756,8 +762,13 @@ class _Topic(BaseModel):
         return self
 
 
+class _TopicsResponse(BaseModel):
+    topics: list[_Topic]
+
+
 async def generate_topics(
     text: str, *, filename: str | None, analysis: dict | None = None,
+    on_delta: OnDelta = None,
 ) -> dict[str, Any]:
     user_prompt = (
         f"[파일명] {filename or '(미상)'}\n\n"
@@ -765,7 +776,10 @@ async def generate_topics(
         "위 자료의 주요 개념을 JSON으로 정리하시오."
     )
     payload, model, tokens = await _generate_json(
-        system=TOPICS_SYSTEM, user=user_prompt, max_tokens=3000, temperature=0.2,
+        system=TOPICS_SYSTEM, user=user_prompt,
+        schema_model=_TopicsResponse, schema_name="topics",
+        max_tokens=3000, temperature=0.2,
+        on_delta=on_delta,
     )
     raw = payload.get("topics", [])
     validated = []
@@ -798,16 +812,19 @@ async def generate_content(
     analysis: dict | None = None,
     exclude_questions: list[str] | None = None,
     difficulty: str = "easy",
+    on_delta: OnDelta = None,
 ) -> dict[str, Any]:
     fn = GENERATOR_REGISTRY.get(content_type)
     if fn is None:
         raise ContentGeneratorError(f"Unknown content_type: {content_type}")
     # exclude_questions / difficulty 는 현재 quiz 만 사용. 다른 generator 시그니처를
     # 건드리지 않기 위해 content_type 별로 분기한다.
+    # on_delta 가 있으면 스트리밍(SSE 엔드포인트), 없으면 기존 비스트리밍(Celery 워커).
     if content_type == "quiz":
         return await fn(text, filename=filename, analysis=analysis,
-                        exclude_questions=exclude_questions, difficulty=difficulty)
-    return await fn(text, filename=filename, analysis=analysis)
+                        exclude_questions=exclude_questions, difficulty=difficulty,
+                        on_delta=on_delta)
+    return await fn(text, filename=filename, analysis=analysis, on_delta=on_delta)
 
 
 # ---------- 페이지 범위 슬라이싱 ----------

@@ -19,3 +19,6 @@ pymupdf==1.27.2.3
 python-pptx==1.0.2
 python-docx==1.1.2
 youtube-transcript-api==1.2.4
+# 옵셔널: PDF_MARKDOWN_EXTRACTION=true 로 켤 때만 필요한 구조보존 마크다운 추출기.
+# 미설치여도 raw 텍스트 추출로 자동 폴백하므로 기본 배포엔 영향 없음. pymupdf 와 버전 호환 확인 후 설치.
+# pymupdf4llm==0.0.31

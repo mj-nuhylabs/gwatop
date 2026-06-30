@@ -36,6 +36,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.core.config import settings
 from app.services.openai_client import get_async_openai
+from app.services.structured_llm import structured_chat_json
 
 logger = logging.getLogger(__name__)
 
@@ -132,21 +133,22 @@ async def analyze_text(text: str, *, filename: str | None = None) -> dict[str, A
 
     client = _get_client()
     try:
-        response = await client.chat.completions.create(
+        # Structured Outputs(strict json_schema) — 분석본은 5종 생성기의 공유 입력이라
+        # 구조 안정성이 특히 중요. 미지원 시 자동 json_object 폴백.
+        raw, resp_model, total_tokens, _finish = await structured_chat_json(
+            client,
             model=settings.OPENAI_SUMMARY_MODEL,
-            temperature=0.2,
+            system=SYSTEM_PROMPT,
+            user=user_prompt,
+            schema_model=_AnalysisPayload,
+            schema_name="analysis",
             max_tokens=settings.OPENAI_SUMMARY_MAX_TOKENS,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
+            temperature=0.2,
         )
     except OpenAIError as exc:
         logger.exception("OpenAI analyze call failed")
         raise AnalyzerError(f"OpenAI request failed: {exc}") from exc
 
-    raw = response.choices[0].message.content or ""
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -165,8 +167,8 @@ async def analyze_text(text: str, *, filename: str | None = None) -> dict[str, A
         "key_terms": [t.model_dump() for t in validated.key_terms],
         "structure": validated.structure,
         "exam_points": validated.exam_points,
-        "model": response.model,
-        "tokens": (response.usage.total_tokens if response.usage else 0),
+        "model": resp_model,
+        "tokens": total_tokens,
     }
 
 

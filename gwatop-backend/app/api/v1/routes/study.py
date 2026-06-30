@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -30,7 +31,7 @@ from app.models.tutor_message import TutorMessage
 from app.models.user import User
 from app.services.content_generators import (
     ContentGeneratorError, GENERATOR_REGISTRY, generate_content,
-    generate_flashcards, slice_text_by_pages,
+    generate_flashcards, generate_quiz, slice_text_by_pages,
 )
 from app.services.tutor import TutorError, ask_tutor, ask_tutor_stream
 
@@ -266,14 +267,24 @@ async def study_generate_ai_content_stream(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """SSE 로 학습 콘텐츠를 '인라인' 생성하며 토큰 진행을 흘려보낸다.
+    """사용자가 '생성' 을 직접 누른 단발 작업을 **SSE 로 즉석 스트리밍** 생성한다.
 
-    Celery 큐잉 경로(/generate)와 별개의 동기 스트리밍 경로 — 큐 대기 없이 즉시 생성,
-    끝나는 즉시 done 으로 결과를 준다. 콘텐츠는 JSON 이라 부분 렌더는 못 하지만 delta 길이로
-    진행 표시가 가능하다. 이벤트(`data: <JSON>\\n\\n`): start / delta / done / error.
+    기존 `/generate`(Celery 큐잉 + 폴링)는 prefetch·내구성용으로 그대로 유지하고, 이
+    엔드포인트는 사용자 클릭에 한해 추가된 빠른 경로다:
+      - Celery 큐 대기·1.5초 폴링 지연이 없어 **끝나는 즉시** 결과를 받는다.
+      - 생성 중임을 delta 로 실시간 전달 (튜터 채팅과 동일한 SSE 패턴).
+    콘텐츠가 JSON 이라 부분 렌더는 안 되지만, 웹은 delta 로 진행을 표시하고 done 의
+    content 를 최종 렌더한다. 결과는 기존과 동일하게 ai_contents 에 저장돼 캐시된다.
+
+    스트림 이벤트 (`data: <JSON>\\n\\n`):
+      - {"type":"start"}
+      - {"type":"delta","text":"..."}                  ← 생성 중 raw 청크
+      - {"type":"done","status":"ready","content":{...}} ← 최종 검증·저장된 콘텐츠
+      - {"type":"error","message":"..."}
     """
     if content_type not in GENERATOR_REGISTRY:
         raise HTTPException(status_code=400, detail=f"Unsupported content_type: {content_type}")
+
     file_row, _ = await owned_file(file_id, current_user, db)
     if not file_row.extracted_text:
         raise HTTPException(status_code=400, detail="이 파일은 아직 텍스트 추출이 완료되지 않았어요.")
@@ -282,105 +293,182 @@ async def study_generate_ai_content_stream(
     scope = _scope_with_difficulty(_normalize_scope(req.pages), req.difficulty)
     base_scope, _, _diff = scope.partition("#")
     difficulty = _diff or "easy"
-    should_regen = req.force or bool(req.exclude_questions)
 
     existing = (await db.execute(
-        select(AIContent).where(and_(
-            AIContent.file_id == file_row.id,
-            AIContent.content_type == content_type,
-            AIContent.scope == scope,
-        )).order_by(AIContent.generated_at.desc())
+        select(AIContent).where(
+            and_(
+                AIContent.file_id == file_row.id,
+                AIContent.content_type == content_type,
+                AIContent.scope == scope,
+            )
+        ).order_by(AIContent.generated_at.desc())
     )).scalars().first()
-    cached_content = existing.content if (existing is not None and not should_regen) else None
-    existing_id = existing.id if (existing is not None and should_regen) else None
+    cached_hit = existing is not None and not req.force and not req.exclude_questions
 
-    text = slice_text_by_pages(
-        file_row.extracted_text, None if base_scope == "all" else base_scope
-    )
+    # 분석본(scope=all)이 있으면 재사용 — 워커 경로와 동일한 입력 최적화.
     analysis_payload: dict | None = None
-    if cached_content is None:
+    if base_scope == "all" and not cached_hit:
         analysis_row = (await db.execute(
-            select(AIContent).where(and_(
+            select(AIContent).where(
                 AIContent.file_id == file_row.id,
                 AIContent.content_type == "analysis",
-            )).order_by(AIContent.generated_at.desc())
+            ).order_by(AIContent.generated_at.desc())
         )).scalars().first()
         if analysis_row is not None and isinstance(analysis_row.content, dict):
             analysis_payload = analysis_row.content
 
+    sliced_text = slice_text_by_pages(
+        file_row.extracted_text, None if base_scope == "all" else base_scope
+    )
+
+    # Depends 의 db 세션은 핸들러 반환과 함께 닫히므로, 스트림 코루틴에서 쓸 값은 미리 캡처.
     filename = file_row.filename
     fid = file_row.id
-    uid = current_user.id
-    exclude_questions = req.exclude_questions
+    user_id = current_user.id
+    existing_id = existing.id if existing is not None else None
+    cached_content = existing.content if cached_hit else None
+    exclude_q = req.exclude_questions
+    force = req.force
 
     async def event_stream():
-        import asyncio
         from app.core.database import AsyncSessionLocal as async_session_maker
-        from app.services.content_generators import set_generation_stream_callback
 
-        yield 'data: {"type":"start"}\n\n'
+        def pack(payload: dict[str, Any]) -> str:
+            return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
-        if cached_content is not None:
-            yield f"data: {json.dumps({'type': 'done', 'content': cached_content}, ensure_ascii=False)}\n\n"
-            return
-        if not text.strip():
-            yield f"data: {json.dumps({'type': 'error', 'message': '생성할 텍스트가 없어요.'}, ensure_ascii=False)}\n\n"
+        if cached_hit:
+            yield pack({"type": "done", "status": "ready", "content": cached_content, "cached": True})
             return
 
+        if not sliced_text.strip():
+            yield pack({"type": "error", "message": "선택한 범위에 분석할 텍스트가 없어요."})
+            return
+
+        yield pack({"type": "start"})
+
+        # 콜백(on_delta) → 제너레이터 yield 브리지: Queue 로 청크를 넘긴다.
         queue: asyncio.Queue = asyncio.Queue()
+        _DONE = object()
 
-        def on_delta(chunk: str):
-            try:
-                queue.put_nowait(chunk)
-            except Exception:
-                pass
+        async def on_delta(text: str) -> None:
+            await queue.put(("delta", text))
 
-        async def run():
-            try:
-                set_generation_stream_callback(on_delta)
-                payload = await generate_content(
-                    content_type, text, filename=filename,
-                    analysis=analysis_payload, exclude_questions=exclude_questions,
-                    difficulty=difficulty,
+        async def _save_result(payload: dict) -> None:
+            """결과를 ai_contents 에 저장 — 새 세션으로 (Depends db 는 이미 닫힘)."""
+            async with async_session_maker() as ndb:
+                if existing_id is not None and (force or exclude_q):
+                    await ndb.execute(delete(AIContent).where(AIContent.id == existing_id))
+                ac = AIContent(
+                    file_id=fid,
+                    content_type=content_type,
+                    scope=scope,
+                    content=payload,
+                    requested_by_user_id=user_id,
                 )
-                async with async_session_maker() as s:
-                    if existing_id is not None:
-                        await s.execute(delete(AIContent).where(AIContent.id == existing_id))
-                    s.add(AIContent(
-                        file_id=fid, content_type=content_type, scope=scope,
-                        content=payload, requested_by_user_id=uid,
-                    ))
-                    try:
-                        await s.commit()
-                    except IntegrityError:
-                        await s.rollback()  # 다른 경로가 먼저 저장 — 그대로 둠
-                return ("done", payload)
-            except ContentGeneratorError as exc:
-                return ("error", str(exc))
-            except Exception:
-                logger.exception("generate stream failed file=%s type=%s", fid, content_type)
-                return ("error", "생성 중 오류가 발생했어요.")
-            finally:
-                set_generation_stream_callback(None)
-                await queue.put(None)  # 종료 sentinel (델타는 항상 str)
+                ndb.add(ac)
+                try:
+                    await ndb.commit()
+                except IntegrityError:
+                    # 같은 (file,type,scope) race — 결과는 동일하므로 무시.
+                    await ndb.rollback()
 
-        task = asyncio.create_task(run())
-        while True:
-            chunk = await queue.get()
-            if chunk is None:
-                break
-            yield f"data: {json.dumps({'type': 'delta', 'text': chunk}, ensure_ascii=False)}\n\n"
-        kind, result = await task
-        if kind == "done":
-            yield f"data: {json.dumps({'type': 'done', 'content': result}, ensure_ascii=False)}\n\n"
-        else:
-            yield f"data: {json.dumps({'type': 'error', 'message': result}, ensure_ascii=False)}\n\n"
+        async def run_generation() -> None:
+            # 저장은 이 태스크 안에서 — 클라이언트가 스트림 도중 끊겨도 결과가 영속화돼
+            # Celery 폴링 경로와 동일한 내구성을 갖는다 (사용자가 나중에 GET 으로 회수 가능).
+            try:
+                payload = await generate_content(
+                    content_type, sliced_text, filename=filename,
+                    analysis=analysis_payload, exclude_questions=exclude_q,
+                    difficulty=difficulty, on_delta=on_delta,
+                )
+                await _save_result(payload)
+                await queue.put(("result", payload))
+            except ContentGeneratorError as exc:
+                await queue.put(("error", str(exc)))
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Unexpected content stream error")
+                await queue.put(("error", f"예기치 못한 오류: {exc}"))
+            finally:
+                await queue.put((_DONE, None))
+
+        task = asyncio.create_task(run_generation())
+        result_payload: dict | None = None
+        error_msg: str | None = None
+        try:
+            while True:
+                kind, val = await queue.get()
+                if kind is _DONE:
+                    break
+                if kind == "delta":
+                    yield pack({"type": "delta", "text": val})
+                elif kind == "result":
+                    result_payload = val
+                elif kind == "error":
+                    error_msg = val
+        finally:
+            # 클라이언트가 끊겨 제너레이터가 취소돼도 생성/저장 태스크는 끝까지 돌게 둔다.
+            # asyncio.shield 로 감싸 (반복)취소가 background 태스크로 전파돼 DB 저장이
+            # 중도 취소되는 것을 막는다 — 폴링 경로와 동등한 내구성 보장.
+            if not task.done():
+                await asyncio.shield(task)
+
+        if error_msg is not None or result_payload is None:
+            yield pack({"type": "error", "message": error_msg or "생성에 실패했어요."})
+            return
+
+        yield pack({"type": "done", "status": "ready", "content": result_payload})
 
     return StreamingResponse(
         event_stream(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
     )
+
+
+# ---------- 선택 지문 즉석 퀴즈 ----------
+
+
+class SelectionQuizRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=8000)
+    difficulty: str | None = "easy"
+
+
+@router.post("/files/{file_id}/ai-contents/quiz/from-selection")
+async def study_quiz_from_selection(
+    file_id: uuid.UUID,
+    body: SelectionQuizRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """웹에서 드래그한 지문만으로 즉석 퀴즈를 만든다 (동기).
+
+    선택 지문은 짧아 GPT 호출이 빠르므로 Celery 큐잉/폴링 없이 바로 응답한다.
+    페이지 scope 퀴즈와 달리 ai_contents 에 저장하지 않는다 — 선택은 일회성이라
+    캐시 의미가 적고, 전체 자료 퀴즈 캐시를 오염시키지 않기 위함.
+    """
+    file_row, _ = await owned_file(file_id, current_user, db)
+
+    passage = (body.text or "").strip()
+    if len(passage) < 10:
+        raise HTTPException(
+            status_code=400, detail="퀴즈를 만들기엔 선택한 내용이 너무 짧아요."
+        )
+
+    difficulty = (body.difficulty or "easy").strip().lower()
+    if difficulty not in {"easy", "medium", "hard"}:
+        difficulty = "easy"
+
+    try:
+        result = await generate_quiz(
+            passage, filename=file_row.filename, difficulty=difficulty,
+        )
+    except ContentGeneratorError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return {"questions": result.get("questions", [])}
 
 
 # ---------- Speculative prefetch ----------
@@ -410,8 +498,11 @@ async def study_prefetch_ai_contents(
 
     from app.tasks.file_tasks import generate_ai_content_task
     for ct in PREFETCH_TYPES:
-        generate_ai_content_task.delay(
-            str(file_id), ct, "all", False, str(current_user.id),
+        # 투기적 prefetch 는 낮은 우선순위(9)로 — 텍스트추출/분류/요약/사용자 직접 생성 같은
+        # 실작업이 항상 앞서도록. (celery_app 의 priority 설정 참고. 미지원 시 기존 FIFO 와 동일.)
+        generate_ai_content_task.apply_async(
+            args=[str(file_id), ct, "all", False, str(current_user.id)],
+            priority=9,
         )
 
     return {"file_id": str(file_id), "queued": list(PREFETCH_TYPES)}

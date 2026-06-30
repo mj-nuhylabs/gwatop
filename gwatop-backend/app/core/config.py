@@ -87,6 +87,12 @@ class Settings(BaseSettings):
     # latency 50% 가까이 감소. 표가 깔끔하지 않은 PDF 는 자동으로 LLM 단일 호출로 fallback.
     # 정확도 회귀 위험 보수적 처리 — EC2 .env 에서 활성화한다.
     SYLLABUS_TABLE_EXTRACTION_ENABLED: bool = False
+    # PDF 추출을 PyMuPDF raw 텍스트 → pymupdf4llm 구조보존 마크다운으로 전환.
+    # 제목/리스트/표 위계가 살아 요약·퀴즈·강의계획서 파싱 품질↑. 페이지 슬라이싱(\f)은
+    # 그대로 호환. **옵셔널 의존성** — 켜기 전 `pip install pymupdf4llm` 필요
+    # (미설치/변환실패 시 자동 raw 텍스트 폴백이라 추출 자체는 안 깨짐).
+    # 추출 포맷이 바뀌어 분류 임베딩·슬라이싱에 영향 줄 수 있어 기본 OFF — 스테이징 검증 후 ON.
+    PDF_MARKDOWN_EXTRACTION: bool = False
 
     # --- AI 요약 노트 / 학습 콘텐츠 ---
     # 기본은 gpt-4.1-nano — gpt-4o-mini 대비 ~2x 빠름, 품질도 학습 콘텐츠엔 충분.
@@ -95,6 +101,12 @@ class Settings(BaseSettings):
     # 마인드맵·퀴즈는 응답이 길어 1200 으론 잘리는 경우 발생.
     # 4000 정도면 nano/mini 모두 안전 마진. 비용은 사용한 만큼만 청구되므로 상한만 큼.
     OPENAI_SUMMARY_MAX_TOKENS: int = 4000
+    # Structured Outputs(strict json_schema) 사용 — 모델이 스키마를 100% 준수해
+    # "유효한 퀴즈/카드/마인드맵 없음" 류 생성 실패가 급감한다. (요약/분석/퀴즈/플래시카드/
+    # 마인드맵/암기/주요개념 7종에 적용.) 미지원 모델·스키마 거부 시 자동으로 기존
+    # json_object 모드로 폴백(서킷 브레이커)하므로 최악도 "오늘과 동일 동작"이다.
+    # 문제 발생 시 EC2 .env 에 OPENAI_STRUCTURED_OUTPUTS=false 로 즉시 롤백 가능.
+    OPENAI_STRUCTURED_OUTPUTS: bool = True
 
     # --- AI 튜터 (멀티모달 채팅) ---
     # 튜터는 사진 첨부(vision) 와 길고 정제된 마크다운+LaTeX 응답이 필요해서
@@ -115,6 +127,40 @@ class Settings(BaseSettings):
     CLASSIFY_EMBEDDING_FLOOR: float = 0.30
     # 임베딩 비교에 사용할 파일 텍스트 앞부분 길이(자).
     CLASSIFY_EMBEDDING_INPUT_CHARS: int = 4000
+
+    # --- 문서 분류 (추출신호 + doc_type 1회 통합 호출) ---
+    # 빠른 모델 우선 → 저신뢰 시 큰 모델로 1회만 승급. 대부분 파일은 빠른 모델 1회로 끝난다.
+    CLASSIFY_FAST_MODEL: str = "gpt-4.1-nano"
+    CLASSIFY_ESCALATE_MODEL: str = "gpt-4o-mini"
+    # 이 confidence 미만이거나 doc_type=='불확실' 이면 큰 모델로 1회 재시도.
+    CLASSIFY_CONFIDENCE_THRESHOLD: float = 0.70
+    # 승급 후에도 이 confidence 미만이면 '확인 필요'(needs_review)로 두고 자동 결정 보류.
+    CLASSIFY_REVIEW_THRESHOLD: float = 0.50
+    # 통합 분류 LLM 에 보낼 본문 앞부분 길이(자). 강의계획서 신호(과목정보·평가비율·주차일정)는
+    # 보통 앞쪽에 몰려 있어 앞부분만 봐도 충분하고 입력 토큰이 줄어 지연시간이 크게 준다.
+    CLASSIFY_DOC_INPUT_CHARS: int = 4000
+    # 동일 콘텐츠 재업로드 시 분류 결과 재사용(콘텐츠 해시 dedup). Redis 불가 시 silent miss.
+    CLASSIFY_CACHE_ENABLED: bool = True
+    CLASSIFY_CACHE_TTL_SECONDS: int = 7 * 24 * 60 * 60
+    # 자동 배치 업로드 시 파일별 추출+분류를 동시에 처리하는 최대 개수.
+    # 각 파일 분류는 독립적이라 병렬화해도 안전하며, LLM/임베딩 대기를 겹쳐 지연을 줄인다.
+    BATCH_INGEST_CONCURRENCY: int = 4
+
+    # --- 과목 매칭 (규칙 우선 → 모호할 때만 LLM) ---
+    # 최고 후보가 이 점수 이상이면 규칙만으로 매칭 확정.
+    COURSE_MATCH_FUZZY_THRESHOLD: float = 0.70
+    # 1위-2위 점수 차가 이 값 미만이면 '모호'로 보고 LLM 디스앰비규에이션을 시도.
+    COURSE_MATCH_AMBIGUOUS_MARGIN: float = 0.15
+    COURSE_MATCH_LLM_ENABLED: bool = True
+    COURSE_MATCH_MODEL: str = "gpt-4.1-nano"
+
+    # --- 변경 탐지 (키워드 게이트 → LLM, 자동반영 금지·승인 후에만 DB 갱신) ---
+    CHANGE_DETECTION_ENABLED: bool = True
+    CHANGE_DETECTION_MODEL: str = "gpt-4o-mini"
+    # 본문에서 변경 관련 부분을 LLM 에 보낼 길이(자).
+    CHANGE_DETECTION_INPUT_CHARS: int = 6000
+    # 이 confidence 미만 변경 후보는 제안에서 제외.
+    CHANGE_DETECTION_MIN_CONFIDENCE: float = 0.55
 
     # --- Day 7: APNs 푸시 알림 ---
     # 키가 비어 있으면 services/apns.py가 placeholder mode (로그만, 네트워크 호출 없음)로 동작.

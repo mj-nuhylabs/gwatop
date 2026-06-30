@@ -31,11 +31,13 @@ from sqlalchemy import select, delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import metrics
 from app.core.database import make_celery_session_factory
 from app.models.course import Course
 from app.models.file import File
 from app.models.schedule import Schedule
 from app.models.semester import Semester
+from app.models.syllabus_update_proposal import SyllabusUpdateProposal
 from app.models.todo import Todo
 from app.models.user import User
 from app.schemas.syllabus import ParsedAssignment, ParsedExam, ParsedSyllabus, ParsedWeek
@@ -48,10 +50,27 @@ from app.services.embedding_classifier import (
     deserialize_week_embeddings,
     serialize_week_embeddings,
 )
-from app.services.auto_classifier import detect_kind, guess_course_name
+from app.services.auto_classifier import (
+    guess_course_identity_from_text,
+    guess_course_name_from_filename,
+)
+from app.services.doc_classifier import (
+    DocClassification,
+    classify_document,
+    decide_document_kind,
+)
+from app.services.change_detector import (
+    ChangeContext,
+    detect_changes,
+    has_change_signal,
+)
 from app.services.course_matcher import CourseMatchError, match_or_create_course
 from app.services.doc_text import extract_text_from_docx_bytes, extract_text_from_pptx_bytes
-from app.services.pdf_text import extract_tables_from_pdf, extract_text_from_pdf_bytes
+from app.services.pdf_text import (
+    extract_markdown_from_pdf_bytes,
+    extract_tables_from_pdf,
+    extract_text_from_pdf_bytes,
+)
 from app.services.syllabus_parser import SyllabusParseError, parse_syllabus
 from app.services.todo_generator import build_auto_todos, build_undated_todo
 from app.tasks.celery_app import celery_app
@@ -100,6 +119,30 @@ def parse_syllabus_task(file_id: str) -> None:
 @celery_app.task(name="tasks.classify_file")
 def classify_file_task(file_id: str) -> None:
     _run_with_fresh_engine(lambda Session: _run_classify(file_id, Session))
+
+
+@celery_app.task(name="tasks.detect_changes")
+def detect_changes_task(file_id: str) -> None:
+    """학습자료 본문의 변경 공지를 탐지해 강의계획서 갱신 후보(제안)를 만든다.
+
+    키워드 게이트를 통과한 파일에 대해서만 큐잉된다(빈 호출 방지). 자동 반영 없음 —
+    pending 제안만 생성하고, 사용자 승인 시 라우트에서 DB 에 반영한다.
+    """
+    _run_with_fresh_engine(lambda Session: _run_detect_changes(file_id, Session))
+
+
+@celery_app.task(name="tasks.dispatch_material")
+def dispatch_material_task(file_id: str) -> None:
+    """needs_review 파일을 사용자가 '학습자료'로 확정했을 때의 진입점.
+
+    과목 매칭 + 주차 분류를 새로 수행한다(통합 분류는 콘텐츠 해시 캐시로 0 LLM 가능).
+    """
+    _run_with_fresh_engine(lambda Session: _dispatch_material_entry(file_id, Session))
+
+
+async def _dispatch_material_entry(file_id: str, SessionLocal) -> None:
+    async with metrics.pipeline("material", file_id=file_id):
+        await _dispatch_material(file_id, SessionLocal)
 
 
 @celery_app.task(name="tasks.process_auto_batch")
@@ -184,8 +227,15 @@ async def _extract_text_into(session: AsyncSession, file_row: File) -> tuple[str
 
     text: str | None = None
     if file_row.file_type == "pdf":
+        # 플래그가 켜져 있으면 구조보존 마크다운 추출(pymupdf4llm). 미설치/실패 시
+        # extract_markdown_from_pdf_bytes 내부에서 raw 텍스트로 자동 폴백한다.
+        pdf_extractor = (
+            extract_markdown_from_pdf_bytes
+            if settings.PDF_MARKDOWN_EXTRACTION
+            else extract_text_from_pdf_bytes
+        )
         try:
-            text = await asyncio.to_thread(extract_text_from_pdf_bytes, data)
+            text = await asyncio.to_thread(pdf_extractor, data)
         except Exception as exc:
             logger.exception("extract_text: PyMuPDF failed for %s", file_row.id)
             await _mark_failed(session, file_row, f"PDF text extraction failed: {exc}")
@@ -297,35 +347,37 @@ async def _extract_youtube_into(session: AsyncSession, file_row: File) -> tuple[
 
 
 async def _run_extract(file_id: str, SessionLocal) -> None:
-    async with SessionLocal() as session:
-        file_row = await _load_file(session, UUID(file_id))
-        if file_row is None:
-            logger.warning("extract_text: file %s not found", file_id)
-            return
-        if file_row.status not in ("pending", "uploading"):
-            logger.info(
-                "extract_text: skip file=%s status=%s (already dispatched)",
-                file_id, file_row.status,
-            )
+    async with metrics.pipeline("ingest", file_id=file_id):
+        async with SessionLocal() as session:
+            file_row = await _load_file(session, UUID(file_id))
+            if file_row is None:
+                logger.warning("extract_text: file %s not found", file_id)
+                return
+            if file_row.status not in ("pending", "uploading"):
+                logger.info(
+                    "extract_text: skip file=%s status=%s (already dispatched)",
+                    file_id, file_row.status,
+                )
+                return
+
+            async with metrics.stage("extract_text"):
+                text, ok = await _extract_text_into(session, file_row)
+            if not ok:
+                return
+
+        # Auto-classify 분기: 사용자가 학기/과목/타입 지정 없이 올린 파일.
+        # 업로드 시점에 classification_source="auto_pending" 으로 marker 가 찍힘.
+        # 여기서 텍스트 보고 syllabus vs material 판정 + (material 이면) 과목 자동 매칭/생성.
+        if file_row.classification_source == "auto_pending":
+            await _auto_dispatch(file_id, SessionLocal)
             return
 
-        text, ok = await _extract_text_into(session, file_row)
-        if not ok:
-            return
-
-    # Auto-classify 분기: 사용자가 학기/과목/타입 지정 없이 올린 파일.
-    # 업로드 시점에 classification_source="auto_pending" 으로 marker 가 찍힘.
-    # 여기서 텍스트 보고 syllabus vs material 판정 + (material 이면) 과목 자동 매칭/생성.
-    if file_row.classification_source == "auto_pending":
-        await _auto_dispatch(file_id, SessionLocal)
-        return
-
-    if file_row.is_syllabus and text:
-        parse_syllabus_task.delay(file_id)
-    elif not file_row.is_syllabus:
-        # Day 4: 일반 강의 자료는 주차 자동 분류 파이프라인으로 넘긴다.
-        # PDF가 아니어서 text가 None이어도 파일명 regex만으로 분류 시도할 수 있다.
-        classify_file_task.delay(file_id)
+        if file_row.is_syllabus and text:
+            parse_syllabus_task.delay(file_id)
+        elif not file_row.is_syllabus:
+            # Day 4: 일반 강의 자료는 주차 자동 분류 파이프라인으로 넘긴다.
+            # PDF가 아니어서 text가 None이어도 파일명 regex만으로 분류 시도할 수 있다.
+            classify_file_task.delay(file_id)
 
 
 # ---------- Auto upload dispatch ----------
@@ -335,6 +387,8 @@ async def _auto_dispatch(file_id: str, SessionLocal) -> None:
 
     - syllabus 판정: is_syllabus=True, classification_source="auto_syllabus" → parse_syllabus_task
     - material 판정: 과목 자동 매칭/신규생성 → course_id 채움 → classify_file_task
+    - 불확실/저신뢰(needs_review): 자동 결정 보류 → status="needs_review" 로 두고
+      사용자에게 doc_type 확인을 요청 (confirm_file_kind 엔드포인트).
     학기가 하나도 없으면 명확한 메시지로 실패 처리.
     """
     async with SessionLocal() as session:
@@ -343,11 +397,23 @@ async def _auto_dispatch(file_id: str, SessionLocal) -> None:
             return
 
         text = file_row.extracted_text or ""
-        decision = await detect_kind(text, file_row.filename)
+        async with metrics.stage("doc_classify"):
+            decision = await decide_document_kind(text, file_row.filename)
         logger.info(
-            "auto_dispatch: file=%s kind=%s confidence=%.2f reason=%s",
-            file_id, decision.kind, decision.confidence, decision.reason,
+            "auto_dispatch: file=%s kind=%s doc_type=%s confidence=%.2f "
+            "model=%s escalated=%s needs_review=%s reason=%s",
+            file_id, decision.kind, decision.doc_type, decision.confidence,
+            decision.used_model, decision.escalated, decision.needs_review, decision.reason,
         )
+
+        # 저신뢰/불확실 — 억지로 결정하지 않고 사용자에게 되묻는다.
+        if decision.needs_review:
+            file_row.is_syllabus = decision.kind == "syllabus"  # 잠정 추정값(UI 기본 선택용)
+            file_row.classification_source = "auto_uncertain"
+            file_row.ai_confidence = round(decision.confidence, 4)
+            file_row.status = "needs_review"
+            await session.commit()
+            return
 
         if decision.kind == "syllabus":
             file_row.is_syllabus = True
@@ -363,10 +429,54 @@ async def _auto_dispatch(file_id: str, SessionLocal) -> None:
             return
 
     # material — 과목 자동 매칭/생성은 별도 세션에서 (위 with 블록 종료 후).
-    await _dispatch_material(file_id, SessionLocal)
+    # 분류 결과를 넘겨 과목명 LLM 재호출을 피한다(이미 신원 신호를 추출했으면 재사용).
+    await _dispatch_material(file_id, SessionLocal, classification=decision)
 
 
-async def _dispatch_material(file_id: str, SessionLocal) -> None:
+async def _resolve_course_identity(
+    text: str, filename: str, classification: DocClassification | None,
+) -> tuple[str, str | None, list[str]]:
+    """(과목명, 교수, subject_keywords) 결정. LLM 추가 호출 최소화.
+
+    우선순위:
+      1) 통합 분류가 이미 추출한 과목명/교수/키워드 (LLM 추가 0회)
+      2) 본문 머리글 "<과목명> (<코드>)" regex / 파일명 regex (LLM 0회)
+      3) 둘 다 실패 + 분류를 아직 안 했으면 classify_document 1회(캐시 적중 시 0회)
+      4) 그래도 없으면 "기타"
+    subject_keywords 는 과목 매칭이 모호할 때 LLM 디스앰비규에이션의 결정적 단서가 된다.
+    """
+    professor: str | None = None
+    keywords: list[str] = []
+    if classification is not None:
+        name = (classification.signals.course_name_guess or "").strip()
+        professor = (classification.signals.professor or "").strip() or None
+        keywords = list(classification.signals.subject_keywords or [])
+        if len(name) >= 2:
+            return name, professor, keywords
+
+    header_name, _code = guess_course_identity_from_text(text)
+    if header_name and len(header_name) >= 2:
+        return header_name, professor, keywords
+    fn = guess_course_name_from_filename(filename)
+    if fn and len(fn) >= 2:
+        return fn, professor, keywords
+
+    # 값싼 경로 모두 실패 — 아직 LLM 분류를 안 했을 때만 1회 호출(과목명+키워드 동시 확보).
+    if classification is None:
+        c = await classify_document(text, filename)
+        name = (c.signals.course_name_guess or "").strip()
+        professor = (c.signals.professor or "").strip() or None
+        keywords = list(c.signals.subject_keywords or [])
+        if len(name) >= 2:
+            return name, professor, keywords
+    return "기타", professor, keywords
+
+
+async def _dispatch_material(
+    file_id: str,
+    SessionLocal,
+    classification: DocClassification | None = None,
+) -> None:
     """auto 강의자료 처리: 과목명 추정 → 과목 매칭/신규생성 → course_id 채움 → 주차 분류 큐잉.
 
     배치 흐름(Phase 4)에서도 호출 — 이 때는 syllabus 들이 이미 과목을 생성한 뒤라
@@ -383,17 +493,20 @@ async def _dispatch_material(file_id: str, SessionLocal) -> None:
             await _mark_failed(session, file_row, "업로드 사용자 정보를 찾을 수 없어요.")
             return
 
-        course_name = await guess_course_name(text, file_row.filename)
-        try:
-            course, _semester, created = await match_or_create_course(
-                session, user, course_name,
+        async with metrics.stage("course_match"):
+            course_name, professor, keywords = await _resolve_course_identity(
+                text, file_row.filename or "", classification,
             )
-        except CourseMatchError as exc:
-            await _mark_failed(
-                session, file_row,
-                f"활성 학기가 없어 과목을 자동 생성할 수 없어요. 학기를 먼저 만들어주세요. ({exc})",
-            )
-            return
+            try:
+                course, _semester, created = await match_or_create_course(
+                    session, user, course_name, professor, subject_keywords=keywords,
+                )
+            except CourseMatchError as exc:
+                await _mark_failed(
+                    session, file_row,
+                    f"활성 학기가 없어 과목을 자동 생성할 수 없어요. 학기를 먼저 만들어주세요. ({exc})",
+                )
+                return
 
         file_row.course_id = course.id
         file_row.is_syllabus = False
@@ -408,6 +521,66 @@ async def _dispatch_material(file_id: str, SessionLocal) -> None:
 
 # ---------- Batch auto upload: 강의계획서 먼저, 그 다음 강의자료 ----------
 
+async def _ingest_one_for_batch(fid: str, SessionLocal):
+    """배치의 한 파일을 추출 + 통합 분류한다.
+
+    반환: ("syllabus" | "material" | "skip", fid, decision|None).
+    create_task 로 호출돼 contextvar 가 격리되므로 자체 metrics.pipeline 을 연다.
+    """
+    async with metrics.pipeline("ingest", file_id=fid):
+        async with SessionLocal() as session:
+            file_row = await _load_file(session, UUID(fid))
+            if file_row is None:
+                logger.warning("auto_batch: file %s not found", fid)
+                return ("skip", fid, None)
+            # 이미 다른 경로로 처리 시작된 파일은 건너뜀 (중복 confirm 방어).
+            if file_row.status not in ("pending", "uploading"):
+                logger.info(
+                    "auto_batch: skip file=%s status=%s (already processing)",
+                    fid, file_row.status,
+                )
+                return ("skip", fid, None)
+
+            async with metrics.stage("extract_text"):
+                text, ok = await _extract_text_into(session, file_row)
+            if not ok:
+                return ("skip", fid, None)  # _mark_failed 됨
+
+            async with metrics.stage("doc_classify"):
+                decision = await decide_document_kind(text or "", file_row.filename)
+            logger.info(
+                "auto_batch: classify file=%s kind=%s doc_type=%s confidence=%.2f "
+                "model=%s needs_review=%s reason=%s",
+                fid, decision.kind, decision.doc_type, decision.confidence,
+                decision.used_model, decision.needs_review, decision.reason,
+            )
+
+            if decision.needs_review:
+                file_row.is_syllabus = decision.kind == "syllabus"
+                file_row.classification_source = "auto_uncertain"
+                file_row.ai_confidence = round(decision.confidence, 4)
+                file_row.status = "needs_review"
+                await session.commit()
+                return ("skip", fid, None)
+
+            if decision.kind == "syllabus":
+                file_row.is_syllabus = True
+                file_row.classification_source = "auto_syllabus"
+                await session.commit()
+                if text and text.strip():
+                    return ("syllabus", fid, decision)
+                await _mark_failed(
+                    session, file_row,
+                    "강의계획서로 판정됐으나 텍스트가 비어있어요. 이미지 PDF 인지 확인해주세요.",
+                )
+                return ("skip", fid, None)
+
+            file_row.is_syllabus = False
+            file_row.classification_source = "auto_material_pending"
+            await session.commit()
+            return ("material", fid, decision)
+
+
 async def _run_auto_batch(file_ids: list[str], user_id: str, SessionLocal) -> None:
     """여러 파일을 phase 별로 처리해 강의계획서 → 강의자료 순서를 보장한다.
 
@@ -418,52 +591,31 @@ async def _run_auto_batch(file_ids: list[str], user_id: str, SessionLocal) -> No
     logger.info("auto_batch: start count=%d user=%s", len(file_ids), user_id)
     syllabus_ids: list[str] = []
     material_ids: list[str] = []
+    # material 파일의 통합 분류 결과(과목명/교수/keywords)를 Phase 4 로 운반 — 재호출 방지.
+    material_class: dict[str, DocClassification] = {}
 
-    # ----- Phase 1+2: 추출 + 분류 -----
-    for fid in file_ids:
-        try:
-            async with SessionLocal() as session:
-                file_row = await _load_file(session, UUID(fid))
-                if file_row is None:
-                    logger.warning("auto_batch: file %s not found", fid)
-                    continue
-                # 이미 다른 경로로 처리 시작된 파일은 건너뜀 (중복 confirm 방어).
-                if file_row.status not in ("pending", "uploading"):
-                    logger.info(
-                        "auto_batch: skip file=%s status=%s (already processing)",
-                        fid, file_row.status,
-                    )
-                    continue
+    # ----- Phase 1+2: 추출 + 분류 (파일별 독립 → 병렬) -----
+    # 동시성 상한(semaphore)으로 묶고, 각 파일을 create_task 로 띄워 metrics contextvar 를
+    # 격리한다. LLM/임베딩 대기가 겹쳐 다건 업로드 지연시간이 크게 준다.
+    sem = asyncio.Semaphore(max(1, settings.BATCH_INGEST_CONCURRENCY))
 
-                text, ok = await _extract_text_into(session, file_row)
-                if not ok:
-                    continue  # _mark_failed 됨
+    async def _guarded(fid: str):
+        async with sem:
+            try:
+                return await _ingest_one_for_batch(fid, SessionLocal)
+            except Exception:
+                logger.exception("auto_batch: extract/classify failed for %s", fid)
+                return ("skip", fid, None)
 
-                decision = await detect_kind(text or "", file_row.filename)
-                logger.info(
-                    "auto_batch: classify file=%s kind=%s confidence=%.2f reason=%s",
-                    fid, decision.kind, decision.confidence, decision.reason,
-                )
-
-                if decision.kind == "syllabus":
-                    file_row.is_syllabus = True
-                    file_row.classification_source = "auto_syllabus"
-                    await session.commit()
-                    if text and text.strip():
-                        syllabus_ids.append(fid)
-                    else:
-                        await _mark_failed(
-                            session, file_row,
-                            "강의계획서로 판정됐으나 텍스트가 비어있어요. 이미지 PDF 인지 확인해주세요.",
-                        )
-                else:
-                    # material 은 Phase 4 에서 처리. 일단 marker 만.
-                    file_row.is_syllabus = False
-                    file_row.classification_source = "auto_material_pending"
-                    await session.commit()
-                    material_ids.append(fid)
-        except Exception:
-            logger.exception("auto_batch: extract/classify failed for %s", fid)
+    outcomes = await asyncio.gather(
+        *(asyncio.create_task(_guarded(fid)) for fid in file_ids)
+    )
+    for kind, fid, decision in outcomes:
+        if kind == "syllabus":
+            syllabus_ids.append(fid)
+        elif kind == "material":
+            material_ids.append(fid)
+            material_class[fid] = decision
 
     logger.info(
         "auto_batch: classified syllabus=%d material=%d",
@@ -480,7 +632,10 @@ async def _run_auto_batch(file_ids: list[str], user_id: str, SessionLocal) -> No
     # ----- Phase 4: 강의자료 (이제 과목이 존재하므로 매칭됨) -----
     for fid in material_ids:
         try:
-            await _dispatch_material(fid, SessionLocal)
+            async with metrics.pipeline("material", file_id=fid):
+                await _dispatch_material(
+                    fid, SessionLocal, classification=material_class.get(fid),
+                )
         except Exception:
             logger.exception("auto_batch: material dispatch failed for %s", fid)
 
@@ -490,6 +645,12 @@ async def _run_auto_batch(file_ids: list[str], user_id: str, SessionLocal) -> No
 # ---------- Pipeline: syllabus parsing ----------
 
 async def _run_parse_syllabus(file_id: str, SessionLocal) -> None:
+    # context manager 로 감싸 early return/예외 경로에서도 메트릭이 항상 기록되게 한다.
+    async with metrics.pipeline("syllabus", file_id=file_id):
+        await _run_parse_syllabus_impl(file_id, SessionLocal)
+
+
+async def _run_parse_syllabus_impl(file_id: str, SessionLocal) -> None:
     async with SessionLocal() as session:
         file_row = await _load_file(session, UUID(file_id))
         if file_row is None:
@@ -914,6 +1075,12 @@ def _schedule_from_assignment(course_id: UUID, assignment: ParsedAssignment, due
 # ---------- Pipeline: classify file (Day 4) ----------
 
 async def _run_classify(file_id: str, SessionLocal) -> None:
+    # context manager 로 감싸 early return/예외 경로에서도 메트릭이 항상 기록되게 한다.
+    async with metrics.pipeline("classify", file_id=file_id):
+        await _run_classify_impl(file_id, SessionLocal)
+
+
+async def _run_classify_impl(file_id: str, SessionLocal) -> None:
     async with SessionLocal() as session:
         file_row = await _load_file(session, UUID(file_id))
         if file_row is None:
@@ -957,11 +1124,12 @@ async def _run_classify(file_id: str, SessionLocal) -> None:
         # 내부에서 EmbeddingClassifierError를 swallow하지만, 다른 경로에서 raw OpenAIError가
         # 새는 것을 대비한 안전망.
         try:
-            result = await classify_file(
-                filename=file_row.filename or "",
-                extracted_text=file_row.extracted_text,
-                week_embeddings=week_embeddings,
-            )
+            async with metrics.stage("classify_file"):
+                result = await classify_file(
+                    filename=file_row.filename or "",
+                    extracted_text=file_row.extracted_text,
+                    week_embeddings=week_embeddings,
+                )
         except Exception as exc:
             logger.exception("classify_file: 예상치 못한 오류 file=%s", file_id)
             await _mark_failed(session, file_row, f"자동 분류 실패: {exc}")
@@ -987,12 +1155,15 @@ async def _run_classify(file_id: str, SessionLocal) -> None:
 
         await session.commit()
 
-        # 강의자료에 시험/과제 '일정 변경' 공지가 있을 수 있다 → 스캔해서 캘린더에 반영.
-        # 분류 실패와 무관하게 best-effort 로 시도하며, 어떤 오류도 분류 결과를 깨지 않는다.
-        try:
-            await _scan_and_apply_schedule_changes(session, course, file_row)
-        except Exception:
-            logger.exception("schedule change scan: 예기치 못한 오류 file=%s", file_id)
+        # 변경 탐지 게이트(LLM 없음): 변경 키워드가 있을 때만 별도 태스크로 큐잉.
+        should_detect = (
+            settings.CHANGE_DETECTION_ENABLED
+            and file_row.course_id is not None
+            and has_change_signal(file_row.extracted_text)
+        )
+
+    if should_detect:
+        detect_changes_task.delay(file_id)
 
     # 분류 결과와 무관하게 알림은 한 번 — UI에서 "미분류 폴더" 안내에도 쓰임.
     # notify_classified 태스크는 app/tasks/notify_tasks.py 로 이관됨. 이름 기반으로
@@ -1005,173 +1176,122 @@ async def _run_classify(file_id: str, SessionLocal) -> None:
     # 중복 생성 가드가 있어 다른 경로에서 다시 호출돼도 안전하다.
 
 
-# ---------- 강의자료 일정 변경 스캔 (시험/과제 날짜 변경 공지 반영) ----------
+# ---------- Pipeline: change detection (Stage 3) ----------
 
-
-def _match_schedule(rows: list[Schedule], title: str, sched_type: str | None) -> Schedule | None:
-    """LLM 이 준 existing_title 로 기존 schedule 을 매칭. 같은 type 가산 + 제목 유사도."""
-    if not title:
-        return None
-    title_n = title.strip().lower()
-    best: Schedule | None = None
-    best_score = 0.0
-    for s in rows:
-        if s.type not in ("exam", "assignment"):
-            continue
-        st = (s.title or "").strip().lower()
-        if title_n and (title_n in st or st in title_n):
-            score = 0.9
-        else:
-            score = difflib.SequenceMatcher(None, title_n, st).ratio()
-        if sched_type and s.type == sched_type:
-            score += 0.1
-        if score > best_score:
-            best_score, best = score, s
-    return best if best_score >= 0.6 else None
-
-
-def _parse_change_datetime(date_str, time_str) -> datetime | None:
-    """'YYYY-MM-DD' (+ 선택 'HH:MM') → naive datetime. 파싱 실패 시 None."""
-    if not date_str:
-        return None
-    try:
-        d = datetime.strptime(str(date_str)[:10], "%Y-%m-%d")
-    except Exception:
-        return None
-    if time_str:
+def _format_course_schedule(schedule: list | None) -> str:
+    """course.schedule([{day,start_time,end_time}]) 를 사람이 읽는 문자열로."""
+    if not schedule:
+        return ""
+    parts = []
+    for slot in schedule:
         try:
-            t = datetime.strptime(str(time_str)[:5], "%H:%M")
-            return d.replace(hour=t.hour, minute=t.minute)
-        except Exception:
-            return d
-    return d
-
-
-async def _replace_auto_todos(session: AsyncSession, schedule: Schedule) -> None:
-    """schedule 의 기존 auto todo 를 지우고 현재 일정 기준으로 다시 만든다(날짜 변경 반영)."""
-    await session.execute(
-        delete(Todo).where(Todo.schedule_id == schedule.id, Todo.is_auto.is_(True))
-    )
-    for spec in build_auto_todos(schedule):
-        session.add(Todo(**spec))
-
-
-async def _scan_and_apply_schedule_changes(session: AsyncSession, course: Course, file_row: File) -> None:
-    """강의자료 텍스트에서 시험/과제 일정 변경·신규 공지를 찾아 schedules 에 반영.
-
-    보수적: 키워드 게이트 통과 시에만 LLM 호출. 기존 일정 매칭이 확실할 때만 날짜 갱신,
-    신규는 같은 날짜·유사 제목 중복이 없을 때만 추가. is_auto=True 를 유지하므로 강의계획서
-    재파싱 시 동기화된다(강의계획서가 다시 truth 가 되면 원래대로). 모든 변경은 로그로 남긴다.
-    """
-    from app.services.schedule_change_scanner import (
-        material_mentions_schedule,
-        scan_schedule_changes,
-        ScheduleChangeError,
-    )
-
-    text = file_row.extracted_text or ""
-    if not material_mentions_schedule(text):
-        return
-
-    rows = list(
-        (await session.execute(select(Schedule).where(Schedule.course_id == course.id)))
-        .scalars()
-        .all()
-    )
-
-    semester = await session.get(Semester, course.semester_id)
-    context_year = semester.start_date.year if semester else None
-    existing = [
-        {"title": s.title, "type": s.type, "date": s.due_date.date().isoformat()}
-        for s in rows if s.type in ("exam", "assignment")
-    ]
-
-    try:
-        result = await scan_schedule_changes(text=text, existing=existing, context_year=context_year)
-    except ScheduleChangeError as exc:
-        logger.warning("[SCHED_CHANGE] scan 실패 file=%s: %s", file_row.id, exc)
-        return
-
-    applied = 0
-
-    # 1) 기존 일정 날짜/시간 변경
-    for upd in result["updates"]:
-        sched = _match_schedule(rows, upd.get("existing_title", ""), upd.get("type"))
-        new_dt = _parse_change_datetime(upd.get("new_date"), upd.get("new_start_time"))
-        if sched is None or new_dt is None or sched.due_date == new_dt:
+            parts.append(f"{slot['day']} {slot['start_time']}-{slot['end_time']}")
+        except (KeyError, TypeError):
             continue
-        old = sched.due_date
-        sched.due_date = new_dt
-        suffix = f"[강의자료 공지로 일정 변경: {old.date().isoformat()} → {new_dt.date().isoformat()}]"
-        sched.description = (sched.description + "\n" + suffix) if sched.description else suffix
-        await _replace_auto_todos(session, sched)
-        applied += 1
-        logger.info(
-            "[SCHED_CHANGE] update file=%s sched=%r %s -> %s",
-            file_row.id, sched.title, old.isoformat(), new_dt.isoformat(),
-        )
+    return ", ".join(parts)
 
-    # 2) 신규 시험/과제 (날짜 명확 → schedule + todo, 날짜 미상 → 날짜 미지정 todo)
-    for ev in result["new_events"]:
-        ev_type = ev.get("type") if ev.get("type") in ("exam", "assignment") else "exam"
-        title = (ev.get("title") or "").strip() or "새 일정"
-        new_dt = _parse_change_datetime(ev.get("date"), ev.get("start_time"))
 
-        if new_dt is None:
-            # 날짜 미상 신규 — (a) 같은 type·유사 제목의 날짜 있는 schedule 이 이미 있거나
-            # (b) 같은 과목에 유사 제목의 미지정 auto todo 가 이미 있으면 skip.
-            dated_dup = any(
-                s.type == ev_type
-                and difflib.SequenceMatcher(None, (s.title or "").lower(), title.lower()).ratio() >= 0.6
-                for s in rows
-            )
-            if dated_dup:
-                continue
-            existing_undated = (
+def _match_schedule_id(title: str, rows: list[Schedule]) -> UUID | None:
+    """변경 대상 제목으로 기존 일정을 best-effort 매칭. 정확/부분 일치 우선."""
+    norm = "".join((title or "").split()).lower()
+    if not norm:
+        return None
+    for s in rows:
+        if "".join((s.title or "").split()).lower() == norm:
+            return s.id
+    for s in rows:
+        sn = "".join((s.title or "").split()).lower()
+        if sn and (norm in sn or sn in norm):
+            return s.id
+    return None
+
+
+async def _run_detect_changes(file_id: str, SessionLocal) -> None:
+    async with metrics.pipeline("change_detect", file_id=file_id):
+        async with SessionLocal() as session:
+            file_row = await _load_file(session, UUID(file_id))
+            if file_row is None or file_row.is_syllabus or file_row.course_id is None:
+                return
+            text = file_row.extracted_text or ""
+            if not has_change_signal(text):  # 게이트 재확인(중복 큐잉 방어).
+                return
+
+            course = await session.get(Course, file_row.course_id)
+            if course is None:
+                return
+
+            sched_rows = (
                 await session.execute(
-                    select(Todo.title).where(
-                        Todo.course_id == course.id,
-                        Todo.is_auto.is_(True),
-                        Todo.due_date.is_(None),
+                    select(Schedule).where(Schedule.course_id == course.id)
+                )
+            ).scalars().all()
+
+            class_time_str = _format_course_schedule(course.schedule)
+            assignments = [
+                (s.title, s.due_date.strftime("%Y-%m-%d %H:%M")) for s in sched_rows
+            ]
+            # 비교 기준이 하나도 없으면(강의계획서 미파싱) 변경 탐지 의미 없음.
+            if not class_time_str and not course.location and not assignments:
+                return
+
+            ctx = ChangeContext(
+                class_time=class_time_str,
+                location=course.location,
+                assignments=assignments,
+            )
+            async with metrics.stage("detect_changes"):
+                updates = await detect_changes(text, ctx)
+            if not updates:
+                return
+
+            # 기존 pending 제안과 (field, new_value) 로 dedupe — 재분류/재업로드 중복 방지.
+            existing = (
+                await session.execute(
+                    select(SyllabusUpdateProposal).where(
+                        SyllabusUpdateProposal.course_id == course.id,
+                        SyllabusUpdateProposal.status == "pending",
                     )
                 )
             ).scalars().all()
-            dup = any(
-                difflib.SequenceMatcher(None, (t or "").lower(), title.lower()).ratio() >= 0.6
-                for t in existing_undated
+            def _dedupe_key(field: str, value: str | None) -> tuple[str, str]:
+                # 내부 공백까지 정규화해 '월  14:00' / '월 14:00' 같은 미세 차이를 한 후보로 본다.
+                return (field, " ".join((value or "").split()))
+
+            seen = {_dedupe_key(p.field, p.new_value) for p in existing}
+
+            created = 0
+            for u in updates:
+                key = _dedupe_key(u.field, u.new_value)
+                if key in seen:
+                    continue
+                schedule_id = (
+                    _match_schedule_id(u.target_title, sched_rows)
+                    if u.field == "assignment_due" and u.target_title
+                    else None
+                )
+                session.add(
+                    SyllabusUpdateProposal(
+                        course_id=course.id,
+                        file_id=file_row.id,
+                        schedule_id=schedule_id,
+                        field=u.field,
+                        target_title=u.target_title,
+                        old_value=u.old_value,
+                        new_value=u.new_value,
+                        evidence=u.evidence,
+                        confidence=round(u.confidence, 4),
+                        status="pending",
+                    )
+                )
+                seen.add(key)
+                created += 1
+
+            if created:
+                await session.commit()
+            logger.info(
+                "change_detect: file=%s course=%s proposals_created=%d",
+                file_id, course.id, created,
             )
-            if dup:
-                continue
-            spec = build_undated_todo(course.id, title, ev_type)
-            if spec is None:
-                continue
-            session.add(Todo(**spec))
-            applied += 1
-            logger.info("[SCHED_CHANGE] new(undated) file=%s %r → 날짜 미지정 todo", file_row.id, title)
-            continue
-
-        dup = any(
-            s.type == ev_type and s.due_date.date() == new_dt.date()
-            and difflib.SequenceMatcher(None, (s.title or "").lower(), title.lower()).ratio() >= 0.6
-            for s in rows
-        )
-        if dup:
-            continue
-        sched = Schedule(
-            course_id=course.id, title=title, type=ev_type, due_date=new_dt,
-            description=(ev.get("note") or None), is_auto=True,
-        )
-        session.add(sched)
-        await session.flush()
-        for spec in build_auto_todos(sched):
-            session.add(Todo(**spec))
-        rows.append(sched)
-        applied += 1
-        logger.info("[SCHED_CHANGE] new file=%s %r at %s", file_row.id, title, new_dt.isoformat())
-
-    if applied:
-        await session.commit()
-        logger.info("[SCHED_CHANGE] file=%s applied=%d", file_row.id, applied)
 
 
 # ---------- Pipeline: summary generation ----------

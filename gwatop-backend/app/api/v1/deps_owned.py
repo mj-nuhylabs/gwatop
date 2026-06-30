@@ -15,6 +15,7 @@ from app.models.course import Course
 from app.models.file import File
 from app.models.schedule import Schedule
 from app.models.semester import Semester
+from app.models.syllabus_update_proposal import SyllabusUpdateProposal
 from app.models.todo import Todo
 from app.models.user import User
 
@@ -68,6 +69,21 @@ async def owned_todo(
     row = result.first()
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Todo not found")
+    return row[0], row[1]
+
+
+async def owned_proposal(
+    proposal_id: uuid.UUID, user: User, db: AsyncSession
+) -> tuple[SyllabusUpdateProposal, Course]:
+    result = await db.execute(
+        select(SyllabusUpdateProposal, Course)
+        .join(Course, SyllabusUpdateProposal.course_id == Course.id)
+        .join(Semester, Course.semester_id == Semester.id)
+        .where(SyllabusUpdateProposal.id == proposal_id, Semester.user_id == user.id)
+    )
+    row = result.first()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proposal not found")
     return row[0], row[1]
 
 

@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 from dataclasses import dataclass
 from typing import Iterable, Sequence
 
 from openai import AsyncOpenAI, OpenAIError
 
 from app.core.config import settings
+from app.core import metrics
 from app.schemas.syllabus import ParsedWeek
 from app.services.openai_client import get_async_openai
 
@@ -61,6 +63,7 @@ async def _embed_texts(texts: Sequence[str]) -> list[list[float]]:
     if not texts:
         return []
     client = _get_client()
+    t0 = time.perf_counter()
     try:
         response = await client.embeddings.create(
             model=settings.OPENAI_EMBEDDING_MODEL,
@@ -69,6 +72,15 @@ async def _embed_texts(texts: Sequence[str]) -> list[list[float]]:
     except OpenAIError as exc:
         logger.exception("OpenAI embedding call failed")
         raise EmbeddingClassifierError(f"OpenAI embedding failed: {exc}") from exc
+
+    try:
+        tokens = response.usage.total_tokens if getattr(response, "usage", None) else 0
+        metrics.record_llm_call(
+            "embedding", settings.OPENAI_EMBEDDING_MODEL, tokens,
+            (time.perf_counter() - t0) * 1000.0,
+        )
+    except Exception:  # noqa: BLE001
+        pass
 
     return [item.embedding for item in response.data]
 

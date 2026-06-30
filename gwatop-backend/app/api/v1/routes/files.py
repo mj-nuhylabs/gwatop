@@ -24,7 +24,12 @@ from app.schemas.file import (
     YouTubeUploadRequest,
 )
 from app.services import s3
-from app.tasks.file_tasks import classify_file_task, extract_text_task
+from app.tasks.file_tasks import (
+    classify_file_task,
+    dispatch_material_task,
+    extract_text_task,
+    parse_syllabus_task,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -559,6 +564,35 @@ async def list_in_flight_syllabi(
     return result.scalars().all()
 
 
+@router.get("/files/needs-review", response_model=list[FileResponse])
+async def list_needs_review_files(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """자동 분류가 '확인 필요'(needs_review)로 보류한 파일 목록.
+
+    유형(강의계획서/학습자료)이 불확실하거나 저신뢰여서 자동 결정을 보류한 파일들.
+    웹에서 '이 파일이 강의계획서가 맞나요?' 확인 UI 로 노출하고, 사용자가
+    confirm-kind 로 확정하면 후속 처리가 진행된다.
+    course 가 아직 없을 수 있어 uploaded_by_user_id 로도 소유권을 확인한다.
+    """
+    stmt = (
+        select(File)
+        .outerjoin(Course, File.course_id == Course.id)
+        .outerjoin(Semester, Course.semester_id == Semester.id)
+        .where(
+            File.status == "needs_review",
+            or_(
+                File.uploaded_by_user_id == current_user.id,
+                Semester.user_id == current_user.id,
+            ),
+        )
+        .order_by(File.created_at.desc())
+    )
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+
 @router.get("/courses/{course_id}/files", response_model=list[FileResponse])
 async def list_files(
     course_id: uuid.UUID,
@@ -669,6 +703,51 @@ async def reclassify_file(
     return {"file_id": str(file_id), "status": "queued"}
 
 
+class ConfirmKindRequest(BaseModel):
+    is_syllabus: bool
+
+
+@router.post("/files/{file_id}/confirm-kind", response_model=FileResponse)
+async def confirm_file_kind(
+    file_id: uuid.UUID,
+    body: ConfirmKindRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """자동 분류가 '확인 필요'(needs_review)로 보류한 파일의 유형을 사용자가 확정한다.
+
+    - is_syllabus=True  → 강의계획서로 확정 → 파싱(일정/주차 추출) 큐잉
+    - is_syllabus=False → 학습자료로 확정 → 과목 매칭 + 주차 분류 큐잉
+    통합 분류는 콘텐츠 해시 캐시가 있어 재호출돼도 LLM 0회로 끝난다.
+    """
+    file_row, _ = await owned_file(file_id, current_user, db)
+
+    # 확인 요청 상태인 파일만 확정 가능 — 이미 처리된 파일의 중복/오확정 방지.
+    if file_row.status != "needs_review":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="확인이 필요한 상태의 파일이 아니에요.",
+        )
+
+    file_row.is_syllabus = body.is_syllabus
+    file_row.ai_confidence = 1.0  # 사용자가 직접 확정
+    if body.is_syllabus:
+        file_row.classification_source = "manual_syllabus"
+        # 'parsing'/'parsed' 로 두면 parse 태스크가 중복 처리로 보고 스킵한다(파서 스킵 조건).
+        # 추출 완료 상태로 되돌려 파싱이 정상 진행되게 한다.
+        file_row.status = "extracted"
+        await db.commit()
+        parse_syllabus_task.delay(str(file_id))
+    else:
+        file_row.classification_source = "auto_material_pending"
+        file_row.status = "classifying"
+        await db.commit()
+        dispatch_material_task.delay(str(file_id))
+
+    await db.refresh(file_row)
+    return FileResponse.model_validate(file_row)
+
+
 class ManualWeekUpdate(BaseModel):
     week: int | None = Field(None, ge=1, le=30)
 
@@ -732,38 +811,53 @@ async def rename_file(
     return FileResponse.model_validate(file_row)
 
 
-class FileMoveRequest(BaseModel):
+class MoveFileRequest(BaseModel):
     course_id: uuid.UUID
 
 
 @router.patch("/files/{file_id}/course", response_model=FileResponse)
 async def move_file_to_course(
     file_id: uuid.UUID,
-    body: FileMoveRequest,
+    body: MoveFileRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """자료를 다른 과목으로 이동한다.
+    """학습자료를 다른 과목으로 옮긴다.
 
-    소유한 파일·대상 과목인지 검증 후 course_id 만 바꾼다. 주차/분류는 과목마다 다르므로
-    미분류로 초기화(사용자가 새 과목에서 다시 분류·지정). 강의계획서(is_syllabus)는 이동 불가.
+    주차(week)는 과목별 강의계획서 토픽 기준으로 분류된 값이라 과목이 바뀌면
+    더 이상 유효하지 않다. 따라서 이동 시 미분류로 초기화하고, 대상 과목 기준으로
+    자동 재분류를 큐잉한다(reclassify 와 동일한 정책).
+
+    강의계획서는 과목 메타/자동 일정과 강하게 묶여 있어 이 엔드포인트로는 옮길 수 없다.
     """
-    file_row, _ = await owned_file(file_id, current_user, db)
+    file_row, source_course = await owned_file(file_id, current_user, db)
+
     if file_row.is_syllabus:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="강의계획서는 과목 이동을 지원하지 않아요.",
+            detail="강의계획서는 다른 과목으로 옮길 수 없어요.",
         )
-    # 대상 과목 소유권 검증.
-    await owned_course(body.course_id, current_user, db)
 
-    file_row.course_id = body.course_id
+    # 대상 과목 소유권 검증 (미소유/미존재 시 404).
+    target_course = await owned_course(body.course_id, current_user, db)
+
+    if source_course is not None and source_course.id == target_course.id:
+        # 이미 같은 과목 — no-op.
+        return FileResponse.model_validate(file_row)
+
+    file_row.course_id = target_course.id
+    # 새 과목 기준으로 다시 분류되도록 주차 초기화.
     file_row.week = None
     file_row.classification_source = None
-    file_row.status = "unclassified"
     file_row.ai_confidence = 0.0
+    file_row.status = "unclassified"
+
     await db.commit()
     await db.refresh(file_row)
+
+    # 대상 과목 강의계획서가 파싱돼 있으면 자동 주차 분류.
+    classify_file_task.delay(str(file_id))
+
     return FileResponse.model_validate(file_row)
 
 
