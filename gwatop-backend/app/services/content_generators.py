@@ -192,9 +192,35 @@ class _QuizShort(BaseModel):
     explanation: str = ""
 
 
+# 난이도별 출력 토큰 상한 — 쉬움은 문제 수·해설을 줄여 출력을 확 줄여 가장 빠르게.
+_QUIZ_MAX_TOKENS = {"easy": 1400, "medium": 2400, "hard": 3500}
+
+# 난이도별 출제 지침 — user_prompt 에 주입해 시스템 프롬프트의 기본 개수/해설 길이를 덮어쓴다.
+_QUIZ_DIFFICULTY_BLOCK = {
+    "easy": (
+        "\n# 난이도: 쉬움 (속도 우선)\n"
+        "- 문제 수를 적게: 객관식 4개 + 주관식 0~1개 (합 4~5개).\n"
+        "- 자료에 그대로 나온 정의·사실을 묻는 기초 회상 수준.\n"
+        "- 해설(explanation)은 1줄로 짧게.\n"
+    ),
+    "medium": (
+        "\n# 난이도: 보통\n"
+        "- 객관식 4~5개 + 주관식 1~2개 (합 5~7개).\n"
+        "- 개념 이해와 간단한 적용 수준.\n"
+        "- 해설은 2~3문장.\n"
+    ),
+    "hard": (
+        "\n# 난이도: 어려움\n"
+        "- 객관식 5~6개 + 주관식 2~3개 (합 6~8개).\n"
+        "- 여러 개념을 결합한 적용·다단계 추론 수준. 그럴듯한 함정 보기 포함.\n"
+        "- 해설은 왜 정답이고 다른 보기가 왜 틀린지 충분히.\n"
+    ),
+}
+
+
 async def generate_quiz(
     text: str, *, filename: str | None, analysis: dict | None = None,
-    exclude_questions: list[str] | None = None,
+    exclude_questions: list[str] | None = None, difficulty: str = "easy",
 ) -> dict[str, Any]:
     exclusion_block = ""
     if exclude_questions:
@@ -213,19 +239,22 @@ async def generate_quiz(
                 "## 이미 출제된 문제 (이것들과 절대 비슷하면 안 됨)\n"
                 f"{joined}\n\n"
             )
+    diff_block = _QUIZ_DIFFICULTY_BLOCK.get(difficulty, _QUIZ_DIFFICULTY_BLOCK["easy"])
     user_prompt = (
         f"[파일명] {filename or '(미상)'}\n\n"
         f"[자료]\n{_build_input(text, analysis)}\n\n"
+        f"{diff_block}"
         f"{exclusion_block}"
         "위 자료를 바탕으로 퀴즈를 JSON으로 출제하시오."
     )
     # 중복 회피 시엔 다양성을 위해 temperature 큰 폭 인상.
     temp = 0.9 if exclude_questions else 0.4
-    # 퀴즈는 5~7문제 × (질문+보기4개+해설+LaTeX 이스케이프) 라 출력이 가장 길다.
-    # 2200 은 수식 많은 자료(물리 등)에서 자주 잘려(finish_reason=length) 생성 실패 →
-    # 빈 퀴즈로 떨어졌다. 여유를 줘 truncation 을 막는다(실사용 토큰만큼만 과금).
+    # 난이도별 출력 상한 — 쉬움(1400)은 문제·해설을 줄여 출력을 확 줄여 가장 빠르게.
+    # 어려움(3500)은 길어진 수식·해설로 잘림(finish_reason=length) 방지 여유. (실사용 토큰만큼만 과금)
     payload, model, tokens = await _generate_json(
-        system=QUIZ_SYSTEM, user=user_prompt, max_tokens=3500, temperature=temp,
+        system=QUIZ_SYSTEM, user=user_prompt,
+        max_tokens=_QUIZ_MAX_TOKENS.get(difficulty, _QUIZ_MAX_TOKENS["easy"]),
+        temperature=temp,
     )
     questions_raw = payload.get("questions", [])
     validated: list[dict[str, Any]] = []
@@ -564,15 +593,16 @@ async def generate_content(
     filename: str | None = None,
     analysis: dict | None = None,
     exclude_questions: list[str] | None = None,
+    difficulty: str = "easy",
 ) -> dict[str, Any]:
     fn = GENERATOR_REGISTRY.get(content_type)
     if fn is None:
         raise ContentGeneratorError(f"Unknown content_type: {content_type}")
-    # exclude_questions 는 현재 quiz 만 사용. 다른 generator 시그니처를 건드리지 않기 위해
-    # content_type 별로 분기한다.
+    # exclude_questions / difficulty 는 현재 quiz 만 사용. 다른 generator 시그니처를
+    # 건드리지 않기 위해 content_type 별로 분기한다.
     if content_type == "quiz":
         return await fn(text, filename=filename, analysis=analysis,
-                        exclude_questions=exclude_questions)
+                        exclude_questions=exclude_questions, difficulty=difficulty)
     return await fn(text, filename=filename, analysis=analysis)
 
 

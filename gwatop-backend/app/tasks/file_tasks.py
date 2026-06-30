@@ -1328,8 +1328,14 @@ async def _run_generate_ai_content(
         if existing is not None and should_regenerate:
             await session.execute(delete(AIContent).where(AIContent.id == existing.id))
 
+        # scope 는 난이도가 인코딩된 복합 문자열일 수 있다(예: "all#hard", "1-3#hard").
+        # 페이지 부분만 떼어 슬라이싱/분석본 판정에 쓰고, 난이도는 generator 로 넘긴다.
+        # (난이도 없는 기존 scope = "all"/"1-3" 은 그대로 동작 — 기본 'easy'.)
+        base_scope, _, _diff = scope.partition("#")
+        difficulty = _diff or "easy"
+
         text = slice_text_by_pages(
-            file_row.extracted_text, None if scope == "all" else scope
+            file_row.extracted_text, None if base_scope == "all" else base_scope
         )
         if not text.strip():
             logger.warning(
@@ -1340,9 +1346,9 @@ async def _run_generate_ai_content(
 
         # 분석본(analysis) 가져오기 — 캐시 없으면 inline 으로 만들어 영구 캐시.
         # 분석본은 ~3000자 압축본이라 원문 18000자 대신 입력으로 쓰면 latency 50%+ 절감.
-        # 페이지 범위 지정 시(scope != "all") 사용자가 부분 자료를 요청한 것이므로 원문 사용.
+        # 페이지 범위 지정 시(base_scope != "all") 사용자가 부분 자료를 요청한 것이므로 원문 사용.
         analysis_payload: dict | None = None
-        if scope == "all":
+        if base_scope == "all":
             analysis_row = (await session.execute(
                 select(AIContent).where(
                     AIContent.file_id == file_row.id,
@@ -1393,6 +1399,7 @@ async def _run_generate_ai_content(
                 content_type, text, filename=file_row.filename,
                 analysis=analysis_payload,
                 exclude_questions=exclude_questions,
+                difficulty=difficulty,
             )
         except ContentGeneratorError as exc:
             # 실패도 결과로 저장 — iOS 가 무한 폴링 안 하고 즉시 에러 화면 표시.
