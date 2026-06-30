@@ -81,6 +81,12 @@ class Settings(BaseSettings):
     # latency 50% 가까이 감소. 표가 깔끔하지 않은 PDF 는 자동으로 LLM 단일 호출로 fallback.
     # 정확도 회귀 위험 보수적 처리 — EC2 .env 에서 활성화한다.
     SYLLABUS_TABLE_EXTRACTION_ENABLED: bool = False
+    # PDF 추출을 PyMuPDF raw 텍스트 → pymupdf4llm 구조보존 마크다운으로 전환.
+    # 제목/리스트/표 위계가 살아 요약·퀴즈·강의계획서 파싱 품질↑. 페이지 슬라이싱(\f)은
+    # 그대로 호환. **옵셔널 의존성** — 켜기 전 `pip install pymupdf4llm` 필요
+    # (미설치/변환실패 시 자동 raw 텍스트 폴백이라 추출 자체는 안 깨짐).
+    # 추출 포맷이 바뀌어 분류 임베딩·슬라이싱에 영향 줄 수 있어 기본 OFF — 스테이징 검증 후 ON.
+    PDF_MARKDOWN_EXTRACTION: bool = False
 
     # --- AI 요약 노트 / 학습 콘텐츠 ---
     # 기본은 gpt-4.1-nano — gpt-4o-mini 대비 ~2x 빠름, 품질도 학습 콘텐츠엔 충분.
@@ -89,6 +95,12 @@ class Settings(BaseSettings):
     # 마인드맵·퀴즈는 응답이 길어 1200 으론 잘리는 경우 발생.
     # 4000 정도면 nano/mini 모두 안전 마진. 비용은 사용한 만큼만 청구되므로 상한만 큼.
     OPENAI_SUMMARY_MAX_TOKENS: int = 4000
+    # Structured Outputs(strict json_schema) 사용 — 모델이 스키마를 100% 준수해
+    # "유효한 퀴즈/카드/마인드맵 없음" 류 생성 실패가 급감한다. (요약/분석/퀴즈/플래시카드/
+    # 마인드맵/암기/주요개념 7종에 적용.) 미지원 모델·스키마 거부 시 자동으로 기존
+    # json_object 모드로 폴백(서킷 브레이커)하므로 최악도 "오늘과 동일 동작"이다.
+    # 문제 발생 시 EC2 .env 에 OPENAI_STRUCTURED_OUTPUTS=false 로 즉시 롤백 가능.
+    OPENAI_STRUCTURED_OUTPUTS: bool = True
 
     # --- AI 튜터 (멀티모달 채팅) ---
     # 튜터는 사진 첨부(vision) 와 길고 정제된 마크다운+LaTeX 응답이 필요해서

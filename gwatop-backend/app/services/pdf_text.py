@@ -37,6 +37,49 @@ def extract_text_from_pdf_path(path: str) -> str:
         return PAGE_SEPARATOR.join(page.get_text("text") for page in doc)
 
 
+def extract_markdown_from_pdf_bytes(data: bytes) -> str:
+    """pymupdf4llm 로 구조 보존 **마크다운** 추출 (제목/리스트/표 구조 유지).
+
+    raw `get_text("text")` 는 줄바꿈만 남은 평문이라 표·헤더·리스트 위계가 사라진다.
+    마크다운으로 추출하면 LLM 이 자료 구조를 더 잘 이해해 요약·퀴즈·강의계획서 파싱
+    품질이 올라간다.
+
+    페이지 구분은 기존과 동일한 `PAGE_SEPARATOR`(form-feed)로 join 하므로
+    `slice_text_by_pages` 의 `\\f` 기반 페이지 슬라이싱이 그대로 호환된다.
+
+    안전 정책 — **추출은 절대 깨지지 않는다**:
+      - pymupdf4llm 미설치(옵셔널 의존성) → raw 텍스트 추출로 폴백
+      - 변환 중 어떤 예외든 → raw 텍스트 추출로 폴백
+      - 결과가 비면 → raw 텍스트 추출로 폴백
+    """
+    try:
+        import pymupdf4llm  # 옵셔널 의존성: PDF_MARKDOWN_EXTRACTION 켤 때만 설치하면 됨.
+    except ImportError:
+        logger.warning(
+            "pymupdf4llm 미설치 — raw 텍스트 추출로 폴백 (켜려면 `pip install pymupdf4llm`)."
+        )
+        return extract_text_from_pdf_bytes(data)
+
+    try:
+        with fitz.open(stream=data, filetype="pdf") as doc:
+            # page_chunks=True → 페이지별 dict 리스트. 각 'text' 가 그 페이지 마크다운.
+            chunks = pymupdf4llm.to_markdown(doc, page_chunks=True)
+        pages: list[str] = []
+        for ch in chunks:
+            if isinstance(ch, dict):
+                pages.append((ch.get("text") or "").strip())
+            else:  # 혹시 문자열만 줄 경우 방어
+                pages.append(str(ch).strip())
+        markdown = PAGE_SEPARATOR.join(pages).strip()
+        if not markdown:
+            logger.info("pymupdf4llm 결과 비어 있음 — raw 텍스트로 폴백")
+            return extract_text_from_pdf_bytes(data)
+        return markdown
+    except Exception as exc:  # noqa: BLE001 — 추출은 어떤 경우에도 raw 로 폴백.
+        logger.warning("pymupdf4llm 추출 실패 (%s) — raw 텍스트로 폴백", exc)
+        return extract_text_from_pdf_bytes(data)
+
+
 # ---------- 강의계획서 LLM 파싱용 전처리 ----------
 
 # 일정 정보와 무관한 섹션 시작 키워드. 라인 시작에서 매칭하면 그 라인 이후를 잘라낸다.

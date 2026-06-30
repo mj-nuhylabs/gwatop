@@ -16,3 +16,6 @@ greenlet==3.5.1
 boto3==1.43.18
 openai==2.38.0
 pymupdf==1.27.2.3
+# 옵셔널: PDF_MARKDOWN_EXTRACTION=true 로 켤 때만 필요한 구조보존 마크다운 추출기.
+# 미설치여도 raw 텍스트 추출로 자동 폴백하므로 기본 배포엔 영향 없음. pymupdf 와 버전 호환 확인 후 설치.
+# pymupdf4llm==0.0.31

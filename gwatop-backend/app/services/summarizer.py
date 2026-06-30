@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field, ValidationError
 from app.core.config import settings
 from app.services.latex_repair import repair_latex_in_payload
 from app.services.openai_client import get_async_openai
+from app.services.structured_llm import structured_chat_json
 
 logger = logging.getLogger(__name__)
 
@@ -106,21 +107,22 @@ async def summarize_text(text: str, *, filename: str | None = None) -> dict[str,
 
     client = _get_client()
     try:
-        response = await client.chat.completions.create(
+        # Structured Outputs(strict json_schema)로 스키마를 강제 — 필드 누락/타입 오류 차단.
+        # 미지원 모델·거부 시 자동 json_object 폴백(structured_llm 의 서킷 브레이커).
+        raw, resp_model, total_tokens, _finish = await structured_chat_json(
+            client,
             model=settings.OPENAI_SUMMARY_MODEL,
-            temperature=0.2,
+            system=SYSTEM_PROMPT,
+            user=user_prompt,
+            schema_model=_SummaryPayload,
+            schema_name="summary",
             max_tokens=settings.OPENAI_SUMMARY_MAX_TOKENS,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
+            temperature=0.2,
         )
     except OpenAIError as exc:
         logger.exception("OpenAI summary call failed")
         raise SummarizerError(f"OpenAI request failed: {exc}") from exc
 
-    raw = response.choices[0].message.content or ""
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -142,6 +144,6 @@ async def summarize_text(text: str, *, filename: str | None = None) -> dict[str,
         "key_points": validated.key_points,
         "sections": [s.model_dump() for s in validated.sections],
         "study_tip": validated.study_tip,
-        "model": response.model,
-        "tokens": (response.usage.total_tokens if response.usage else 0),
+        "model": resp_model,
+        "tokens": total_tokens,
     }

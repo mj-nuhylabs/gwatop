@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, delete, update
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -13,6 +13,8 @@ from app.models.user import User
 from app.models.course import Course
 from app.models.semester import Semester
 from app.models.file import File
+from app.models.schedule import Schedule
+from app.models.todo import Todo
 from app.schemas.file import PresignedUrlRequest, PresignedUrlResponse, FileResponse, FileConfirmResponse
 from app.services import s3
 from app.tasks.file_tasks import classify_file_task, extract_text_task
@@ -516,6 +518,109 @@ async def set_file_week(
     await db.commit()
     await db.refresh(file_row)
     return FileResponse.model_validate(file_row)
+
+
+class MoveFileRequest(BaseModel):
+    course_id: uuid.UUID
+
+
+@router.patch("/files/{file_id}/course", response_model=FileResponse)
+async def move_file_to_course(
+    file_id: uuid.UUID,
+    body: MoveFileRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """학습자료를 다른 과목으로 옮긴다.
+
+    주차(week)는 과목별 강의계획서 토픽 기준으로 분류된 값이라 과목이 바뀌면
+    더 이상 유효하지 않다. 따라서 이동 시 미분류로 초기화하고, 대상 과목 기준으로
+    자동 재분류를 큐잉한다(reclassify 와 동일한 정책).
+
+    강의계획서는 과목 메타/자동 일정과 강하게 묶여 있어 이 엔드포인트로는 옮길 수 없다.
+    """
+    file_row, source_course = await owned_file(file_id, current_user, db)
+
+    if file_row.is_syllabus:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="강의계획서는 다른 과목으로 옮길 수 없어요.",
+        )
+
+    # 대상 과목 소유권 검증 (미소유/미존재 시 404).
+    target_course = await owned_course(body.course_id, current_user, db)
+
+    if source_course is not None and source_course.id == target_course.id:
+        # 이미 같은 과목 — no-op.
+        return FileResponse.model_validate(file_row)
+
+    file_row.course_id = target_course.id
+    # 새 과목 기준으로 다시 분류되도록 주차 초기화.
+    file_row.week = None
+    file_row.classification_source = None
+    file_row.ai_confidence = 0.0
+    file_row.status = "unclassified"
+
+    await db.commit()
+    await db.refresh(file_row)
+
+    # 대상 과목 강의계획서가 파싱돼 있으면 자동 주차 분류.
+    classify_file_task.delay(str(file_id))
+
+    return FileResponse.model_validate(file_row)
+
+
+@router.delete("/files/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_file(
+    file_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """사용자가 자신의 파일을 삭제한다.
+
+    S3 객체 + DB row 를 지운다. AI 콘텐츠/노트/플래시카드/튜터 메시지는
+    files.id 의 FK CASCADE 로 함께 삭제된다.
+    강의계획서면 거기서 생성된 자동 일정/할 일도 정리하고 course 메타를 초기화한다
+    (admin_delete_file 과 동일한 정책).
+    """
+    file_row, _ = await owned_file(file_id, current_user, db)
+
+    # 강의계획서였다면 그 course의 자동 생성 일정/할 일도 함께 비운다.
+    if file_row.is_syllabus and file_row.course_id is not None:
+        course_id = file_row.course_id
+        # FK ondelete=SET NULL 이라 schedule만 지우면 auto todo가 orphan으로 남으니 먼저 todo 제거.
+        await db.execute(
+            delete(Todo).where(
+                Todo.is_auto.is_(True),
+                Todo.schedule_id.in_(
+                    select(Schedule.id).where(
+                        Schedule.course_id == course_id,
+                        Schedule.is_auto.is_(True),
+                    )
+                ),
+            )
+        )
+        await db.execute(
+            delete(Schedule).where(
+                Schedule.course_id == course_id,
+                Schedule.is_auto.is_(True),
+            )
+        )
+        # course 메타도 초기화 (다시 파싱하기 좋게)
+        await db.execute(
+            update(Course)
+            .where(Course.id == course_id)
+            .values(weekly_topics=None, weekly_topic_embeddings=None, schedule=None)
+        )
+
+    # S3 객체 삭제 — 실패해도 DB row는 지운다(고아 S3 객체는 정리 작업에 맡김).
+    try:
+        s3.delete_object(file_row.s3_key)
+    except Exception:
+        logger.warning("S3 객체 삭제 실패 key=%s", file_row.s3_key, exc_info=True)
+
+    await db.delete(file_row)
+    await db.commit()
 
 
 # ---------- 학습 탭: 다운로드 URL + AI 콘텐츠 ----------

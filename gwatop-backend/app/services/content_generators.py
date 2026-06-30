@@ -19,15 +19,20 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, Awaitable, Callable, Literal, Optional
 
 from openai import AsyncOpenAI, OpenAIError
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from app.core.config import settings
 from app.services.analyzer import analysis_to_markdown
 from app.services.openai_client import get_async_openai
 from app.services.latex_repair import repair_latex_in_payload
+from app.services.structured_llm import stream_structured_completion, structured_chat_json
+
+# SSE 스트리밍 생성 시 각 텍스트 청크를 받는 async 콜백. None 이면 비스트리밍.
+# (모듈 레벨 런타임 값이라 `| None` 대신 Optional — Python 3.9 호환.)
+OnDelta = Optional[Callable[[str], Awaitable[None]]]
 
 logger = logging.getLogger(__name__)
 
@@ -72,33 +77,89 @@ def _build_input(text: str, analysis: dict | None) -> str:
     return _truncate(text or "")
 
 
+def _tag_pages(text: str) -> tuple[str, bool]:
+    """form-feed(\\f)로 페이지를 나눠 각 페이지 앞에 [p.N] 마커를 붙인다.
+
+    \\f 가 없으면 마커 없이 원문 그대로 반환하고 has_pages=False — 이 경우 프롬프트
+    규칙상 모델은 pages 를 비운다(페이지 환각 방지). 'all' scope 에선 \\f 가 보존돼
+    [p.N] = 실제 PDF 페이지번호.
+    """
+    if "\f" not in (text or ""):
+        return text or "", False
+    out: list[str] = []
+    n = 0
+    for p in text.split("\f"):
+        s = p.strip()
+        if not s:
+            continue
+        n += 1
+        out.append(f"[p.{n}]\n{s}")
+    if n == 0:
+        return text, False
+    return "\n\n".join(out), True
+
+
+def _build_paged_input(text: str, analysis: dict | None) -> str:
+    """memorize/topics 전용 입력 — 페이지 마커를 주입해 페이지 인용을 가능케 한다.
+
+    인용 소스는 페이지 태깅된 원문. 분석본이 있으면 참고용으로 앞에 덧붙인다.
+    """
+    paged, has_pages = _tag_pages(text or "")
+    paged = _truncate(paged, MAX_INPUT_CHARS)
+    if analysis:
+        md = analysis_to_markdown(analysis)
+        if md.strip():
+            label = "본문 (페이지 표시 [p.N])" if has_pages else "본문"
+            return f"# 분석 요약 (참고용)\n{md.strip()[:2500]}\n\n# {label}\n{paged}"
+    return paged
+
+
 async def _generate_json(
-    *, system: str, user: str, max_tokens: int, temperature: float = 0.3,
+    *, system: str, user: str, schema_model: type[BaseModel], schema_name: str,
+    max_tokens: int, temperature: float = 0.3,
+    on_delta: OnDelta = None,
 ) -> tuple[dict[str, Any], str, int]:
     """공통 GPT JSON 호출. (payload, model, total_tokens) 반환.
+
+    Structured Outputs(strict json_schema)로 `schema_model` 형태를 모델에 강제한다 —
+    필드 누락/타입 오류/추가 산문이 불가능해져 생성 실패가 급감. 미지원 모델·스키마 거부
+    시 자동으로 json_object 모드로 폴백(서킷 브레이커)하므로 안전하다. (구조가 보장돼도
+    아래 per-item 검증은 안전망으로 그대로 유지.)
+
+    `on_delta` 가 주어지면 **스트리밍** 호출로 전환 — 각 텍스트 청크를 콜백으로 흘려보내고
+    생성이 끝나는 즉시 결과를 돌려준다(SSE 엔드포인트용). 없으면 기존 비스트리밍 경로.
 
     truncation 감지: finish_reason='length' 면 max_tokens 한도 초과로 JSON 잘림.
     이 경우 명확한 에러를 던져 사용자에게 안내한다 (단순 'invalid JSON' 보다 진단 쉬움).
     """
     client = _get_client()
     try:
-        response = await client.chat.completions.create(
-            model=settings.OPENAI_SUMMARY_MODEL,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-        )
+        if on_delta is not None:
+            raw, model, tokens, finish_reason = await stream_structured_completion(
+                client,
+                model=settings.OPENAI_SUMMARY_MODEL,
+                system=system,
+                user=user,
+                schema_model=schema_model,
+                schema_name=schema_name,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                on_delta=on_delta,
+            )
+        else:
+            raw, model, tokens, finish_reason = await structured_chat_json(
+                client,
+                model=settings.OPENAI_SUMMARY_MODEL,
+                system=system,
+                user=user,
+                schema_model=schema_model,
+                schema_name=schema_name,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
     except OpenAIError as exc:
         logger.exception("OpenAI generation failed")
         raise ContentGeneratorError(f"OpenAI request failed: {exc}") from exc
-
-    choice = response.choices[0]
-    raw = choice.message.content or ""
-    finish_reason = getattr(choice, "finish_reason", None)
 
     if finish_reason == "length":
         # GPT 가 max_tokens 한도 직전에 멈춰서 JSON 이 잘렸다.
@@ -123,11 +184,7 @@ async def _generate_json(
     # 퀴즈/플래시카드/마인드맵/암기/주요 주제 모두 수식을 포함할 수 있어 공통 적용.
     payload = repair_latex_in_payload(payload)
 
-    return (
-        payload,
-        response.model,
-        (response.usage.total_tokens if response.usage else 0),
-    )
+    return payload, model, tokens
 
 
 # ---------- 1) Quiz ----------
@@ -192,6 +249,25 @@ class _QuizShort(BaseModel):
     explanation: str = ""
 
 
+class _QuizItem(BaseModel):
+    """Structured Outputs 스키마 전용 평면 문항 모델.
+
+    객관식/주관식을 하나의 형태로 표현한다(union 보다 strict json_schema 호환성이 안정적).
+    주관식은 choices/answer_index 가 null, 객관식은 answer 가 null 로 채워진다.
+    실제 검증/정규화는 기존 _QuizMC / _QuizShort 가 type 별로 담당한다.
+    """
+    type: Literal["multiple_choice", "short_answer"]
+    question: str
+    choices: list[str] | None = None
+    answer_index: int | None = None
+    answer: str | None = None
+    explanation: str = ""
+
+
+class _QuizResponse(BaseModel):
+    questions: list[_QuizItem]
+
+
 # 난이도별 출력 토큰 상한 — 쉬움은 문제 수·해설을 줄여 출력을 확 줄여 가장 빠르게.
 _QUIZ_MAX_TOKENS = {"easy": 1400, "medium": 2400, "hard": 3500}
 
@@ -221,6 +297,7 @@ _QUIZ_DIFFICULTY_BLOCK = {
 async def generate_quiz(
     text: str, *, filename: str | None, analysis: dict | None = None,
     exclude_questions: list[str] | None = None, difficulty: str = "easy",
+    on_delta: OnDelta = None,
 ) -> dict[str, Any]:
     exclusion_block = ""
     if exclude_questions:
@@ -253,8 +330,10 @@ async def generate_quiz(
     # 어려움(3500)은 길어진 수식·해설로 잘림(finish_reason=length) 방지 여유. (실사용 토큰만큼만 과금)
     payload, model, tokens = await _generate_json(
         system=QUIZ_SYSTEM, user=user_prompt,
+        schema_model=_QuizResponse, schema_name="quiz",
         max_tokens=_QUIZ_MAX_TOKENS.get(difficulty, _QUIZ_MAX_TOKENS["easy"]),
         temperature=temp,
+        on_delta=on_delta,
     )
     questions_raw = payload.get("questions", [])
     validated: list[dict[str, Any]] = []
@@ -305,9 +384,14 @@ class _FlashCard(BaseModel):
     hint: str | None = None
 
 
+class _FlashcardResponse(BaseModel):
+    cards: list[_FlashCard]
+
+
 async def generate_flashcards(
     text: str, *, filename: str | None, analysis: dict | None = None,
     exclude_fronts: list[str] | None = None,
+    on_delta: OnDelta = None,
 ) -> dict[str, Any]:
     """플래시카드 생성. exclude_fronts 가 주어지면 그 용어들을 피해서 새 카드를 만든다
     — '더 만들기' 기능에서 기존 카드와 중복되지 않는 새 카드를 얻기 위해 사용.
@@ -333,7 +417,10 @@ async def generate_flashcards(
         "위 자료에서 플래시카드를 JSON으로 만들어주세요."
     )
     payload, model, tokens = await _generate_json(
-        system=FLASHCARD_SYSTEM, user=user_prompt, max_tokens=1800,
+        system=FLASHCARD_SYSTEM, user=user_prompt,
+        schema_model=_FlashcardResponse, schema_name="flashcards",
+        max_tokens=1800,
+        on_delta=on_delta,
     )
     raw = payload.get("cards", [])
     validated = []
@@ -434,6 +521,7 @@ def _coerce_mindmap_recursive(node: Any, depth: int, max_depth: int = 3) -> dict
 
 async def generate_mindmap(
     text: str, *, filename: str | None, analysis: dict | None = None,
+    on_delta: OnDelta = None,
 ) -> dict[str, Any]:
     user_prompt = (
         f"[파일명] {filename or '(미상)'}\n\n"
@@ -441,7 +529,10 @@ async def generate_mindmap(
         "위 자료를 마인드맵 트리 JSON으로 변환하시오."
     )
     payload, model, tokens = await _generate_json(
-        system=MINDMAP_SYSTEM, user=user_prompt, max_tokens=1500,
+        system=MINDMAP_SYSTEM, user=user_prompt,
+        schema_model=_Mindmap, schema_name="mindmap",
+        max_tokens=1500,
+        on_delta=on_delta,
     )
 
     # 1단계: 입력을 정상화 (문자열 leaf → dict, 깊이 제한, 라벨 길이 제한).
@@ -468,47 +559,95 @@ async def generate_mindmap(
 
 # ---------- 4) Memorize (암기 포인트) ----------
 
-MEMORIZE_SYSTEM = """당신은 한국 대학생을 위한 시험 대비 암기 포인트 추출기입니다.
-시험에 나올 가능성이 높은 핵심 내용을 한 줄 요약으로 정리합니다.
+MEMORIZE_SYSTEM = """당신은 한국 대학생을 위한 시험 대비 "암기 카드" 생성기입니다.
+강의자료에서 시험에 나올 핵심 사실/공식/정의/수치를 뽑아, 비슷한 주제끼리 카테고리로 묶어 정리합니다.
 
-규칙:
-1. 출력은 JSON 객체 1개.
-2. 각 포인트는 한 줄(≤ 80자)로 외울 수 있는 사실/공식/정의/날짜.
-3. category 는 자료 안에서 비슷한 주제끼리 묶을 때 사용 (예: "기본 개념", "공식", "사례").
-4. importance 는 1~5 (5가 가장 시험에 자주 나옴).
-5. 자료에 명시된 내용만. 추측 금지.
-6. 포인트 수: 8~12개.
-7. **수학 공식은 LaTeX 인라인**. 예: `미분 공식: $\\frac{d}{dx}x^n = nx^{n-1}$`.
-   평문 `x^2`, `√x` 금지.
-8. ⚠️ **JSON 안 백슬래시는 반드시 두 번 (`\\\\`)**. LaTeX 는 `\\\\frac`, `\\\\int`, `\\\\text`, `\\\\sqrt` 처럼 항상 백슬래시 두 개로 작성.
-   잘못된 예: `"$\\frac{a}{b}$"` → `\\f` 가 form-feed 로 풀려 깨짐.
-   올바른 예: `"$\\\\frac{a}{b}$"` → 화면에 `\\frac{a}{b}` 로 정상.
+# 절대 규칙
+1. 출력은 JSON 객체 1개만. 코드펜스·설명 문장 등 다른 텍스트 금지.
+2. 자료에 실제로 명시된 내용만. 추측·창작 금지. 근거 없으면 선택 필드는 null/빈배열로 둔다.
+3. 포인트 수 8~14개. 각 항목 짧고 밀도 있게(출력 잘림 방지).
 
-# 출력 스키마
-{
-  "points": [
-    {"category": "...", "text": "...", "importance": 4}
-  ]
-}
+# 페이지 마커
+- [자료] 본문에 "[p.1]","[p.2]" 같은 마커가 페이지마다 붙어 있을 수 있다.
+- 마커가 있으면 그 내용이 나온 페이지 정수를 pages 에 적는다. 예: 9~10페이지면 "pages":[9,10].
+- 마커가 전혀 없으면 pages 는 빈 배열 []. 페이지를 추측·날조하지 마라.
+
+# 필드 (각 포인트)
+- category(필수): 그룹명. 예 "단순조화운동의 정의","수학 공식 및 법칙","감쇠 진동". 같은 자료에서 3~6종류로 통일.
+- text(필수): 반드시 외울 핵심 1개를 한 줄(≤90자). 공식이면 공식을 LaTeX로. 예 "복원력: $F=-kx$".
+- importance(필수): 1~5 정수. 공식/정의/핵심수치는 보통 4~5.
+- tip(선택): 외우는 요령 한 줄. 없으면 null.
+- example(선택): 시험 출제 유형 한 줄. 없으면 null.
+- pages(선택): 위 규칙대로 정수 배열. 없으면 [].
+
+# 수식 표기
+- 수학 기호/변수/공식은 LaTeX 인라인 "$...$"로. 평문/유니코드(x^2,√,π,ω,φ) 금지: $x^2$,$\\\\sqrt{x}$,$\\\\pi$,$\\\\omega$,$\\\\varphi$.
+- ⚠️ JSON 안 백슬래시는 반드시 두 번: $\\\\frac{a}{b}$,$\\\\sqrt{k/m}$,$\\\\omega=\\\\sqrt{k/m}$.
+- 한국어 단어는 절대 "$...$" 안에 넣지 마라. 수식 기호만 감싼다. $ 는 수식 구분자로만 쓰고, 수식 안에서 $ 나 \\\\$ 나 \\\\text{한국어} 를 쓰지 마라.
+
+# 출력 스키마 (키 이름 그대로)
+{"points":[{"category":"수학 공식 및 법칙","text":"변위: $x(t)=x_m\\\\cos(\\\\omega t+\\\\varphi)$","importance":5,"pages":[9,10],"tip":"코사인을 미분하면 $\\\\omega$ 가 곱해진다","example":"$t=0$ 초기조건으로 위상상수 구하기"}]}
+모든 포인트에 category,text,importance,pages,tip,example 키를 모두 포함하라(근거 없으면 null 또는 []).
 """
 
 
 class _MemPoint(BaseModel):
+    # 기존 필수 필드 (하위호환: iOS/웹 구버전이 비-옵셔널로 읽음)
     category: str = ""
     text: str
     importance: int = Field(3, ge=1, le=5)
+    # 신규 선택 필드 (전부 기본값 → 누락해도 검증 통과, iOS Decodable 은 미지 키 무시)
+    pages: list[int] = Field(default_factory=list)
+    tip: str | None = None
+    example: str | None = None
+
+    @field_validator("pages", mode="before")
+    @classmethod
+    def _coerce_pages(cls, v):
+        if v is None:
+            return []
+        if isinstance(v, (int, str)):
+            v = [v]
+        if not isinstance(v, list):
+            return []
+        out: list[int] = []
+        for x in v:
+            if isinstance(x, bool):
+                continue
+            if isinstance(x, int):
+                out.append(x)
+            elif isinstance(x, str):
+                digits = "".join(ch for ch in x if ch.isdigit())
+                if digits:
+                    out.append(int(digits))
+        return sorted({p for p in out if 1 <= p <= 999})
+
+    @field_validator("tip", "example", mode="before")
+    @classmethod
+    def _blank_to_none(cls, v):
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
+
+class _MemorizeResponse(BaseModel):
+    points: list[_MemPoint]
 
 
 async def generate_memorize(
     text: str, *, filename: str | None, analysis: dict | None = None,
+    on_delta: OnDelta = None,
 ) -> dict[str, Any]:
     user_prompt = (
         f"[파일명] {filename or '(미상)'}\n\n"
-        f"[자료]\n{_build_input(text, analysis)}\n\n"
+        f"[자료]\n{_build_paged_input(text, analysis)}\n\n"
         "위 자료에서 시험에 나올 만한 암기 포인트를 JSON으로 정리하시오."
     )
     payload, model, tokens = await _generate_json(
-        system=MEMORIZE_SYSTEM, user=user_prompt, max_tokens=1800,
+        system=MEMORIZE_SYSTEM, user=user_prompt,
+        schema_model=_MemorizeResponse, schema_name="memorize",
+        max_tokens=2400, temperature=0.2,
+        on_delta=on_delta,
     )
     raw = payload.get("points", [])
     validated = []
@@ -524,44 +663,123 @@ async def generate_memorize(
 
 # ---------- 5) Topics (주요 개념) ----------
 
-TOPICS_SYSTEM = """당신은 한국 대학생을 위한 학습 자료 핵심 개념 정리자입니다.
+TOPICS_SYSTEM = """당신은 한국 대학생을 위한 강의자료 "핵심 개념" 정리자입니다.
+주요 개념을 정의·쉬운설명·특징·핵심원리·관계식·예시·학습팁과 함께 정리합니다.
 
-규칙:
-1. 출력은 JSON 객체 1개.
-2. 각 개념은 title + body 형태. title 은 ≤25자, body 는 2~4문장.
-3. body 는 학생이 그 개념을 처음 접하는 사람에게도 이해되도록 설명.
-4. 자료에 등장한 핵심 개념만. 6~12개.
-5. examples 는 옵션 — 자료에 예시가 있을 때만.
-6. **수학 수식은 LaTeX**. 인라인 `$...$`, 블록 `$$...$$`. 평문 수식 표기 금지.
-7. ⚠️ **JSON 안 백슬래시는 반드시 두 번 (`\\\\`)**. LaTeX 는 `\\\\int`, `\\\\text`, `\\\\times`, `\\\\frac`, `\\\\sqrt` 처럼 항상 백슬래시 두 개로 작성.
-   잘못된 예: `"$\\text{넓이}$"` → `\\t` 가 TAB 으로 풀려 깨짐.
-   올바른 예: `"$\\\\text{넓이}$"` → 화면에 `\\text{넓이}` 로 정상.
+# 절대 규칙
+1. 출력은 JSON 객체 1개만.
+2. 자료에 등장한 개념만. 추측·창작 금지. 근거 없으면 선택 필드는 null/빈배열.
+3. 개념 수 6~10개. 각 필드 간결히(출력 잘림 방지).
 
-# 출력 스키마
-{
-  "topics": [
-    {"title": "...", "body": "...", "examples": ["..."]}
-  ]
-}
+# 페이지 마커
+- [자료]에 "[p.N]" 마커가 있으면 그 개념이 나온 페이지 정수를 pages 에. 없으면 [].
+
+# 필드 (각 개념)
+- title(필수): 개념명 ≤30자. 원어 병기 가능.
+- body(필수, 절대 비우지 말 것): 2~3문장 요약(정의+쉬운설명의 알맹이). 구버전 화면은 body 만 보여주므로 반드시 의미있게 채운다.
+- definition(선택): 한 문장 정의. 없으면 null.
+- explanation(선택): 쉬운 비유 1~2문장. 없으면 null.
+- features(선택): 특징 짧은 문자열 배열(0~4). 페이지는 문장에 쓰지 말고 pages 필드에만.
+- principle(선택): 핵심 원리 1~2문장. 없으면 null.
+- relations(선택): 자료에 나온 "실제 수학 공식"만 LaTeX 문자열 배열(0~4)로. 공식이 없으면 반드시 []. 개념적 화살표(A→B)나 한국어 문장을 수식으로 만들지 마라.
+- examples(필수, 배열): 자료의 구체 예시. 없으면 [].
+- tip(선택): 학습 요령 한 줄. 없으면 null.
+- pages(선택): 정수 배열. 없으면 [].
+
+# 수식 표기
+- LaTeX 인라인 "$...$". 평문/유니코드 금지. ⚠️ JSON 안 백슬래시 두 번: $\\\\frac{d}{dx}$,$\\\\sqrt{\\\\frac{k}{m}}$,$\\\\omega$.
+- 한국어 단어는 절대 "$...$" 안에 넣지 마라. $ 는 수식 구분자로만. 수식 안에서 $ 나 \\\\$ 나 \\\\text{한국어} 금지.
+
+# 출력 스키마 (키 이름 그대로)
+{"topics":[{"title":"단순 조화 운동 (SHM)","body":"복원력이 변위에 비례·반대인 주기운동. 변위는 $x(t)=x_m\\\\cos(\\\\omega t+\\\\varphi)$.","definition":"복원력이 변위 크기에 비례하고 방향이 반대인 주기 운동","explanation":"그네를 살짝 밀면 앞뒤로 반복하는 것과 같다","features":["sine/cosine 으로 표현","가속도 $a=-\\\\omega^2 x$"],"principle":"뉴턴 2법칙+복원력 → $m\\\\frac{d^2x}{dt^2}=-kx$","relations":["$T=\\\\frac{1}{f}$","$\\\\omega=\\\\sqrt{\\\\frac{k}{m}}$"],"examples":["용수철 진자","기타 줄"],"tip":"$k,m$ 주어지면 $\\\\omega=\\\\sqrt{\\\\frac{k}{m}}$ 로 계산","pages":[3,9]}]}
+모든 topic 에 title,body,definition,explanation,features,principle,relations,examples,tip,pages 키를 포함(근거 없으면 null/[]). body 는 절대 비우지 마라.
 """
 
 
 class _Topic(BaseModel):
+    # 기존 필수 필드 (하위호환: iOS/웹 구버전이 body·examples 에 의존)
     title: str
-    body: str
+    body: str = ""  # 비면 _ensure_body 가 채움
     examples: list[str] = Field(default_factory=list)
+    # 신규 선택 필드
+    definition: str | None = None
+    explanation: str | None = None
+    features: list[str] = Field(default_factory=list)
+    principle: str | None = None
+    relations: list[str] = Field(default_factory=list)
+    tip: str | None = None
+    pages: list[int] = Field(default_factory=list)
+
+    @field_validator("examples", "features", "relations", mode="before")
+    @classmethod
+    def _coerce_str_list(cls, v):
+        if v is None:
+            return []
+        if isinstance(v, str):
+            v = [v]
+        if not isinstance(v, list):
+            return []
+        return [str(x).strip() for x in v if x is not None and str(x).strip()]
+
+    @field_validator("pages", mode="before")
+    @classmethod
+    def _coerce_pages_t(cls, v):
+        if v is None:
+            return []
+        if isinstance(v, (int, str)):
+            v = [v]
+        if not isinstance(v, list):
+            return []
+        out: list[int] = []
+        for x in v:
+            if isinstance(x, bool):
+                continue
+            if isinstance(x, int):
+                out.append(x)
+            elif isinstance(x, str):
+                digits = "".join(ch for ch in x if ch.isdigit())
+                if digits:
+                    out.append(int(digits))
+        return sorted({p for p in out if 1 <= p <= 999})
+
+    @field_validator("definition", "explanation", "principle", "tip", mode="before")
+    @classmethod
+    def _blank_to_none_t(cls, v):
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
+    @model_validator(mode="after")
+    def _ensure_body(self):
+        # 구버전 렌더러(iOS GwaTopTopic.body / 웹 t.body)는 body 만 보므로 절대 비지 않게 보강.
+        if not (self.body or "").strip():
+            fallback = " ".join(
+                s for s in (self.definition, self.explanation) if s and s.strip()
+            ).strip()
+            if not fallback and self.features:
+                fallback = " ".join(self.features[:2])
+            object.__setattr__(self, "body", fallback or self.title)
+        return self
+
+
+class _TopicsResponse(BaseModel):
+    topics: list[_Topic]
 
 
 async def generate_topics(
     text: str, *, filename: str | None, analysis: dict | None = None,
+    on_delta: OnDelta = None,
 ) -> dict[str, Any]:
     user_prompt = (
         f"[파일명] {filename or '(미상)'}\n\n"
-        f"[자료]\n{_build_input(text, analysis)}\n\n"
+        f"[자료]\n{_build_paged_input(text, analysis)}\n\n"
         "위 자료의 주요 개념을 JSON으로 정리하시오."
     )
     payload, model, tokens = await _generate_json(
-        system=TOPICS_SYSTEM, user=user_prompt, max_tokens=2000,
+        system=TOPICS_SYSTEM, user=user_prompt,
+        schema_model=_TopicsResponse, schema_name="topics",
+        max_tokens=3000, temperature=0.2,
+        on_delta=on_delta,
     )
     raw = payload.get("topics", [])
     validated = []
@@ -594,16 +812,19 @@ async def generate_content(
     analysis: dict | None = None,
     exclude_questions: list[str] | None = None,
     difficulty: str = "easy",
+    on_delta: OnDelta = None,
 ) -> dict[str, Any]:
     fn = GENERATOR_REGISTRY.get(content_type)
     if fn is None:
         raise ContentGeneratorError(f"Unknown content_type: {content_type}")
     # exclude_questions / difficulty 는 현재 quiz 만 사용. 다른 generator 시그니처를
     # 건드리지 않기 위해 content_type 별로 분기한다.
+    # on_delta 가 있으면 스트리밍(SSE 엔드포인트), 없으면 기존 비스트리밍(Celery 워커).
     if content_type == "quiz":
         return await fn(text, filename=filename, analysis=analysis,
-                        exclude_questions=exclude_questions, difficulty=difficulty)
-    return await fn(text, filename=filename, analysis=analysis)
+                        exclude_questions=exclude_questions, difficulty=difficulty,
+                        on_delta=on_delta)
+    return await fn(text, filename=filename, analysis=analysis, on_delta=on_delta)
 
 
 # ---------- 페이지 범위 슬라이싱 ----------

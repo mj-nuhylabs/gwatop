@@ -49,7 +49,11 @@ from app.services.embedding_classifier import (
 )
 from app.services.auto_classifier import detect_kind, guess_course_name
 from app.services.course_matcher import CourseMatchError, match_or_create_course
-from app.services.pdf_text import extract_tables_from_pdf, extract_text_from_pdf_bytes
+from app.services.pdf_text import (
+    extract_markdown_from_pdf_bytes,
+    extract_tables_from_pdf,
+    extract_text_from_pdf_bytes,
+)
 from app.services.syllabus_parser import SyllabusParseError, parse_syllabus
 from app.services.todo_generator import build_auto_todos
 from app.tasks.celery_app import celery_app
@@ -178,8 +182,15 @@ async def _extract_text_into(session: AsyncSession, file_row: File) -> tuple[str
 
     text: str | None = None
     if file_row.file_type == "pdf":
+        # 플래그가 켜져 있으면 구조보존 마크다운 추출(pymupdf4llm). 미설치/실패 시
+        # extract_markdown_from_pdf_bytes 내부에서 raw 텍스트로 자동 폴백한다.
+        pdf_extractor = (
+            extract_markdown_from_pdf_bytes
+            if settings.PDF_MARKDOWN_EXTRACTION
+            else extract_text_from_pdf_bytes
+        )
         try:
-            text = await asyncio.to_thread(extract_text_from_pdf_bytes, data)
+            text = await asyncio.to_thread(pdf_extractor, data)
         except Exception as exc:
             logger.exception("extract_text: PyMuPDF failed for %s", file_row.id)
             await _mark_failed(session, file_row, f"PDF text extraction failed: {exc}")

@@ -32,6 +32,7 @@ from app.schemas.syllabus import (
 from app.services import syllabus_cache
 from app.services.pdf_text import clean_syllabus_text
 from app.services.openai_client import get_async_openai
+from app.services.structured_llm import run_structured_completion
 
 logger = logging.getLogger(__name__)
 
@@ -417,15 +418,19 @@ async def _call_openai_with_prefilled(
 
     client = _get_client()
     try:
-        response = await client.chat.completions.create(
+        # Structured Outputs(strict json_schema) — 일정 자동등록 정확도가 중요한 경로.
+        # 미지원·거부 시 자동 json_object 폴백(structured_llm 서킷 브레이커).
+        response = await run_structured_completion(
+            client,
             model=settings.OPENAI_SYLLABUS_MODEL,
-            temperature=settings.OPENAI_SYLLABUS_TEMPERATURE,
-            max_tokens=settings.OPENAI_SYLLABUS_MAX_TOKENS,
-            response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT_MINIMAL},
                 {"role": "user", "content": user_prompt},
             ],
+            schema_model=ParsedSyllabus,
+            schema_name="syllabus",
+            max_tokens=settings.OPENAI_SYLLABUS_MAX_TOKENS,
+            temperature=settings.OPENAI_SYLLABUS_TEMPERATURE,
         )
     except OpenAIError as exc:
         logger.exception("OpenAI syllabus (prefilled) parse failed")
@@ -455,11 +460,11 @@ async def _call_openai_single(
     client = _get_client()
 
     try:
-        response = await client.chat.completions.create(
+        # Structured Outputs + few-shot 병행 (few-shot 은 최종 응답 형식엔 영향 없이
+        # "한 셀 다중 일정" 분리를 학습시키는 용도). 미지원·거부 시 json_object 폴백.
+        response = await run_structured_completion(
+            client,
             model=settings.OPENAI_SYLLABUS_MODEL,
-            temperature=settings.OPENAI_SYLLABUS_TEMPERATURE,
-            max_tokens=settings.OPENAI_SYLLABUS_MAX_TOKENS,
-            response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 # Few-shot: 한 셀에 여러 일정이 들어있는 케이스를 명시적으로 학습.
@@ -467,6 +472,10 @@ async def _call_openai_single(
                 {"role": "assistant", "content": FEWSHOT_ASSISTANT},
                 {"role": "user", "content": user_prompt},
             ],
+            schema_model=ParsedSyllabus,
+            schema_name="syllabus",
+            max_tokens=settings.OPENAI_SYLLABUS_MAX_TOKENS,
+            temperature=settings.OPENAI_SYLLABUS_TEMPERATURE,
         )
     except OpenAIError as exc:
         logger.exception("OpenAI syllabus parse failed")
@@ -509,17 +518,21 @@ async def _call_openai_parallel(
     client = _get_client()
 
     async def call(extra_hint: str):
-        return await client.chat.completions.create(
+        # strict 스키마에서도 모든 필드가 required 라 빈 배열([])로 채워지므로
+        # "exams/assignments 는 [] 로" 같은 분할 힌트와 충돌하지 않는다.
+        return await run_structured_completion(
+            client,
             model=settings.OPENAI_SYLLABUS_MODEL,
-            temperature=settings.OPENAI_SYLLABUS_TEMPERATURE,
-            max_tokens=settings.OPENAI_SYLLABUS_MAX_TOKENS,
-            response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": FEWSHOT_USER},
                 {"role": "assistant", "content": FEWSHOT_ASSISTANT},
                 {"role": "user", "content": user_prompt_base + extra_hint},
             ],
+            schema_model=ParsedSyllabus,
+            schema_name="syllabus",
+            max_tokens=settings.OPENAI_SYLLABUS_MAX_TOKENS,
+            temperature=settings.OPENAI_SYLLABUS_TEMPERATURE,
         )
 
     try:
