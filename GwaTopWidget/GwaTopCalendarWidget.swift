@@ -43,7 +43,7 @@ struct GwaTopCalendarWidgetView: View {
             eventsColumn
                 .frame(maxWidth: .infinity)
         }
-        .padding(.vertical, 12)
+        .padding(.vertical, 18)
     }
 
     /// 지금(엔트리 시각) 기준 가장 가까운 일정 3건만. 날짜 미정 항목은 제외.
