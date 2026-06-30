@@ -156,6 +156,131 @@ async def confirm_upload(
     return FileConfirmResponse(file=FileResponse.model_validate(file_record))
 
 
+# ---------- 멀티파트 업로드 (대용량 파일) ----------
+# 단일 PUT 으로 수십~수백 MB 를 올리면 전송 중 연결이 끊겨 통째로 실패한다.
+# 파일 행은 기존 presigned-url 엔드포인트로 먼저 만들고(= s3_key 확보), 그 file_id 에 대해
+# 아래 3단계로 파트 업로드한다. course/syllabus/auto 모두 owned_file 로 검증되어 공용이다.
+#   1) create   → S3 멀티파트 시작, upload_id + 권장 part_size 반환
+#   2) part-url → 각 파트 PUT 용 presigned URL (파트마다 호출)
+#   3) complete → 파트 ETag 들을 합쳐 객체 확정 + 기존 confirm 과 동일하게 검증/추출 큐잉
+
+# 파트 크기 10MB — S3 최소(5MB, 마지막 파트 예외) 이상이고, 150MB 도 15파트면 충분.
+MULTIPART_PART_SIZE = 10 * 1024 * 1024
+
+
+class MultipartCreateResponse(BaseModel):
+    upload_id: str
+    storage_key: str
+    part_size: int
+
+
+class MultipartPartUrlRequest(BaseModel):
+    upload_id: str
+    part_number: int = Field(ge=1, le=10000)
+
+
+class MultipartPartUrlResponse(BaseModel):
+    url: str
+
+
+class MultipartCompletePart(BaseModel):
+    part_number: int = Field(ge=1, le=10000)
+    etag: str
+
+
+class MultipartCompleteRequest(BaseModel):
+    upload_id: str
+    parts: list[MultipartCompletePart] = Field(min_length=1)
+
+
+@router.post(
+    "/files/{file_id}/multipart/create",
+    response_model=MultipartCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_multipart(
+    file_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    file_record, _ = await owned_file(file_id, current_user, db)
+    if not file_record.s3_key:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="S3 업로드 대상 파일이 아니에요.")
+
+    content_type = CONTENT_TYPES.get(file_record.file_type, "application/octet-stream")
+    try:
+        upload_id = s3.create_multipart_upload(file_record.s3_key, content_type)
+    except Exception:
+        logger.exception("멀티파트 시작 실패 file=%s key=%s", file_record.id, file_record.s3_key)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Failed to start multipart upload")
+
+    return MultipartCreateResponse(
+        upload_id=upload_id,
+        storage_key=file_record.s3_key,
+        part_size=MULTIPART_PART_SIZE,
+    )
+
+
+@router.post(
+    "/files/{file_id}/multipart/part-url",
+    response_model=MultipartPartUrlResponse,
+)
+async def multipart_part_url(
+    file_id: uuid.UUID,
+    body: MultipartPartUrlRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    file_record, _ = await owned_file(file_id, current_user, db)
+    if not file_record.s3_key:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="S3 업로드 대상 파일이 아니에요.")
+    try:
+        url = s3.generate_presigned_upload_part_url(
+            file_record.s3_key, body.upload_id, body.part_number
+        )
+    except Exception:
+        logger.exception("파트 URL 발급 실패 file=%s part=%s", file_record.id, body.part_number)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Failed to generate part URL")
+    return MultipartPartUrlResponse(url=url)
+
+
+@router.post(
+    "/files/{file_id}/multipart/complete",
+    response_model=FileConfirmResponse,
+)
+async def complete_multipart(
+    file_id: uuid.UUID,
+    body: MultipartCompleteRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    file_record, _ = await owned_file(file_id, current_user, db)
+    if not file_record.s3_key:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="S3 업로드 대상 파일이 아니에요.")
+
+    parts = sorted(
+        ({"PartNumber": p.part_number, "ETag": p.etag} for p in body.parts),
+        key=lambda x: x["PartNumber"],
+    )
+    try:
+        s3.complete_multipart_upload(file_record.s3_key, body.upload_id, parts)
+    except Exception:
+        logger.exception("멀티파트 완료 실패 file=%s key=%s", file_record.id, file_record.s3_key)
+        # 부분 업로드된 파트가 과금되지 않게 best-effort 로 취소.
+        try:
+            s3.abort_multipart_upload(file_record.s3_key, body.upload_id)
+        except Exception:
+            logger.warning("멀티파트 취소 실패 file=%s", file_record.id)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="업로드 완료 처리에 실패했어요. 다시 시도해 주세요.")
+
+    # 기존 confirm 과 동일: 객체 검증 후 추출 큐잉(멱등 — pending/uploading 일 때만).
+    if file_record.status in ("pending", "uploading"):
+        _verify_uploaded_object(file_record)
+        extract_text_task.delay(str(file_id))
+
+    return FileConfirmResponse(file=FileResponse.model_validate(file_record))
+
+
 # ---------- 유튜브 영상 링크 (S3 업로드 없음) ----------
 
 
