@@ -99,7 +99,20 @@ async def _load_user_notes(
 def _normalize_scope(pages: str | None) -> str:
     if not pages or pages.strip() in {"", "all"}:
         return "all"
-    return pages.strip().replace(" ", "")
+    # '#' 는 난이도 인코딩 전용 구분자 — 페이지 입력에서 제거해 pages 채널로 난이도가
+    # 몰래 끼어드는 것(예: pages="1#hard")을 막는다. _scope_with_difficulty 만 '#'를 붙인다.
+    return pages.strip().replace(" ", "").replace("#", "")
+
+
+def _scope_with_difficulty(scope: str, difficulty: str | None) -> str:
+    """난이도를 scope 에 인코딩 — 퀴즈 난이도별로 캐시를 분리하기 위함(마이그레이션 없이).
+    'easy'(기본)는 기존 scope 그대로(하위호환), medium/hard 만 '#난이도' 접미사를 붙인다.
+    잘못된 값은 easy(=접미사 없음)로 처리. (퀴즈 외 콘텐츠는 항상 easy 라 영향 없음.)
+    워커(slice_text_by_pages 호출부)는 '#' 앞 페이지 부분만 떼어 쓴다."""
+    d = (difficulty or "easy").strip().lower()
+    if d not in {"medium", "hard"}:
+        return scope
+    return f"{scope}#{d}"
 
 
 # ---------- AI 콘텐츠 ----------
@@ -110,10 +123,11 @@ async def study_get_ai_content(
     content_type: str,
     response: Response,
     pages: str | None = None,
+    difficulty: str | None = "easy",
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """파일 + content_type + scope(페이지) 조합으로 캐시된 결과 조회.
+    """파일 + content_type + scope(페이지[+난이도]) 조합으로 캐시된 결과 조회.
 
     같은 파일에 'all', '1-3', '4-7' 처럼 여러 scope 가 공존할 수 있음.
     files.py 의 GET /files/{id}/ai-contents/{type} 와 path 가 같지만, FastAPI 라우터
@@ -128,7 +142,7 @@ async def study_get_ai_content(
         raise HTTPException(status_code=400, detail=f"Unsupported content_type: {content_type}")
 
     file_row, _ = await owned_file(file_id, current_user, db)
-    scope = _normalize_scope(pages)
+    scope = _scope_with_difficulty(_normalize_scope(pages), difficulty)
 
     row = (await db.execute(
         select(AIContent).where(
@@ -170,6 +184,8 @@ class GenerateRequest(BaseModel):
     # 퀴즈 한정: 새 퀴즈에서 피하고 싶은 이전 출제 문제 텍스트.
     # iOS '다른 문제로 새 퀴즈' 버튼에서 현재 화면의 문제 목록을 그대로 넘긴다.
     exclude_questions: list[str] | None = None
+    # 퀴즈 한정: 난이도(easy/medium/hard). 기본 easy. scope 에 인코딩돼 난이도별로 캐시 분리.
+    difficulty: str | None = "easy"
 
 
 @router.post(
@@ -199,7 +215,7 @@ async def study_generate_ai_content(
         raise HTTPException(status_code=400, detail="이 파일은 아직 텍스트 추출이 완료되지 않았어요.")
 
     req = body or GenerateRequest()
-    scope = _normalize_scope(req.pages)
+    scope = _scope_with_difficulty(_normalize_scope(req.pages), req.difficulty)
 
     # 캐시 확인 — 있으면 큐잉 없이 즉시 ready 반환.
     existing = (await db.execute(
