@@ -732,6 +732,41 @@ async def rename_file(
     return FileResponse.model_validate(file_row)
 
 
+class FileMoveRequest(BaseModel):
+    course_id: uuid.UUID
+
+
+@router.patch("/files/{file_id}/course", response_model=FileResponse)
+async def move_file_to_course(
+    file_id: uuid.UUID,
+    body: FileMoveRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """자료를 다른 과목으로 이동한다.
+
+    소유한 파일·대상 과목인지 검증 후 course_id 만 바꾼다. 주차/분류는 과목마다 다르므로
+    미분류로 초기화(사용자가 새 과목에서 다시 분류·지정). 강의계획서(is_syllabus)는 이동 불가.
+    """
+    file_row, _ = await owned_file(file_id, current_user, db)
+    if file_row.is_syllabus:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="강의계획서는 과목 이동을 지원하지 않아요.",
+        )
+    # 대상 과목 소유권 검증.
+    await owned_course(body.course_id, current_user, db)
+
+    file_row.course_id = body.course_id
+    file_row.week = None
+    file_row.classification_source = None
+    file_row.status = "unclassified"
+    file_row.ai_confidence = 0.0
+    await db.commit()
+    await db.refresh(file_row)
+    return FileResponse.model_validate(file_row)
+
+
 @router.delete("/files/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_file(
     file_id: uuid.UUID,
