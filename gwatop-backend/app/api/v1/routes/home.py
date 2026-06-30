@@ -6,7 +6,7 @@ iOS GwaTopHomeView 가 mock data 대신 이 엔드포인트를 호출한다.
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_current_user
@@ -47,12 +47,14 @@ async def home_dashboard(
     now = kst_now_naive()
 
     # ----- 1) 오늘의 일정 -----
+    # 외부(Apple) 일정도 포함하려면 outerjoin + (semester.user OR schedule.user) 소유 판정.
+    _owned = or_(Semester.user_id == current_user.id, Schedule.user_id == current_user.id)
     today_q = (
         select(Schedule, Course.name, Course.color)
-        .join(Course, Schedule.course_id == Course.id)
-        .join(Semester, Course.semester_id == Semester.id)
+        .outerjoin(Course, Schedule.course_id == Course.id)
+        .outerjoin(Semester, Course.semester_id == Semester.id)
         .where(
-            Semester.user_id == current_user.id,
+            _owned,
             Schedule.due_date >= today_start,
             Schedule.due_date < today_end,
         )
@@ -63,7 +65,8 @@ async def home_dashboard(
         ScheduleResponse(
             id=s.id, course_id=s.course_id, course_name=name, course_color=color,
             title=s.title, type=s.type, due_date=s.due_date,
-            description=s.description, is_auto=s.is_auto, created_at=s.created_at,
+            description=s.description, is_auto=s.is_auto,
+            source=s.source, external_id=s.external_id, created_at=s.created_at,
         )
         for s, name, color in today_rows
     ]
@@ -120,10 +123,10 @@ async def home_dashboard(
     # ----- 4) 다음 임박 schedule (미래) -----
     next_q = (
         select(Schedule, Course.name, Course.color)
-        .join(Course, Schedule.course_id == Course.id)
-        .join(Semester, Course.semester_id == Semester.id)
+        .outerjoin(Course, Schedule.course_id == Course.id)
+        .outerjoin(Semester, Course.semester_id == Semester.id)
         .where(
-            Semester.user_id == current_user.id,
+            _owned,
             Schedule.due_date >= now,
         )
         .order_by(Schedule.due_date.asc())
