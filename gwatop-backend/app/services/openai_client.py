@@ -34,6 +34,12 @@ def get_async_openai() -> AsyncOpenAI:
     except RuntimeError:
         loop = None
     if _client is None or _client_loop is not loop:
-        _client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        # timeout/max_retries 를 명시 — SDK 기본(600초)이면 네트워크 stall 시 한 호출이
+        # 수 분간 매달려 배치 업로드가 통째로 지연된다. (근본 원인 수정)
+        _client = AsyncOpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            timeout=settings.OPENAI_REQUEST_TIMEOUT,
+            max_retries=settings.OPENAI_MAX_RETRIES,
+        )
         _client_loop = loop
     return _client

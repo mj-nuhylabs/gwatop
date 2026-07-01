@@ -16,10 +16,11 @@ class Settings(BaseSettings):
     # presigned URL 발급 시 허용할 최대 파일 크기(바이트). 기본 50MB.
     MAX_UPLOAD_BYTES: int = 50 * 1024 * 1024
     # 허용 file_type (앱 화이트리스트와 일치해야 함).
-    # 현재 추출 파이프라인은 PDF만 안정 지원한다. pptx/docx/image를 허용하면
-    # "업로드 성공" 후 텍스트 없는 extracted 상태가 되어 학습 기능이 깨진다.
-    # 해당 포맷 추출기를 추가하기 전까지 기본 정책은 pdf로 제한한다.
-    ALLOWED_FILE_TYPES: str = "pdf"
+    # pdf: PyMuPDF 텍스트 추출(+스캔 시 vision OCR 폴백).
+    # image: 사진/스캔(png/jpg/jpeg/gif/webp) → vision OCR 로 텍스트 추출.
+    # 둘 다 추출한 텍스트로 실라버스/강의자료 분류·파싱이 동일하게 진행된다.
+    # pptx/docx 는 아직 추출기가 없어 미허용(추가 시 여기에 넣는다).
+    ALLOWED_FILE_TYPES: str = "pdf,image"
 
     # --- 관리자 (출시 전 테스트용) ---
     # 이 이메일 목록의 사용자만 /v1/admin/* 엔드포인트 접근 가능. 콤마 구분.
@@ -66,6 +67,11 @@ class Settings(BaseSettings):
             return set()
         return {c.strip() for c in raw.split(",") if c.strip()}
     OPENAI_API_KEY: str = ""
+    # OpenAI 호출당 타임아웃(초) + 재시도. SDK 기본은 600초라 네트워크가 멈추면 한 호출이
+    # 수 분간 매달려 배치 업로드가 통째로 지연된다. 90초로 잘라 '가끔 3분씩 걸림'을 방지.
+    # (정상 호출은 길어야 40초라 여유. 일시 실패는 재시도로 흡수.)
+    OPENAI_REQUEST_TIMEOUT: float = 90.0
+    OPENAI_MAX_RETRIES: int = 2
     # 강의계획서 파싱 모델. 속도 우선이면 gpt-4.1-nano (빠르지만 약간 떨어질 수 있음),
     # 정확도/안정성 우선이면 gpt-4o-mini (현재 기본). 둘 다 JSON mode 지원.
     # EC2 .env 에 OPENAI_SYLLABUS_MODEL=gpt-4.1-nano 로 변경 후 워커 재시작하면 즉시 적용.
@@ -155,6 +161,13 @@ class Settings(BaseSettings):
     CHANGE_DETECTION_INPUT_CHARS: int = 6000
     # 이 confidence 미만 변경 후보는 제안에서 제외.
     CHANGE_DETECTION_MIN_CONFIDENCE: float = 0.55
+
+    # --- 자동 할일(ToDo) 생성 ---
+    # 시험 일정에서 'D-14/7/3/1 시험 복습' 자동 할일을 만들지 여부. 기본 OFF —
+    # 사용자 피드백상 과제 탭이 복습 리마인더로 지저분해져, 시험 '일정'만 남기고
+    # 복습 할일은 만들지 않는다. 다시 켜려면 .env 에 AUTO_EXAM_REVIEW_TODOS=true.
+    # (과제 마감 'D-7/3/1 작업' 할일은 실제 마감 리마인더라 이 플래그와 무관하게 유지.)
+    AUTO_EXAM_REVIEW_TODOS: bool = False
 
     # --- Day 7: APNs 푸시 알림 ---
     # 키가 비어 있으면 services/apns.py가 placeholder mode (로그만, 네트워크 호출 없음)로 동작.

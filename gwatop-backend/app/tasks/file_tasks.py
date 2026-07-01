@@ -62,6 +62,7 @@ from app.services.change_detector import (
     ChangeContext,
     detect_changes,
     has_change_signal,
+    parse_due_date,
 )
 from app.services.course_matcher import CourseMatchError, match_or_create_course
 from app.services.pdf_text import (
@@ -148,13 +149,16 @@ async def _dispatch_material_entry(file_id: str, SessionLocal) -> None:
         await _dispatch_material(file_id, SessionLocal)
 
 
-@celery_app.task(name="tasks.process_auto_batch")
+# 배치는 여러 파일(추출+분류+파싱)을 한 태스크로 처리 → 전역 soft_time_limit(180초)로는
+# 파일이 많을 때 3분에 걸려 죽고 일부 파일이 미처리로 남는다. 배치 전용으로 상향한다.
+# (파일별 OpenAI 타임아웃 + Phase 병렬화로 실제로는 훨씬 빨리 끝난다 — 이건 안전 여유.)
+@celery_app.task(name="tasks.process_auto_batch", soft_time_limit=600, time_limit=720)
 def process_auto_batch_task(file_ids: list[str], user_id: str) -> None:
-    """여러 파일을 한 번에 자동 분류 업로드한 배치를 순서대로 처리.
+    """여러 파일을 한 번에 자동 분류 업로드한 배치를 처리.
 
     핵심: 강의계획서를 먼저 처리(과목+일정 생성)한 뒤 강의자료를 처리한다.
     그래야 강의자료의 과목 자동 매칭이 방금 생성된 과목에 정확히 붙어 중복 과목이 안 생긴다.
-    단일 Celery 태스크 안에서 phase 별로 처리하므로 순서가 결정론적으로 보장된다.
+    Phase 1(추출+분류)·Phase 4(자료 처리)는 파일별로 병렬, Phase 3(강의계획서)만 순차.
     """
     _run_with_fresh_engine(lambda Session: _run_auto_batch(file_ids, user_id, Session))
 
@@ -260,12 +264,22 @@ async def _extract_text_into(session: AsyncSession, file_row: File) -> tuple[str
                     "extract_text: OCR fallback failed file=%s: %s", file_row.id, exc,
                 )
 
+    elif file_row.file_type == "image":
+        # 사진/스캔 이미지(png/jpg/...): vision OCR 이 유일한 텍스트 소스.
+        # PDF 와 동일하게 추출한 텍스트로 이후 분류(실라버스/강의자료)·파싱이 진행된다.
+        from app.services.ocr_fallback import ocr_image, OCRError
+        try:
+            text = await ocr_image(data)
+        except OCRError as exc:
+            logger.warning("extract_text: image OCR failed file=%s: %s", file_row.id, exc)
+            text = None
+
     file_row.extracted_text = text
     # 강의계획서인데 텍스트가 비어 있으면 parse를 트리거할 수 없다 → 명시적 실패.
     if file_row.is_syllabus and not (text and text.strip()):
         await _mark_failed(
             session, file_row,
-            "강의계획서에서 텍스트를 추출하지 못했어요. PDF가 이미지로만 이루어져 있는지 확인해 주세요.",
+            "강의계획서에서 텍스트를 추출하지 못했어요. 사진이 흐리거나 글자가 없는(이미지만 있는) 자료인지 확인해 주세요.",
         )
         return None, False
 
@@ -574,14 +588,21 @@ async def _run_auto_batch(file_ids: list[str], user_id: str, SessionLocal) -> No
             logger.exception("auto_batch: syllabus parse failed for %s", fid)
 
     # ----- Phase 4: 강의자료 (이제 과목이 존재하므로 매칭됨) -----
-    for fid in material_ids:
-        try:
-            async with metrics.pipeline("material", file_id=fid):
-                await _dispatch_material(
-                    fid, SessionLocal, classification=material_class.get(fid),
-                )
-        except Exception:
-            logger.exception("auto_batch: material dispatch failed for %s", fid)
+    # 병렬 처리 — 한 파일의 LLM 호출이 느려도(또는 잠깐 멈춰도) 나머지 파일이 뒤에서
+    # 막히지 않는다. (예전 순차 처리 + 타임아웃 부재가 '일부 파일이 3분 뒤 뜸'의 원인.)
+    async def _dispatch_guarded(fid: str):
+        async with sem:
+            try:
+                async with metrics.pipeline("material", file_id=fid):
+                    await _dispatch_material(
+                        fid, SessionLocal, classification=material_class.get(fid),
+                    )
+            except Exception:
+                logger.exception("auto_batch: material dispatch failed for %s", fid)
+
+    await asyncio.gather(
+        *(asyncio.create_task(_dispatch_guarded(fid)) for fid in material_ids)
+    )
 
     logger.info("auto_batch: done count=%d", len(file_ids))
 
@@ -900,6 +921,33 @@ def _week_to_date(week_number: int | None, semester_start) -> datetime | None:
     return datetime.combine(semester_start, datetime.min.time()) + timedelta(days=(week_number - 1) * 7)
 
 
+def _snap_year_to_semester(due: datetime | None, semester_start) -> datetime | None:
+    """명시된 시험/과제 날짜의 **연도 오타**를 학기 컨텍스트로 보정한다.
+
+    강의계획서를 이전 학기 것에서 복사하며 연도만 안 고치는 실수가 흔하다.
+    예) 2026 여름학기(주차 기간 2026-06~07)인데 '중간고사_2025.07.08 예정' 처럼 시험만
+        작년 연도로 적혀 있으면, 파서가 그대로 2025-07-08 로 등록 → 캘린더/할일이 1년
+        과거로 뜬다(D+365...).
+
+    시험·과제는 학기 시작 전일 수 없으므로, due 가 학기 시작보다 14일 넘게 이르면 연도를
+    한 해씩 앞으로 당겨 학기 창 안으로 들어오게 맞춘다. 겨울 계절학기처럼 학기 시작 이후
+    정상적으로 다음 해로 넘어가는 날짜(due >= 시작)는 절대 건드리지 않는다.
+    """
+    if due is None:
+        return None
+    start = semester_start.date() if isinstance(semester_start, datetime) else semester_start
+    margin = timedelta(days=14)
+    guard = 0
+    while due.date() < start - margin and guard < 3:
+        try:
+            due = due.replace(year=due.year + 1)
+        except ValueError:
+            # 2/29 → 다음 해가 비윤년이면 2/28 로 안전 조정.
+            due = due.replace(year=due.year + 1, month=2, day=28)
+        guard += 1
+    return due
+
+
 _EXAM_WEEK_RE = re.compile(r"(\d{1,2})\s*주", re.IGNORECASE)
 
 
@@ -948,6 +996,15 @@ def _insert_schedules(
             logger.warning("[PARSE_DEBUG] SKIP exam %r — no date (source=%s)", exam.title, source)
             continue
 
+        # 연도 오타 보정 (예: 2026학기인데 명시된 시험일이 2025.xx) — 학기 창 안으로 당김.
+        snapped = _snap_year_to_semester(due, semester_start)
+        if snapped != due:
+            logger.info(
+                "[PARSE_DEBUG] exam %r 연도보정 %s → %s (학기시작 %s)",
+                exam.title, due.date(), snapped.date(), semester_start,
+            )
+            due = snapped
+
         row = _schedule_from_exam(course_id, exam, due)
         session.add(row)
         inserted.append(row)
@@ -966,6 +1023,15 @@ def _insert_schedules(
         if due is None:
             logger.warning("[PARSE_DEBUG] SKIP assignment %r — no date (source=%s)", assignment.title, source)
             continue
+
+        # 연도 오타 보정 (시험과 동일 정책).
+        snapped = _snap_year_to_semester(due, semester_start)
+        if snapped != due:
+            logger.info(
+                "[PARSE_DEBUG] assignment %r 연도보정 %s → %s (학기시작 %s)",
+                assignment.title, due.date(), snapped.date(), semester_start,
+            )
+            due = snapped
 
         row = _schedule_from_assignment(course_id, assignment, due)
         session.add(row)
@@ -1190,53 +1256,104 @@ async def _run_detect_changes(file_id: str, SessionLocal) -> None:
             if not updates:
                 return
 
-            # 기존 pending 제안과 (field, new_value) 로 dedupe — 재분류/재업로드 중복 방지.
-            existing = (
-                await session.execute(
-                    select(SyllabusUpdateProposal).where(
-                        SyllabusUpdateProposal.course_id == course.id,
-                        SyllabusUpdateProposal.status == "pending",
-                    )
-                )
-            ).scalars().all()
-            def _dedupe_key(field: str, value: str | None) -> tuple[str, str]:
-                # 내부 공백까지 정규화해 '월  14:00' / '월 14:00' 같은 미세 차이를 한 후보로 본다.
-                return (field, " ".join((value or "").split()))
+            # 새 과제/일정은 **자동 반영**, 기존 항목 변경(강의시간/강의실/과제마감)은 **승인 제안**.
+            new_items = [u for u in updates if u.field == "new_assignment"]
+            change_items = [u for u in updates if u.field != "new_assignment"]
 
-            seen = {_dedupe_key(p.field, p.new_value) for p in existing}
+            def _norm_title(t: str | None) -> str:
+                return "".join((t or "").split()).lower()
 
-            created = 0
-            for u in updates:
-                key = _dedupe_key(u.field, u.new_value)
-                if key in seen:
-                    continue
-                schedule_id = (
-                    _match_schedule_id(u.target_title, sched_rows)
-                    if u.field == "assignment_due" and u.target_title
-                    else None
+            # ----- (A) 새 과제 자동 생성: schedule(캘린더) + 마감 리마인더 todos(과제탭) -----
+            added_assignments = 0
+            if new_items:
+                semester = await session.get(Semester, course.semester_id)
+                sem_start = semester.start_date if semester is not None else None
+                fallback_year = (
+                    sem_start.year if sem_start is not None
+                    else (sched_rows[0].due_date.year if sched_rows else datetime.now().year)
                 )
-                session.add(
-                    SyllabusUpdateProposal(
+                existing_assign = {
+                    (_norm_title(s.title), s.due_date.date())
+                    for s in sched_rows if s.type == "assignment"
+                }
+                for u in new_items:
+                    due = parse_due_date(u.new_value, fallback_year)
+                    if due is None:
+                        continue
+                    if sem_start is not None:
+                        due = _snap_year_to_semester(due, sem_start)
+                    title = (u.target_title or "과제").strip() or "과제"
+                    key = (_norm_title(title), due.date())
+                    if key in existing_assign:
+                        continue  # 이미 같은 과제가 있음 — 재업로드 중복 방지.
+                    existing_assign.add(key)
+                    sched = Schedule(
                         course_id=course.id,
-                        file_id=file_row.id,
-                        schedule_id=schedule_id,
-                        field=u.field,
-                        target_title=u.target_title,
-                        old_value=u.old_value,
-                        new_value=u.new_value,
-                        evidence=u.evidence,
-                        confidence=round(u.confidence, 4),
-                        status="pending",
+                        title=title,
+                        type="assignment",
+                        due_date=due,
+                        description=(u.evidence or None),
+                        is_auto=True,
                     )
-                )
-                seen.add(key)
-                created += 1
+                    session.add(sched)
+                    await session.flush()  # schedule.id 확보 후 리마인더 todos 생성
+                    for spec in build_auto_todos(sched):
+                        session.add(Todo(**spec))
+                    added_assignments += 1
+                    logger.info(
+                        "change_detect: file=%s 새 과제 자동추가 %r 마감=%s",
+                        file_id, title, due.date(),
+                    )
+                if added_assignments:
+                    await session.commit()
 
-            if created:
-                await session.commit()
+            # ----- (B) 기존 항목 변경은 pending 제안으로 (승인 후에만 반영) -----
+            created = 0
+            if change_items:
+                existing = (
+                    await session.execute(
+                        select(SyllabusUpdateProposal).where(
+                            SyllabusUpdateProposal.course_id == course.id,
+                            SyllabusUpdateProposal.status == "pending",
+                        )
+                    )
+                ).scalars().all()
+
+                def _dedupe_key(field: str, value: str | None) -> tuple[str, str]:
+                    return (field, " ".join((value or "").split()))
+
+                seen = {_dedupe_key(p.field, p.new_value) for p in existing}
+                for u in change_items:
+                    key = _dedupe_key(u.field, u.new_value)
+                    if key in seen:
+                        continue
+                    schedule_id = (
+                        _match_schedule_id(u.target_title, sched_rows)
+                        if u.field == "assignment_due" and u.target_title
+                        else None
+                    )
+                    session.add(
+                        SyllabusUpdateProposal(
+                            course_id=course.id,
+                            file_id=file_row.id,
+                            schedule_id=schedule_id,
+                            field=u.field,
+                            target_title=u.target_title,
+                            old_value=u.old_value,
+                            new_value=u.new_value,
+                            evidence=u.evidence,
+                            confidence=round(u.confidence, 4),
+                            status="pending",
+                        )
+                    )
+                    seen.add(key)
+                    created += 1
+                if created:
+                    await session.commit()
+
             logger.info(
-                "change_detect: file=%s course=%s proposals_created=%d",
-                file_id, course.id, created,
+                "change_detect: file=%s course=%s 새과제자동=%d 변경제안=%d",
+                file_id, course.id, added_assignments, created,
             )
 
 

@@ -59,7 +59,11 @@ def _get_client() -> AsyncOpenAI:
     except RuntimeError:
         loop = None
     if _client is None or _client_loop is not loop:
-        _client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        _client = AsyncOpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            timeout=settings.OPENAI_REQUEST_TIMEOUT,
+            max_retries=settings.OPENAI_MAX_RETRIES,
+        )
         _client_loop = loop
     return _client
 
@@ -113,9 +117,19 @@ def _render_page_range(
     return out
 
 
-async def _ocr_single_page(png_bytes: bytes, page_index: int) -> str:
-    """한 페이지 이미지를 GPT-4o-mini vision 으로 OCR. 실패 시 빈 문자열."""
-    b64 = base64.b64encode(png_bytes).decode("ascii")
+async def _ocr_single_page(
+    img_bytes: bytes, page_index: int, *,
+    mime: str = "image/png", detail: str | None = None,
+) -> str:
+    """한 이미지를 GPT-4o-mini vision 으로 OCR. 실패 시 빈 문자열.
+
+    PDF 페이지(png)와 직접 업로드된 이미지 파일(jpg/png/...) 양쪽에서 재사용한다.
+    `detail="high"` 는 사진 OCR 정확도를 높인다(PDF 경로는 기본 None = 자동).
+    """
+    b64 = base64.b64encode(img_bytes).decode("ascii")
+    image_url: dict = {"url": f"data:{mime};base64,{b64}"}
+    if detail:
+        image_url["detail"] = detail
     client = _get_client()
     try:
         response = await client.chat.completions.create(
@@ -128,11 +142,8 @@ async def _ocr_single_page(png_bytes: bytes, page_index: int) -> str:
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": f"이 페이지({page_index + 1}번)의 글씨를 모두 옮겨 적어주세요."},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:image/png;base64,{b64}"},
-                        },
+                        {"type": "text", "text": f"이 이미지({page_index + 1})의 글씨를 모두 옮겨 적어주세요."},
+                        {"type": "image_url", "image_url": image_url},
                     ],
                 },
             ],
@@ -199,3 +210,49 @@ def needs_ocr(extracted_text: str | None) -> bool:
     if extracted_text is None:
         return True
     return len(extracted_text.strip()) < MIN_TEXT_THRESHOLD
+
+
+# ---------- 이미지 파일(png/jpg/...) 직접 OCR ----------
+
+# vision 입력 이미지의 긴 변 상한(px). 넘으면 절반씩 축소 — 토큰/비용 절감(품질 영향 미미).
+IMAGE_OCR_MAX_DIM = 2600
+
+
+def _normalize_image_to_png(data: bytes) -> bytes | None:
+    """임의의 이미지 바이트(png/jpg/jpeg/gif/webp/bmp/tiff)를 RGB PNG 로 정규화.
+
+    PyMuPDF 로 열어 색공간을 RGB 로 맞추고, 너무 크면 축소한다. 열 수 없으면 None.
+    """
+    try:
+        pix = fitz.Pixmap(data)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("이미지 열기 실패: %s", exc)
+        return None
+    try:
+        # CMYK 등 → RGB (PNG 인코딩 + vision 호환).
+        if pix.colorspace is not None and pix.colorspace.name not in ("DeviceRGB", "DeviceGray"):
+            pix = fitz.Pixmap(fitz.csRGB, pix)
+        # 알파 제거(불필요한 용량↓, OCR 엔 무의미).
+        if pix.alpha:
+            pix = fitz.Pixmap(pix, 0)
+        guard = 0
+        while max(pix.width, pix.height) > IMAGE_OCR_MAX_DIM and guard < 4:
+            pix.shrink(1)  # 긴 변 절반
+            guard += 1
+        return pix.tobytes("png")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("이미지 정규화 실패: %s", exc)
+        return None
+
+
+async def ocr_image(image_bytes: bytes) -> str:
+    """단일 이미지 파일(사진/스캔)을 vision OCR 해서 텍스트를 반환한다.
+
+    강의자료/강의계획서를 사진으로 올린 경우의 텍스트 소스. 실패 시 OCRError.
+    """
+    png = await asyncio.to_thread(_normalize_image_to_png, image_bytes)
+    if not png:
+        raise OCRError("이미지를 읽을 수 없어요 (지원하지 않는 형식이거나 손상된 파일).")
+    text = await _ocr_single_page(png, 0, mime="image/png", detail="high")
+    logger.info("image OCR done: chars=%d", len(text or ""))
+    return text or ""

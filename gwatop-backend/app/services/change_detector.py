@@ -40,13 +40,22 @@ _CHANGE_KEYWORDS = [
     "reschedul", "postpone", "delay", "moved", "change", "cancel", "rescheduled",
 ]
 
+# 새 과제/제출물 공지 신호 — 강의자료에 마감과 함께 새 과제가 뜨는 케이스를 게이트에 포함.
+# (없으면 '과제 7/5 제출' 처럼 '변경' 단어가 없는 새 과제 공지를 놓친다.)
+_ASSIGNMENT_KEYWORDS = [
+    "과제", "숙제", "제출", "마감", "레포트", "리포트", "보고서", "기한",
+    "deadline", "submit", "homework", "assignment", "tarea",
+]
+
 
 def has_change_signal(text: str | None) -> bool:
-    """본문에 변경 관련 표현이 하나라도 있으면 True. LLM 호출 게이트로 사용."""
+    """본문에 변경 또는 새 과제 관련 표현이 하나라도 있으면 True. LLM 호출 게이트로 사용."""
     if not text:
         return False
     low = text.lower()
-    return any(kw.lower() in low for kw in _CHANGE_KEYWORDS)
+    return any(kw.lower() in low for kw in _CHANGE_KEYWORDS) or any(
+        kw.lower() in low for kw in _ASSIGNMENT_KEYWORDS
+    )
 
 
 def _relevant_excerpt(text: str) -> str:
@@ -67,7 +76,7 @@ def _relevant_excerpt(text: str) -> str:
 
 # ---------- LLM 변경 탐지 ----------
 
-ChangeField = Literal["class_time", "classroom", "assignment_due"]
+ChangeField = Literal["class_time", "classroom", "assignment_due", "new_assignment"]
 
 
 class _ProposedUpdate(BaseModel):
@@ -90,16 +99,29 @@ class ChangeContext:
     assignments: list[tuple[str, str]]  # [(제목, 마감 ISO), ...]
 
 
-_SYSTEM = """당신은 학습자료 본문에서 '강의계획서를 갱신해야 할 변경'만 찾아내는 도구입니다.
-JSON 객체 하나만 출력합니다. 규칙:
-- "변경/연기/이동/공지/정정/취소/휴강/보강" 등 명시적 변경 표현이 있을 때만 후보로 삼는다.
-- 단순히 날짜·시간·장소가 적혀 있다는 이유만으로 변경으로 보지 않는다(원래 일정 안내일 수 있음).
-- 강의계획서에 저장된 현재 값과 *달라진* 것만 후보로 만든다. 같으면 무시한다.
-- 각 후보는 반드시 evidence(변경을 명시한 원문, 15단어 이내)를 포함한다.
-- field 는 "class_time"(강의시간) | "classroom"(강의실) | "assignment_due"(과제/시험 마감) 중 하나.
-- assignment_due 면 target_title 에 어떤 과제/시험인지 제목을 적는다(현재 목록의 제목과 최대한 일치).
+_SYSTEM = """당신은 학습자료 본문에서 '강의 일정에 반영할 항목'을 찾아내는 도구입니다.
+JSON 객체 하나만 출력합니다. 두 종류를 구분합니다.
+
+[1] 새 과제 (field="new_assignment")
+- 현재 '과제/시험 마감' 목록에 **없던 새 과제/숙제/제출물**이 **마감일과 함께** 공지된 경우.
+- target_title = 과제 이름(짧게, 예: "예비과 과제", "1과 과제", "발음 과제"). 이름이 없으면 "과제".
+- new_value = 마감일 원문 그대로(예: "7월 5일", "2026-07-05", "7/5"). old_value = null.
+- ⚠️ '연습문제', '예시', 수업 중 활동, 교재 페이지처럼 **제출 마감이 없는 것은 제외**.
+- 이미 현재 목록에 같은 과제가 있으면(중복) 내지 않는다.
+
+[2] 기존 항목 변경 (field="class_time" | "classroom" | "assignment_due")
+- 이미 있는 강의시간/강의실/과제·시험 마감이 **바뀐** 경우에만.
+- "변경/연기/이동/정정/취소/휴강/보강" 등 명시적 변경 표현이 있을 때만.
+- 강의계획서에 저장된 현재 값과 *달라진* 것만. 같으면 무시.
+- assignment_due 면 target_title 은 현재 목록의 제목과 최대한 일치시킨다.
+- ⚠️ 새 과제를 억지로 기존 시험/과제의 날짜 변경(assignment_due)으로 만들지 마라 —
+  현재 목록에 없는 것은 반드시 new_assignment 로 분류한다.
+
+공통 규칙:
+- 각 항목은 반드시 evidence(근거 원문, 15단어 이내) 포함.
+- 확실하지 않으면 넣지 않는다.
 출력 스키마: {"updates": [{"field","target_title","old_value","new_value","evidence","confidence"}]}
-변경이 없으면 updates 는 빈 배열."""
+해당 없으면 updates 는 빈 배열."""
 
 
 async def detect_changes(text: str, ctx: ChangeContext) -> list[_ProposedUpdate]:
@@ -147,8 +169,16 @@ async def detect_changes(text: str, ctx: ChangeContext) -> list[_ProposedUpdate]
         # 애초에 후보로 만들지 않는다(노이즈 방지).
         if u.field == "assignment_due" and not (u.target_title or "").strip():
             continue
+        # 새 과제도 캘린더/과제탭에 표시하려면 이름이 있어야 한다.
+        if u.field == "new_assignment" and not (u.target_title or "").strip():
+            continue
         # 값이 실제로 달라졌는지 최종 가드(LLM 이 같은 값을 후보로 낼 때 방지).
-        if (u.old_value or "").strip() and u.old_value.strip() == u.new_value.strip():
+        # new_assignment 는 old_value 가 없으므로 이 가드 제외.
+        if (
+            u.field != "new_assignment"
+            and (u.old_value or "").strip()
+            and u.old_value.strip() == u.new_value.strip()
+        ):
             continue
         out.append(u)
     return out

@@ -25,7 +25,9 @@ logger = logging.getLogger(__name__)
 
 # 7일. 학기 중 같은 강의계획서가 재파싱될 일은 거의 없으므로 길게 잡아도 무방.
 _CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
-_CACHE_PREFIX = "syllabus:parsed:v1:"
+# 프롬프트/스키마가 바뀌면 버전을 올려 옛 캐시 결과를 전역 무효화한다.
+# v2: 과제 title 을 실제 이름으로 추출(과제 N 일반화·시험 오인 방지) 프롬프트 개편 (2026-07-01).
+_CACHE_PREFIX = "syllabus:parsed:v2:"
 
 # redis 클라이언트는 lazy init — 모듈 import 시 연결 실패하면 워커 자체가 죽는 걸 방지.
 _redis_client: Any | None = None
