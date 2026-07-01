@@ -1,22 +1,56 @@
 """schedule → todos 자동 생성 규칙.
 
-정책 (2026-06-29 변경):
-- 실라버스에 적힌 일정(시험/과제)을 **그 당일에 한 건만** todo 로 올린다.
-  (이전엔 시험마다 D-14/7/3/1 "복습", 과제마다 D-7/3/1 "작업" 식으로 여러 개를
-   자동 생성했는데, 사용자가 복습/대비 todo 도배를 원치 않아 제거했다.)
-- exam/assignment 만 todo 를 만든다. 그 외(lecture/meeting/upload/custom)는 생성 없음.
-- todo 제목은 일정 제목 그대로(예: "Exam 1"). 접미사("복습"/"작업") 없음.
+정책 (2026-07-01 갱신 #2):
+- exam:       'D-14/7/3/1 시험 복습' 할일 — 기본 OFF (settings.AUTO_EXAM_REVIEW_TODOS).
+              시험은 이벤트라 '일정'(캘린더)만 남기고 과제탭엔 할일을 만들지 않는다.
+- assignment: 과제 **마감일 당일에 할일 1개**만 (과제 자체). 과거엔 D-7/3/1 준비 리마인더
+              3개를 만들었으나, '과제는 7/5인데 왜 6/28·7/2·7/4가 뜨냐'는 피드백에 따라
+              마감일 하나로 단순화. 제목은 과제 이름 그대로(접미사 없음).
+- 그 외 type (lecture/meeting/upload/custom): 자동 생성 없음
 - 강의계획서/강의자료에 **정확한 날짜가 안 적힌** 시험/과제는 캘린더(schedule)에는 못 올리지만
   날짜 미지정(due_date=None) todo 로 해당 과목에 추가한다 — build_undated_todo 참고.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import timedelta
 from uuid import UUID
 
+from app.core.config import settings
 from app.models.schedule import Schedule
 
 
-# 일정 종류별 todo 우선순위 — 그 날이 실제 마감/시험일이므로 시험은 높게.
+@dataclass(frozen=True)
+class TodoSpec:
+    days_before: int
+    priority: str
+    label: str  # 할일 제목 접미사. ""(빈 문자열)이면 일정 제목 그대로.
+
+
+EXAM_SPECS: list[TodoSpec] = [
+    TodoSpec(14, "low", "복습"),
+    TodoSpec(7, "medium", "복습"),
+    TodoSpec(3, "high", "복습"),
+    TodoSpec(1, "high", "복습"),
+]
+
+# 과제는 마감일 당일 할일 1개 (준비 리마인더 없음). 제목은 과제 이름 그대로.
+ASSIGNMENT_SPECS: list[TodoSpec] = [
+    TodoSpec(0, "high", ""),
+]
+
+
+def specs_for(schedule_type: str) -> list[TodoSpec]:
+    if schedule_type == "exam":
+        # 시험 복습 할일은 기본 OFF — 시험 '일정'만 남기고 복습 리마인더는 만들지 않는다.
+        return EXAM_SPECS if settings.AUTO_EXAM_REVIEW_TODOS else []
+    if schedule_type == "assignment":
+        return ASSIGNMENT_SPECS
+    return []
+
+
+# 날짜 미지정(build_undated_todo) 전용 우선순위 — 캘린더에 못 올린 시험/과제를
+# 과제탭에 한 건 남길 때 사용. 복습 정책(specs_for)과 무관하게 항상 생성한다.
 _PRIORITY_BY_TYPE = {
     "exam": "high",
     "assignment": "medium",
@@ -32,19 +66,23 @@ def build_auto_todos(schedule: Schedule) -> list[dict]:
 
     exam/assignment 가 아니면 빈 리스트.
     """
-    priority = _PRIORITY_BY_TYPE.get(schedule.type)
-    if priority is None:
-        return []
-    return [
-        {
-            "title": schedule.title,
-            "due_date": schedule.due_date,
-            "priority": priority,
-            "course_id": schedule.course_id,
-            "schedule_id": schedule.id,
-            "is_auto": True,
-        }
-    ]
+    specs = specs_for(schedule.type)
+    todos: list[dict] = []
+    for spec in specs:
+        due = schedule.due_date - timedelta(days=spec.days_before)
+        # label 이 비면 일정 제목 그대로 (예: "과제"), 있으면 접미사 부착 (예: "중간고사 복습").
+        title = f"{schedule.title} {spec.label}".strip()
+        todos.append(
+            {
+                "title": title,
+                "due_date": due,
+                "priority": spec.priority,
+                "course_id": schedule.course_id,
+                "schedule_id": schedule.id,
+                "is_auto": True,
+            }
+        )
+    return todos
 
 
 def build_undated_todo(course_id: UUID, title: str, sched_type: str) -> dict | None:

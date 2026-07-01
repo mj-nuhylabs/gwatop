@@ -1,12 +1,12 @@
 """푸시 알림 Celery 태스크.
 
 - `tasks.notify_due_dday` (Beat schedule): 매일 09:00 KST. 두 종류 알림을 동시 발송.
-    1) 시험/과제 schedule per-item D-3 ~ D-0: 각 시험/과제마다 마감 3일 전부터 매일
-       1건씩 푸시. body 에 D-N 라벨 + 과목 + 제목 명시.
+    1) 시험/과제 schedule per-item D-7/D-3/D-1/D-0: 각 시험/과제마다 마감 D-7·D-3·D-1·당일에
+       1건씩 폰 푸시. body 에 D-N 라벨 + 과목 + 제목 명시. (과제 탭에는 리마인더 todo 를
+       만들지 않고, D-N 리마인더는 오직 이 푸시로만 전달한다.)
     2) 사용자가 직접 만든 todo (`is_auto=False`) 의 D-1 (24h 안) 통합 알림: 사용자
        단위로 묶어 "오늘 안 끝낼 할 일 N개" 한 줄.
-   자동 todo (`is_auto=True`) 는 이미 schedule per-item 알림으로 대체되어 중복 푸시
-   되지 않도록 통합 알림 대상에서 제외.
+   자동 todo (`is_auto=True`) 는 schedule per-item 알림으로 커버되므로 통합 알림 대상 제외.
 - `tasks.notify_classified`: 파일 분류 완료 시 소유 유저에게 push. file_tasks.py 호출.
 
 설계:
@@ -50,9 +50,11 @@ def _run_with_fresh_engine(coro_factory):
 
 # D-N 푸시 대상이 되는 schedule.type 화이트리스트. lecture/meeting/upload/custom 은 알림 안 함.
 _NOTIFIABLE_SCHEDULE_TYPES = ("exam", "assignment")
-# 시험/과제 마감 며칠 전부터 매일 알림을 보낼지. 0 = 당일 포함.
-# 사용자 요구: D-3 부터 매일 1번씩 → range(0, 4) = D-0, D-1, D-2, D-3 총 4일.
-_DDAY_LEAD_DAYS = 3
+# 시험/과제 마감 **정확히 이 D-N 일에만** 푸시 알림(폰). 과제 탭에는 리마인더 todo 를
+# 만들지 않고, D-N 리마인더는 오직 이 푸시로만 전달한다.
+# 사용자 선호 cadence: D-7, D-3, D-1, 그리고 당일(D-0).
+_DDAY_NOTIFY_DAYS = (7, 3, 1, 0)
+_DDAY_MAX_LEAD = max(_DDAY_NOTIFY_DAYS)
 
 
 @celery_app.task(name="tasks.notify_due_dday")
@@ -65,9 +67,8 @@ async def _run_notify_due_dday(SessionLocal) -> None:
     async with SessionLocal() as session:
         now = kst_now_naive()
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        # D-N 까지 포함 = 오늘 자정 ~ (오늘 + N+1)일 자정 미만.
-        # 예: N=3 → 오늘부터 4일 후 자정 미만 = 오늘/내일/모레/글피 마감 모두 포함.
-        dday_horizon = today_start + timedelta(days=_DDAY_LEAD_DAYS + 1)
+        # 최대 리드(D-7)까지 조회 후, days_until 이 _DDAY_NOTIFY_DAYS 에 있을 때만 푸시.
+        dday_horizon = today_start + timedelta(days=_DDAY_MAX_LEAD + 1)
         next_24h = now + timedelta(hours=24)
 
         sent_total = 0
@@ -90,8 +91,8 @@ async def _run_notify_due_dday(SessionLocal) -> None:
         for schedule, course_name, user_id in schedule_rows:
             # 일 단위 D-N 계산. (due_date.date() - today.date()) 의 일수 차.
             days_until = (schedule.due_date.date() - today_start.date()).days
-            if days_until < 0 or days_until > _DDAY_LEAD_DAYS:
-                # WHERE 절이 잡아내야 하는데 안전망.
+            # 지정된 D-N(7/3/1/0) 일에만 알림. 그 외 날(D-6/5/4/2 등)은 건너뜀.
+            if days_until not in _DDAY_NOTIFY_DAYS:
                 continue
 
             type_label = "시험" if schedule.type == "exam" else "과제"

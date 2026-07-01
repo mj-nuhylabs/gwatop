@@ -14,8 +14,17 @@ def test_keyword_gate_hits_on_change_words():
     assert has_change_signal("휴강 공지: 다음 주 보강 예정")
 
 
+def test_keyword_gate_hits_on_new_assignment_announcement():
+    # 강의자료에 뜬 새 과제 공지 — '변경' 단어가 없어도 '과제/제출/마감' 으로 게이트 통과.
+    # (예비과 PDF 실제 문구: "과제공지(7월5일까지제출)")
+    assert has_change_signal("과제공지(7월5일까지제출)")
+    assert has_change_signal("이번 주 과제: 7/5 제출")
+    assert has_change_signal("레포트 마감 7월 10일")
+
+
 def test_keyword_gate_misses_plain_content():
     assert not has_change_signal("4주차 연쇄법칙 정리와 예제")
+    assert not has_change_signal("스페인어 알파벳과 발음, 이중모음 연습")
     assert not has_change_signal("")
     assert not has_change_signal(None)
 

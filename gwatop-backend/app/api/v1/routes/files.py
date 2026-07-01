@@ -593,6 +593,39 @@ async def list_needs_review_files(
     return result.scalars().all()
 
 
+class FileStatusBatchRequest(BaseModel):
+    file_ids: list[uuid.UUID] = Field(..., max_length=100)
+
+
+@router.post("/files/status-batch")
+async def get_files_status_batch(
+    body: FileStatusBatchRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, dict[str, str]]:
+    """주어진 파일 ID들의 현재 status 를 한 번에 반환 (배치 업로드 '분류 중' 로딩 표시용).
+
+    course 미결정(auto) 파일도 uploaded_by_user_id 로 소유권을 확인한다.
+    응답: {"statuses": {"<file_id>": "<status>", ...}} — 소유 아닌/없는 id 는 생략.
+    """
+    if not body.file_ids:
+        return {"statuses": {}}
+    stmt = (
+        select(File.id, File.status)
+        .outerjoin(Course, File.course_id == Course.id)
+        .outerjoin(Semester, Course.semester_id == Semester.id)
+        .where(
+            File.id.in_(body.file_ids),
+            or_(
+                File.uploaded_by_user_id == current_user.id,
+                Semester.user_id == current_user.id,
+            ),
+        )
+    )
+    rows = (await db.execute(stmt)).all()
+    return {"statuses": {str(fid): st for fid, st in rows}}
+
+
 @router.get("/courses/{course_id}/files", response_model=list[FileResponse])
 async def list_files(
     course_id: uuid.UUID,
