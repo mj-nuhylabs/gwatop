@@ -799,17 +799,18 @@ async def generate_summary(
     filename: str | None = None,
     analysis: dict | None = None,
     on_delta: OnDelta = None,
+    language: str | None = None,
 ) -> dict[str, Any]:
     """요약 제너레이터 — 기존 summarizer.summarize_text 재사용.
 
     전체 문서 요약(generate_summary_task)과 달리, 이 경로는 GENERATOR_REGISTRY 를
     타는 study 라우트(스트리밍 SSE / generate_ai_content_task)에서 **페이지 범위(scope)별
-    온디맨드 요약**을 만들 수 있게 한다. summarize_text 는 analysis/on_delta 를 쓰지
-    않으므로 시그니처 호환용으로만 받고 무시한다. 반환 페이로드는 전체 요약과 동일 스키마.
+    온디맨드 요약**을 만들 수 있게 한다. analysis/on_delta 는 summarize_text 가 쓰지
+    않으므로 무시한다. language("en")는 출력 언어로 넘긴다. 반환 스키마는 전체 요약과 동일.
     """
     from app.services.summarizer import summarize_text  # 지연 임포트로 순환참조 회피
 
-    return await summarize_text(text, filename=filename)
+    return await summarize_text(text, filename=filename, language=language)
 
 
 # ---------- 디스패처 ----------
@@ -833,17 +834,21 @@ async def generate_content(
     exclude_questions: list[str] | None = None,
     difficulty: str = "easy",
     on_delta: OnDelta = None,
+    language: str | None = None,
 ) -> dict[str, Any]:
     fn = GENERATOR_REGISTRY.get(content_type)
     if fn is None:
         raise ContentGeneratorError(f"Unknown content_type: {content_type}")
-    # exclude_questions / difficulty 는 현재 quiz 만 사용. 다른 generator 시그니처를
-    # 건드리지 않기 위해 content_type 별로 분기한다.
+    # exclude_questions / difficulty 는 quiz, language 는 summary 만 사용. 다른 generator
+    # 시그니처를 건드리지 않기 위해 content_type 별로 분기한다.
     # on_delta 가 있으면 스트리밍(SSE 엔드포인트), 없으면 기존 비스트리밍(Celery 워커).
     if content_type == "quiz":
         return await fn(text, filename=filename, analysis=analysis,
                         exclude_questions=exclude_questions, difficulty=difficulty,
                         on_delta=on_delta)
+    if content_type == "summary":
+        return await fn(text, filename=filename, analysis=analysis,
+                        on_delta=on_delta, language=language)
     return await fn(text, filename=filename, analysis=analysis, on_delta=on_delta)
 
 

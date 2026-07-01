@@ -93,15 +93,26 @@ def _truncate(text: str, limit: int = MAX_INPUT_CHARS) -> str:
     return f"{head}\n... [중략: 입력이 너무 길어 일부 생략됨] ...\n{tail}"
 
 
-async def summarize_text(text: str, *, filename: str | None = None) -> dict[str, Any]:
-    """파일 텍스트를 요약해 JSON 페이로드 반환. ai_contents.content 에 그대로 저장 가능."""
+async def summarize_text(
+    text: str, *, filename: str | None = None, language: str | None = None
+) -> dict[str, Any]:
+    """파일 텍스트를 요약해 JSON 페이로드 반환. ai_contents.content 에 그대로 저장 가능.
+
+    language: 출력 언어 힌트. "en" 이면 headline/key_points/sections/study_tip 을
+    모두 영어로 작성한다. 그 외(기본)는 기존대로 한국어. 스키마/구조는 동일."""
     cleaned = (text or "").strip()
     if not cleaned:
         raise SummarizerError("Empty text to summarize")
 
+    lang_directive = (
+        "Write ALL output fields (headline, key_points, sections, study_tip) in English.\n"
+        if (language or "").lower().startswith("en")
+        else "모든 출력 필드(headline, key_points, sections, study_tip)를 한국어로 작성하시오.\n"
+    )
     user_prompt = (
         f"[파일명] {filename or '(미상)'}\n\n"
         f"[원문]\n{_truncate(cleaned)}\n\n"
+        f"{lang_directive}"
         "위 자료를 시스템 프롬프트의 스키마에 맞춰 JSON으로 요약하시오."
     )
 

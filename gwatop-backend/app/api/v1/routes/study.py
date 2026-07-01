@@ -187,6 +187,8 @@ class GenerateRequest(BaseModel):
     exclude_questions: list[str] | None = None
     # 퀴즈 한정: 난이도(easy/medium/hard). 기본 easy. scope 에 인코딩돼 난이도별로 캐시 분리.
     difficulty: str | None = "easy"
+    # summary 한정: 출력 언어("en"=영어, 그 외=한국어). 노트 초안이 UI 언어를 넘긴다.
+    language: str | None = None
 
 
 @router.post(
@@ -329,6 +331,7 @@ async def study_generate_ai_content_stream(
     cached_content = existing.content if cached_hit else None
     exclude_q = req.exclude_questions
     force = req.force
+    language = req.language
 
     async def event_stream():
         from app.core.database import AsyncSessionLocal as async_session_maker
@@ -379,7 +382,7 @@ async def study_generate_ai_content_stream(
                 payload = await generate_content(
                     content_type, sliced_text, filename=filename,
                     analysis=analysis_payload, exclude_questions=exclude_q,
-                    difficulty=difficulty, on_delta=on_delta,
+                    difficulty=difficulty, on_delta=on_delta, language=language,
                 )
                 await _save_result(payload)
                 await queue.put(("result", payload))
