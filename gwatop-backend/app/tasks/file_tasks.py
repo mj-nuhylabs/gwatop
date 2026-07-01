@@ -71,7 +71,12 @@ from app.services.pdf_text import (
     extract_tables_from_pdf,
     extract_text_from_pdf_bytes,
 )
-from app.services.syllabus_parser import SyllabusParseError, parse_syllabus
+from app.services.syllabus_parser import (
+    SyllabusParseError,
+    parse_english_class_times,
+    parse_period_class_times,
+    parse_syllabus,
+)
 from app.services.todo_generator import build_auto_todos, build_undated_todo
 from app.tasks.celery_app import celery_app
 
@@ -454,21 +459,30 @@ async def _resolve_course_identity(
         if len(name) >= 2:
             return name, professor, keywords
 
+    # 본문 머리글 "<과목명> (<코드>)" — 값싼 고신뢰 신호.
     header_name, _code = guess_course_identity_from_text(text)
     if header_name and len(header_name) >= 2:
         return header_name, professor, keywords
+
+    # 본문이 있으면 LLM 으로 텍스트 기반 과목명 추출 — **파일명보다 본문을 우선**한다.
+    # 파일명은 'material_calc' 처럼 과목과 무관/축약된 경우가 많아, 본문에 과목명이 분명히
+    # 있으면 그쪽이 정확하다(예: 본문 "미적분학 4주차 필기" → 기존 '미적분학' 과목에 매칭).
+    # 콘텐츠 해시 캐시로 대개 추가 LLM 0회.
+    if (text or "").strip():
+        c = await classify_document(text, filename)
+        name = (c.signals.course_name_guess or "").strip()
+        # 이름이 약해도 교수/키워드는 확보 — 아래 파일명 폴백/'기타' 여도 과목 매칭에 쓰인다
+        # (키워드로 기존 과목에 내용 매칭 → 'Leccion 2' 같은 자료가 새 과목으로 새지 않음).
+        professor = professor or ((c.signals.professor or "").strip() or None)
+        if not keywords:
+            keywords = list(c.signals.subject_keywords or [])
+        if len(name) >= 2:
+            return name, professor, keywords
+
+    # 파일명 폴백 (본문에서 과목명을 못 얻었을 때만).
     fn = guess_course_name_from_filename(filename)
     if fn and len(fn) >= 2:
         return fn, professor, keywords
-
-    # 값싼 경로 모두 실패 — 아직 LLM 분류를 안 했을 때만 1회 호출(과목명+키워드 동시 확보).
-    if classification is None:
-        c = await classify_document(text, filename)
-        name = (c.signals.course_name_guess or "").strip()
-        professor = (c.signals.professor or "").strip() or None
-        keywords = list(c.signals.subject_keywords or [])
-        if len(name) >= 2:
-            return name, professor, keywords
     return "기타", professor, keywords
 
 
@@ -500,6 +514,7 @@ async def _dispatch_material(
             try:
                 course, _semester, created = await match_or_create_course(
                     session, user, course_name, professor, subject_keywords=keywords,
+                    text_snippet=(text or "")[:700],
                 )
             except CourseMatchError as exc:
                 await _mark_failed(
@@ -839,6 +854,20 @@ async def _run_parse_syllabus_impl(file_id: str, SessionLocal) -> None:
             }
             for ct in syllabus.course.class_times
         ] or None
+
+        # 수업시간이 특수 표기면 결정론적으로 재계산해 LLM 오해를 덮어쓴다.
+        #  (1) 교시("월2,3,4,...") → 연대 기준 시각 (2,3,4교시=10:00~12:50)
+        #  (2) 영어 요일범위("Mon-Thur (11:00 am~12:40 pm)") → 범위를 전부 펼침(월·화·수·목)
+        raw_text = file_row.extracted_text or ""
+        period_ct = parse_period_class_times(raw_text)
+        english_ct = parse_english_class_times(raw_text) if not period_ct else []
+        override_ct = period_ct or english_ct
+        if override_ct:
+            course.schedule = override_ct
+            logger.info(
+                "[PARSE] 특수 수업시간 표기 감지(%s) → class_times 재계산 file=%s → %s",
+                "교시" if period_ct else "요일범위", file_id, override_ct,
+            )
 
         # 임베딩 캐시 재사용 가능 여부 — weeks 덮어쓰기 _전에_ 비교해야 의미 있음.
         # (week_number, topic) 셋이 동일하면 OpenAI embeddings API 호출(~1.5s) skip.

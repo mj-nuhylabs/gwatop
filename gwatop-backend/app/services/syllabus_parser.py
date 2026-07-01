@@ -40,6 +40,113 @@ logger = logging.getLogger(__name__)
 MAX_INPUT_CHARS = 18000
 
 
+# ---------- 교시(period) 표기 수업시간 파서 ----------
+# 일부 강의계획서는 수업시간을 시각이 아니라 '교시' 번호로 적는다: "월2,3,4,화2,3,4,...".
+# 이 경우 LLM 이 2,3,4 를 2시/3시/4시로 오해할 수 있어, 결정론적으로 교시→시각을 매핑한다.
+# 연세대학교 기준: 1교시 09:00, 2교시 10:00, ... (교시 = 정각 시작 50분 수업).
+# 학교마다 다르면 이 표만 조정하면 된다.
+_PERIOD_START_HOUR = {p: p + 8 for p in range(1, 15)}  # 1→9, 2→10, ... 2교시=10:00
+_DAY_KO_EN = {"월": "MON", "화": "TUE", "수": "WED", "목": "THU", "금": "FRI", "토": "SAT", "일": "SUN"}
+# 요일 + 콤마로 이어진 교시 번호들. "월2,3,4" / "월 2, 3, 4" 모두 허용. 시각(콜론)은 매칭 안 함.
+_PERIOD_LINE_RE = re.compile(r"([월화수목금토일])\s*((?:\d{1,2}\s*,?\s*)+)")
+
+
+def parse_period_class_times(text: str) -> list[dict]:
+    """'월2,3,4,화2,3,4,...' 처럼 요일+교시번호로 적힌 수업시간을 class_times dict 리스트로.
+
+    각 요일의 교시들을 한 블록으로 합친다(연속 가정): 2,3,4교시 → 10:00~12:50.
+    '수업시간'/'강의시간' 키워드 뒤 구간에서만 찾아 오탐을 줄인다. 패턴이 없으면 [].
+    반환: [{"day":"MON","start_time":"10:00","end_time":"12:50"}, ...] (요일 순).
+    """
+    if not text:
+        return []
+    # '수업시간'/'강의시간' 이후 구간으로 한정. 없으면 전체에서 시도.
+    region = text
+    for key in ("수업시간", "강의시간"):
+        i = text.find(key)
+        if i != -1:
+            region = text[i:i + 300]
+            break
+
+    day_periods: dict[str, set[int]] = {}
+    for m in _PERIOD_LINE_RE.finditer(region):
+        day = _DAY_KO_EN[m.group(1)]
+        periods = [int(x) for x in re.findall(r"\d{1,2}", m.group(2))]
+        periods = [p for p in periods if p in _PERIOD_START_HOUR]
+        if periods:
+            day_periods.setdefault(day, set()).update(periods)
+
+    out: list[dict] = []
+    for day in ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"):
+        ps = sorted(day_periods.get(day, ()))
+        if not ps:
+            continue
+        sh = _PERIOD_START_HOUR[ps[0]]
+        eh = _PERIOD_START_HOUR[ps[-1]]
+        out.append({"day": day, "start_time": f"{sh:02d}:00", "end_time": f"{eh:02d}:50"})
+    return out
+
+
+# ---------- 영어 요일범위+시간 파서 (예: "Mon-Thur (11:00 am~12:40 pm)") ----------
+_EN_DAY = {"mon": "MON", "tue": "TUE", "wed": "WED", "thu": "THU", "fri": "FRI", "sat": "SAT", "sun": "SUN"}
+_EN_ORDER = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
+_EN_DAY_TOKEN = r"(mon|tue|wed|thu|fri|sat|sun)[a-z]*"
+# "Mon-Thur", "Mon - Fri", "Mon–Wed", "Mon~Thu" 등 요일 범위.
+_EN_RANGE_RE = re.compile(_EN_DAY_TOKEN + r"\s*[-–~]\s*" + _EN_DAY_TOKEN, re.IGNORECASE)
+_EN_TIME_RE = re.compile(r"(\d{1,2})\s*:\s*(\d{2})\s*(am|pm)?", re.IGNORECASE)
+
+
+def _to_24h(h: int, m: int, ampm: str | None) -> str:
+    ap = (ampm or "").lower()
+    if ap == "pm" and h != 12:
+        h += 12
+    elif ap == "am" and h == 12:
+        h = 0
+    return f"{h:02d}:{m:02d}"
+
+
+def parse_english_class_times(text: str) -> list[dict]:
+    """'Mon-Thur (11:00 am~12:40 pm)' 처럼 영어 요일범위+시간을 class_times dict 리스트로.
+
+    요일 범위(Mon-Thur → 월·화·수·목)를 **끝점만이 아니라 전부 펼쳐서** 반환한다.
+    LLM 이 'Mon-Thur' 를 Mon·Thu 2개로 오해하는 문제를 결정론적으로 교정.
+    'CLASS PERIOD'/'class time'/'수업시간' 근처로 범위를 한정해 오탐을 줄인다.
+    """
+    if not text:
+        return []
+    region = text
+    low = text.lower()
+    for key in ("class period", "class time", "class schedule", "수업시간", "강의시간", "lecture time"):
+        i = low.find(key)
+        if i != -1:
+            region = text[i:i + 200]
+            break
+
+    m = _EN_RANGE_RE.search(region)
+    if m:
+        a = _EN_DAY[m.group(1)[:3].lower()]
+        b = _EN_DAY[m.group(2)[:3].lower()]
+        ia, ib = _EN_ORDER.index(a), _EN_ORDER.index(b)
+        days = _EN_ORDER[ia:ib + 1] if ia <= ib else [a, b]
+    else:
+        # 범위가 아니면 나열된 요일들(Mon, Wed, Fri)을 순서대로 수집.
+        seen = []
+        for mm in re.finditer(_EN_DAY_TOKEN, region, re.IGNORECASE):
+            d = _EN_DAY[mm.group(1)[:3].lower()]
+            if d not in seen:
+                seen.append(d)
+        days = seen
+    if not days:
+        return []
+
+    times = _EN_TIME_RE.findall(region)
+    if len(times) < 2:
+        return []
+    start = _to_24h(int(times[0][0]), int(times[0][1]), times[0][2])
+    end = _to_24h(int(times[1][0]), int(times[1][1]), times[1][2])
+    return [{"day": d, "start_time": start, "end_time": end} for d in days]
+
+
 SYSTEM_PROMPT = """당신은 한국 대학교 강의계획서(syllabus)를 구조화 JSON으로 변환하는 전문 파서입니다.
 입력은 PDF에서 추출된 평문 텍스트이며 표 셀 경계가 무너지거나 줄바꿈이 어긋나 있을 수 있습니다.
 

@@ -66,7 +66,8 @@ def detect_kind_heuristic(text: str, filename: str = "") -> KindDecision | None:
     필드명에 'syllabus' 또는 '강의계획서' 가 있으면 강한 신호.
     """
     name_lower = filename.lower()
-    if "syllabus" in name_lower or "강의계획서" in name_lower or "course outline" in name_lower:
+    _SYLLABUS_FILENAME_MARKERS = ("syllabus", "강의계획서", "실라버스", "course outline", "수업계획서")
+    if any(k in name_lower for k in _SYLLABUS_FILENAME_MARKERS):
         return KindDecision("syllabus", 0.95, f"filename contains syllabus marker: {filename}")
 
     if not text or not text.strip():
