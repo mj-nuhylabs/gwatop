@@ -41,9 +41,12 @@ class _CourseMatchDecision(BaseModel):
 
 _MATCH_SYSTEM = """당신은 대학 학습자료를 올바른 강의계획서(과목)에 연결하는 도구입니다.
 새 학습자료의 신원 정보와 기존 과목 후보 목록을 보고, 어느 과목에 속하는지 고르세요.
-JSON만 출력합니다. 약한 단서뿐이면 match_id 를 null 로 하고 confidence 를 낮추세요.
-과목명은 동의어가 많습니다(미적분학/미적분/Calculus/미적1). 과목명이 모호할 때는
-subject_keywords 가 결정적 단서입니다(예: 적분·극한·테일러급수 → 미적분 계열).
+JSON만 출력합니다. 정말 약한 단서뿐이면 match_id 를 null 로 하되, 조금이라도 맞는 후보가
+있으면 적극적으로 매칭하세요(새 과목 남발보다 기존 과목에 붙이는 게 낫습니다).
+- 과목명은 동의어가 많습니다(미적분학/미적분/Calculus/미적1).
+- 과목명/키워드가 모호해도 **본문 발췌의 실제 내용으로 언어·분야를 판별**하세요.
+  예: 발췌에 'El amigo, La amiga, El niño' 같은 스페인어 단어 → 스페인어 과목.
+      발췌에 '적분·극한·테일러급수' → 미적분 계열.
 출력: {"match_id": 후보번호 또는 null, "confidence": 0~1, "reason": "근거 한 문장"}"""
 
 
@@ -53,9 +56,12 @@ async def match_course_llm(
     semester_name: str,
     subject_keywords: Sequence[str] | None,
     candidates: Sequence[Course],
+    text_snippet: str = "",
 ) -> tuple[int | None, float, str]:
     """모호한 후보들 중에서 LLM 으로 1개 선택. 반환: (0-based 인덱스 또는 None, confidence, reason).
 
+    text_snippet(본문 발췌)이 있으면 함께 넘긴다 — 키워드가 generic 할 때(예: '명사/문법')
+    실제 본문("El amigo, La amiga")을 보면 언어/분야를 알아채 정확히 매칭할 수 있다.
     실패/파싱오류 시 (None, 0.0, 사유) — 호출자는 규칙 결과로 폴백한다.
     """
     listing = "\n".join(
@@ -63,9 +69,12 @@ async def match_course_llm(
         for i, c in enumerate(candidates)
     )
     kw = ", ".join(subject_keywords or []) or "(없음)"
+    snippet = (text_snippet or "").strip().replace("\n", " ")[:700]
     user = (
         f"새 학습자료 신원: 과목명: {course_name} / 교수: {professor or '미상'} / "
-        f"학기: {semester_name}\n본문 주제 키워드: {kw}\n\n기존 과목 후보:\n{listing}"
+        f"학기: {semester_name}\n본문 주제 키워드: {kw}\n"
+        + (f"본문 발췌: {snippet}\n" if snippet else "")
+        + f"\n기존 과목 후보:\n{listing}"
     )
     try:
         raw, _m, _t, _f = await structured_chat_json(
@@ -253,6 +262,7 @@ async def match_or_create_course(
     course_name: str,
     professor: str | None = None,
     subject_keywords: Sequence[str] | None = None,
+    text_snippet: str = "",
 ) -> tuple[Course, Semester, bool]:
     """파싱된 course name으로 매칭 또는 생성. 반환: (course, semester, created).
 
@@ -306,9 +316,15 @@ async def match_or_create_course(
     # 3) 애매 — 후보가 있으면 LLM 디스앰비규에이션 (subject_keywords 가 결정적 단서).
     #    트리거: best 가 임계값 미만(약한 후보)이거나, 1·2위가 근소차(동의어 충돌).
     candidates = [c for c, s in scored[:5] if s > 0.0]
+    # 과목명이 흐릿해 퍼지 점수가 0(=이름 매칭 실패)이라도, subject_keywords 가 있으면
+    # 기존 과목 전체를 후보로 LLM 내용 기반 매칭을 시도한다. 파일명/본문에 과목명이
+    # 분명치 않은 자료(예: 'Leccion 2' 명사 어휘 슬라이드)가 '기타'로 새 과목이 되는 걸 막는다.
+    if not candidates and (subject_keywords or text_snippet) and existing:
+        candidates = list(existing)[:5]
     if candidates and settings.COURSE_MATCH_LLM_ENABLED:
         idx, conf, reason = await match_course_llm(
             course_name, professor, semester.name, subject_keywords, candidates,
+            text_snippet=text_snippet,
         )
         if idx is not None and conf >= 0.6:
             chosen = candidates[idx]

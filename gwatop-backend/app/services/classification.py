@@ -57,7 +57,11 @@ async def classify_file(
             "week": fname_hit.week_number,
             "confidence": fname_hit.confidence,
         }
-        if fname_hit.confidence >= settings.CLASSIFY_FILENAME_CONFIDENCE:
+        # 명시적 파일명 표기(주차/week/chapter/lecture)는 업로더의 직접 라벨이라 임베딩보다 신뢰한다.
+        # 예: 'Ch 2'/'Ch 3' 슬라이드는 임베딩이 비슷해 같은 주차로 뭉치기 쉬우므로 파일명을 우선.
+        # 약한 'prefix'("01_") 만 임베딩(2단계)에 양보하고 최후 fallback(3단계)으로 남긴다.
+        explicit = fname_hit.pattern != "prefix"
+        if explicit or fname_hit.confidence >= settings.CLASSIFY_FILENAME_CONFIDENCE:
             return ClassificationResult(
                 week_number=fname_hit.week_number,
                 confidence=fname_hit.confidence,

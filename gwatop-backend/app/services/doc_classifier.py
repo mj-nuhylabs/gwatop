@@ -203,10 +203,17 @@ async def classify_document(text: str, filename: str) -> DocClassification:
 _HEURISTIC_TRUST = 0.80
 
 
+# 파일명에 이게 있으면 '실라버스' 판정을 휴리스틱만으로 신뢰한다(그 외엔 LLM 검증).
+_SYLLABUS_FILENAME_MARKERS = ("syllabus", "강의계획서", "실라버스", "course outline", "수업계획서")
+
+
 async def decide_document_kind(text: str, filename: str) -> DocClassification:
     """공개 진입점 — 값싼 휴리스틱 우선, 애매할 때만 통합 LLM 분류.
 
-    - 휴리스틱(파일명 마커 + 키워드)이 충분히 확신하면 LLM 0회로 즉시 결정.
+    - 휴리스틱의 **학습자료** 판정은 신뢰(흔한 경우, 오탐 위험 낮음).
+    - 휴리스틱의 **강의계획서** 판정은 *파일명 마커*가 있을 때만 신뢰한다. 내용 키워드만으로
+      강의계획서라 본 경우(예: '강의계획서·평가·주차'를 언급하는 오리엔테이션 슬라이드)엔
+      LLM 으로 구조(평가비율+주차일정 폼)를 검증해 강의 슬라이드가 실라버스로 새는 걸 막는다.
     - 텍스트가 비어 LLM 이 무의미하면 휴리스틱 결과를 그대로 신뢰.
     - 그 외에는 classify_document (빠른모델→필요시 큰모델) 1회.
     """
@@ -214,18 +221,26 @@ async def decide_document_kind(text: str, filename: str) -> DocClassification:
     from app.services.auto_classifier import detect_kind_heuristic
 
     h = detect_kind_heuristic(text, filename)
-    if h is not None and (h.confidence >= _HEURISTIC_TRUST or not (text or "").strip()):
-        return DocClassification(
-            kind=h.kind,
-            doc_type="강의계획서" if h.kind == "syllabus" else "학습자료",
-            confidence=h.confidence,
-            signals=_empty_signals(),
-            needs_review=False,
-            used_model="heuristic",
-            escalated=False,
-            cached=False,
-            reason=h.reason,
+    if h is not None:
+        no_text = not (text or "").strip()
+        fn_marker = any(k in filename.lower() for k in _SYLLABUS_FILENAME_MARKERS)
+        trust = (
+            no_text
+            or (h.kind == "material" and h.confidence >= _HEURISTIC_TRUST)
+            or (h.kind == "syllabus" and fn_marker)
         )
+        if trust:
+            return DocClassification(
+                kind=h.kind,
+                doc_type="강의계획서" if h.kind == "syllabus" else "학습자료",
+                confidence=h.confidence,
+                signals=_empty_signals(),
+                needs_review=False,
+                used_model="heuristic",
+                escalated=False,
+                cached=False,
+                reason=h.reason,
+            )
     return await classify_document(text, filename)
 
 
