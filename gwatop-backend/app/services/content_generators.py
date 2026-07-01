@@ -793,9 +793,29 @@ async def generate_topics(
     return {"topics": validated, "model": model, "tokens": tokens}
 
 
+async def generate_summary(
+    text: str,
+    *,
+    filename: str | None = None,
+    analysis: dict | None = None,
+    on_delta: OnDelta = None,
+) -> dict[str, Any]:
+    """요약 제너레이터 — 기존 summarizer.summarize_text 재사용.
+
+    전체 문서 요약(generate_summary_task)과 달리, 이 경로는 GENERATOR_REGISTRY 를
+    타는 study 라우트(스트리밍 SSE / generate_ai_content_task)에서 **페이지 범위(scope)별
+    온디맨드 요약**을 만들 수 있게 한다. summarize_text 는 analysis/on_delta 를 쓰지
+    않으므로 시그니처 호환용으로만 받고 무시한다. 반환 페이로드는 전체 요약과 동일 스키마.
+    """
+    from app.services.summarizer import summarize_text  # 지연 임포트로 순환참조 회피
+
+    return await summarize_text(text, filename=filename)
+
+
 # ---------- 디스패처 ----------
 
 GENERATOR_REGISTRY = {
+    "summary":    generate_summary,
     "quiz":       generate_quiz,
     "flashcard":  generate_flashcards,
     "mindmap":    generate_mindmap,
