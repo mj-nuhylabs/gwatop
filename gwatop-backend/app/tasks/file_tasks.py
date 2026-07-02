@@ -1551,6 +1551,7 @@ async def _run_generate_ai_content(
         GENERATOR_REGISTRY,
         generate_content,
         slice_text_by_pages,
+        split_scope,
     )
 
     if content_type not in GENERATOR_REGISTRY:
@@ -1584,11 +1585,12 @@ async def _run_generate_ai_content(
         if existing is not None and should_regenerate:
             await session.execute(delete(AIContent).where(AIContent.id == existing.id))
 
-        # scope 는 난이도가 인코딩된 복합 문자열일 수 있다(예: "all#hard", "1-3#hard").
-        # 페이지 부분만 떼어 슬라이싱/분석본 판정에 쓰고, 난이도는 generator 로 넘긴다.
-        # (난이도 없는 기존 scope = "all"/"1-3" 은 그대로 동작 — 기본 'easy'.)
-        base_scope, _, _diff = scope.partition("#")
-        difficulty = _diff or "easy"
+        # scope 는 난이도·언어가 인코딩된 복합 문자열일 수 있다
+        # (예: "all#hard", "1-3#hard#en", "all#en"). 페이지 부분만 떼어 슬라이싱/분석본
+        # 판정에 쓰고, 난이도·언어는 generator 로 넘긴다. 언어를 태스크 인자가 아닌
+        # scope 에서 복원하므로 태스크 시그니처 변경(워커 재배포 순서 문제) 없이 동작.
+        # (접미사 없는 기존 scope = "all"/"1-3" 은 그대로 — 기본 easy·한국어.)
+        base_scope, difficulty, language = split_scope(scope)
 
         text = slice_text_by_pages(
             file_row.extracted_text, None if base_scope == "all" else base_scope
@@ -1656,6 +1658,7 @@ async def _run_generate_ai_content(
                 analysis=analysis_payload,
                 exclude_questions=exclude_questions,
                 difficulty=difficulty,
+                language=language,
             )
         except ContentGeneratorError as exc:
             # 실패도 결과로 저장 — iOS 가 무한 폴링 안 하고 즉시 에러 화면 표시.

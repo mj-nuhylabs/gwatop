@@ -384,7 +384,8 @@ actor GwaTopAPIClient {
     nonisolated func tutorSSEStream(
         path: String,
         question: String,
-        images: [String]?
+        images: [String]?,
+        language: String? = nil
     ) -> AsyncThrowingStream<GwaTopTutorStreamEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
@@ -405,6 +406,9 @@ actor GwaTopAPIClient {
                     var payload: [String: Any] = ["question": question]
                     if let images, !images.isEmpty {
                         payload["images"] = images
+                    }
+                    if let language {
+                        payload["language"] = language  // "en" 이면 튜터 답변이 영어로.
                     }
                     req.httpBody = try JSONSerialization.data(withJSONObject: payload)
 

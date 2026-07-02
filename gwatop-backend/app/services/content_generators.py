@@ -187,6 +187,23 @@ async def _generate_json(
     return payload, model, tokens
 
 
+# ---------- 출력 언어 힌트 ----------
+
+def _lang_directive(language: str | None) -> str:
+    """출력 언어 힌트. language 가 "en" 계열이면 자연어 필드를 영어로 쓰라는 지시를
+    반환하고, 그 외(기본)는 빈 문자열 — 시스템 프롬프트의 한국어 기본을 그대로 따른다
+    (하위호환·토큰 무변화). 수식(LaTeX)·표준 전문용어는 언어와 무관하게 보존한다.
+    quiz/flashcard/mindmap/memorize/topics 의 user_prompt 끝에 공통으로 주입한다."""
+    if (language or "").lower().startswith("en"):
+        return (
+            "\n[LANGUAGE] Write ALL natural-language text in the output "
+            "(root, titles, questions, choices, answers, explanations, node labels, "
+            "definitions, tips, examples, category names, etc.) in English. "
+            "Keep mathematical notation/LaTeX and standard technical terms unchanged.\n"
+        )
+    return ""
+
+
 # ---------- 1) Quiz ----------
 
 QUIZ_SYSTEM = """당신은 한국 대학생을 위한 학습 퀴즈 출제자입니다.
@@ -297,7 +314,7 @@ _QUIZ_DIFFICULTY_BLOCK = {
 async def generate_quiz(
     text: str, *, filename: str | None, analysis: dict | None = None,
     exclude_questions: list[str] | None = None, difficulty: str = "easy",
-    on_delta: OnDelta = None,
+    on_delta: OnDelta = None, language: str | None = None,
 ) -> dict[str, Any]:
     exclusion_block = ""
     if exclude_questions:
@@ -322,6 +339,7 @@ async def generate_quiz(
         f"[자료]\n{_build_input(text, analysis)}\n\n"
         f"{diff_block}"
         f"{exclusion_block}"
+        f"{_lang_directive(language)}"
         "위 자료를 바탕으로 퀴즈를 JSON으로 출제하시오."
     )
     # 중복 회피 시엔 다양성을 위해 temperature 큰 폭 인상.
@@ -391,7 +409,7 @@ class _FlashcardResponse(BaseModel):
 async def generate_flashcards(
     text: str, *, filename: str | None, analysis: dict | None = None,
     exclude_fronts: list[str] | None = None,
-    on_delta: OnDelta = None,
+    on_delta: OnDelta = None, language: str | None = None,
 ) -> dict[str, Any]:
     """플래시카드 생성. exclude_fronts 가 주어지면 그 용어들을 피해서 새 카드를 만든다
     — '더 만들기' 기능에서 기존 카드와 중복되지 않는 새 카드를 얻기 위해 사용.
@@ -414,6 +432,7 @@ async def generate_flashcards(
         f"[파일명] {filename or '(미상)'}\n\n"
         f"[자료]\n{_build_input(text, analysis)}\n"
         f"{exclude_block}\n"
+        f"{_lang_directive(language)}"
         "위 자료에서 플래시카드를 JSON으로 만들어주세요."
     )
     payload, model, tokens = await _generate_json(
@@ -521,11 +540,12 @@ def _coerce_mindmap_recursive(node: Any, depth: int, max_depth: int = 3) -> dict
 
 async def generate_mindmap(
     text: str, *, filename: str | None, analysis: dict | None = None,
-    on_delta: OnDelta = None,
+    on_delta: OnDelta = None, language: str | None = None,
 ) -> dict[str, Any]:
     user_prompt = (
         f"[파일명] {filename or '(미상)'}\n\n"
         f"[자료]\n{_build_input(text, analysis)}\n\n"
+        f"{_lang_directive(language)}"
         "위 자료를 마인드맵 트리 JSON으로 변환하시오."
     )
     payload, model, tokens = await _generate_json(
@@ -636,11 +656,12 @@ class _MemorizeResponse(BaseModel):
 
 async def generate_memorize(
     text: str, *, filename: str | None, analysis: dict | None = None,
-    on_delta: OnDelta = None,
+    on_delta: OnDelta = None, language: str | None = None,
 ) -> dict[str, Any]:
     user_prompt = (
         f"[파일명] {filename or '(미상)'}\n\n"
         f"[자료]\n{_build_paged_input(text, analysis)}\n\n"
+        f"{_lang_directive(language)}"
         "위 자료에서 시험에 나올 만한 암기 포인트를 JSON으로 정리하시오."
     )
     payload, model, tokens = await _generate_json(
@@ -768,11 +789,12 @@ class _TopicsResponse(BaseModel):
 
 async def generate_topics(
     text: str, *, filename: str | None, analysis: dict | None = None,
-    on_delta: OnDelta = None,
+    on_delta: OnDelta = None, language: str | None = None,
 ) -> dict[str, Any]:
     user_prompt = (
         f"[파일명] {filename or '(미상)'}\n\n"
         f"[자료]\n{_build_paged_input(text, analysis)}\n\n"
+        f"{_lang_directive(language)}"
         "위 자료의 주요 개념을 JSON으로 정리하시오."
     )
     payload, model, tokens = await _generate_json(
@@ -839,17 +861,38 @@ async def generate_content(
     fn = GENERATOR_REGISTRY.get(content_type)
     if fn is None:
         raise ContentGeneratorError(f"Unknown content_type: {content_type}")
-    # exclude_questions / difficulty 는 quiz, language 는 summary 만 사용. 다른 generator
-    # 시그니처를 건드리지 않기 위해 content_type 별로 분기한다.
+    # exclude_questions / difficulty 는 quiz 만 사용. language 는 모든 생성형 자료
+    # (summary/quiz/flashcard/mindmap/memorize/topics)가 지원 — UI 언어가 en 이면
+    # 자연어 출력을 영어로. content_type 별 시그니처 차이 때문에 분기해 전달한다.
     # on_delta 가 있으면 스트리밍(SSE 엔드포인트), 없으면 기존 비스트리밍(Celery 워커).
     if content_type == "quiz":
         return await fn(text, filename=filename, analysis=analysis,
                         exclude_questions=exclude_questions, difficulty=difficulty,
-                        on_delta=on_delta)
-    if content_type == "summary":
-        return await fn(text, filename=filename, analysis=analysis,
                         on_delta=on_delta, language=language)
-    return await fn(text, filename=filename, analysis=analysis, on_delta=on_delta)
+    return await fn(text, filename=filename, analysis=analysis,
+                    on_delta=on_delta, language=language)
+
+
+# ---------- scope 복합 문자열 분해 ----------
+
+def split_scope(scope: str) -> tuple[str, str, str | None]:
+    """scope 에 인코딩된 (페이지, 난이도, 언어) 를 분해한다.
+
+    scope 는 캐시 키라 마이그레이션 없이 변형(난이도/언어)을 '#' 접미사로 인코딩한다:
+      "all" → ("all", "easy", None)          — 기존 데이터 하위호환
+      "1-3#hard" → ("1-3", "hard", None)
+      "all#en" / "1-3#hard#en" → 언어 "en"
+    라우트(study.py)와 Celery 워커(file_tasks.py)가 동일 규칙으로 해석하도록 공용화."""
+    base, _, rest = scope.partition("#")
+    difficulty = "easy"
+    language: str | None = None
+    for part in rest.split("#"):
+        p = part.strip().lower()
+        if p in {"medium", "hard"}:
+            difficulty = p
+        elif p == "en":
+            language = "en"
+    return base, difficulty, language
 
 
 # ---------- 페이지 범위 슬라이싱 ----------

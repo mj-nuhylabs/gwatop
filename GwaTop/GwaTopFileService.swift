@@ -9,6 +9,17 @@ import Foundation
 import SwiftUI  // GwaTopFileStatusBadge.color (Color 반환)
 import Combine  // @Published, ObservableObject — Swift 6 모드에서 SwiftUI re-export 만으로는 부족
 
+/// AI 출력 언어 힌트 — 백엔드 language 파라미터로 전달할 값.
+/// 앱 UI 는 아직 한국어 고정이라 인앱 언어 설정이 없으므로 **기기 시스템 언어**를 따른다:
+/// 기기가 영어면 "en"(AI 학습물·튜터 답변이 영어로), 그 외엔 nil(기본 한국어 — 요청
+/// 페이로드·캐시 scope 모두 기존과 동일해 하위호환). 나중에 인앱 언어 설정이 생기면
+/// 이 computed property 의 소스만 바꾸면 모든 호출부에 일괄 반영된다.
+enum GwaTopAILanguage {
+    static var current: String? {
+        Locale.preferredLanguages.first?.lowercased().hasPrefix("en") == true ? "en" : nil
+    }
+}
+
 struct GwaTopFileSummary: Decodable, Identifiable, Equatable {
     let id: String
     let courseId: String
@@ -370,10 +381,14 @@ actor GwaTopFileService {
     }
 
     /// AI 콘텐츠 (summary/quiz/flashcard/...) 조회. scope 가 nil 이면 "all".
+    /// 기기 언어가 영어면 language=en 을 붙여 영어 캐시(scope '#en')를 조회한다.
     func aiContent(fileId: String, contentType: String, scope: String? = nil) async throws -> GwaTopAIContentResponse {
         var query: [URLQueryItem] = []
         if let scope, scope != "all", !scope.isEmpty {
             query.append(URLQueryItem(name: "pages", value: scope))
+        }
+        if let lang = GwaTopAILanguage.current {
+            query.append(URLQueryItem(name: "language", value: lang))
         }
         return try await GwaTopAPIClient.shared.get(
             "/v1/files/\(fileId)/ai-contents/\(contentType)",
@@ -392,8 +407,11 @@ actor GwaTopFileService {
             let pages: String?
             let force: Bool
             let exclude_questions: [String]?
+            let language: String?
         }
-        let body = Body(pages: pages, force: force, exclude_questions: excludeQuestions)
+        // 기기 언어가 영어면 AI 출력도 영어로 (nil 이면 백엔드 기본 한국어).
+        let body = Body(pages: pages, force: force, exclude_questions: excludeQuestions,
+                        language: GwaTopAILanguage.current)
         return try await GwaTopAPIClient.shared.post(
             "/v1/files/\(fileId)/ai-contents/\(contentType)/generate",
             body: body
@@ -497,12 +515,13 @@ actor GwaTopFileService {
     }
 
     /// 기존 카드와 다른 새 카드를 동기적으로 생성 후 append. OpenAI 호출 동안 5~10초 대기.
+    /// 기기 언어가 영어면 영어 덱(scope '#en')에 영어 카드를 append 한다.
     func generateMoreFlashcards(fileId: String, scope: String? = nil) async throws -> GwaTopFlashcardMoreResponse {
-        struct Body: Encodable { let pages: String? }
+        struct Body: Encodable { let pages: String?; let language: String? }
         let pages = (scope == "all" || (scope?.isEmpty ?? true)) ? nil : scope
         return try await GwaTopAPIClient.shared.post(
             "/v1/files/\(fileId)/flashcards/more",
-            body: Body(pages: pages)
+            body: Body(pages: pages, language: GwaTopAILanguage.current)
         )
     }
 
@@ -546,10 +565,12 @@ actor GwaTopFileService {
         struct Body: Encodable {
             let question: String
             let images: [String]?
+            let language: String?
         }
         return try await GwaTopAPIClient.shared.post(
             "/v1/files/\(fileId)/tutor/messages",
-            body: Body(question: question, images: images)
+            body: Body(question: question, images: images,
+                       language: GwaTopAILanguage.current)
         )
     }
 
@@ -564,7 +585,8 @@ actor GwaTopFileService {
         GwaTopAPIClient.shared.tutorSSEStream(
             path: "/v1/files/\(fileId)/tutor/messages/stream",
             question: question,
-            images: images
+            images: images,
+            language: GwaTopAILanguage.current
         )
     }
 

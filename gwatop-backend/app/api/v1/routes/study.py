@@ -31,7 +31,7 @@ from app.models.tutor_message import TutorMessage
 from app.models.user import User
 from app.services.content_generators import (
     ContentGeneratorError, GENERATOR_REGISTRY, generate_content,
-    generate_flashcards, generate_quiz, slice_text_by_pages,
+    generate_flashcards, generate_quiz, slice_text_by_pages, split_scope,
 )
 from app.services.tutor import TutorError, ask_tutor, ask_tutor_stream
 
@@ -105,15 +105,20 @@ def _normalize_scope(pages: str | None) -> str:
     return pages.strip().replace(" ", "").replace("#", "")
 
 
-def _scope_with_difficulty(scope: str, difficulty: str | None) -> str:
-    """난이도를 scope 에 인코딩 — 퀴즈 난이도별로 캐시를 분리하기 위함(마이그레이션 없이).
-    'easy'(기본)는 기존 scope 그대로(하위호환), medium/hard 만 '#난이도' 접미사를 붙인다.
-    잘못된 값은 easy(=접미사 없음)로 처리. (퀴즈 외 콘텐츠는 항상 easy 라 영향 없음.)
-    워커(slice_text_by_pages 호출부)는 '#' 앞 페이지 부분만 떼어 쓴다."""
+def _scope_with_difficulty(
+    scope: str, difficulty: str | None, language: str | None = None
+) -> str:
+    """난이도·언어를 scope 에 인코딩 — 변형별로 캐시를 분리하기 위함(마이그레이션 없이).
+    'easy'(기본 난이도)·한국어(기본 언어)는 기존 scope 그대로(하위호환),
+    medium/hard 는 '#난이도', 영어는 '#en' 접미사를 붙인다. 예: "1-3#hard#en".
+    잘못된 값은 기본(=접미사 없음)으로 처리.
+    워커·라우트의 역파싱은 content_generators.split_scope 가 담당한다."""
     d = (difficulty or "easy").strip().lower()
-    if d not in {"medium", "hard"}:
-        return scope
-    return f"{scope}#{d}"
+    if d in {"medium", "hard"}:
+        scope = f"{scope}#{d}"
+    if (language or "").strip().lower().startswith("en"):
+        scope = f"{scope}#en"
+    return scope
 
 
 # ---------- AI 콘텐츠 ----------
@@ -125,10 +130,11 @@ async def study_get_ai_content(
     response: Response,
     pages: str | None = None,
     difficulty: str | None = "easy",
+    language: str | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """파일 + content_type + scope(페이지[+난이도]) 조합으로 캐시된 결과 조회.
+    """파일 + content_type + scope(페이지[+난이도][+언어]) 조합으로 캐시된 결과 조회.
 
     같은 파일에 'all', '1-3', '4-7' 처럼 여러 scope 가 공존할 수 있음.
     files.py 의 GET /files/{id}/ai-contents/{type} 와 path 가 같지만, FastAPI 라우터
@@ -143,7 +149,7 @@ async def study_get_ai_content(
         raise HTTPException(status_code=400, detail=f"Unsupported content_type: {content_type}")
 
     file_row, _ = await owned_file(file_id, current_user, db)
-    scope = _scope_with_difficulty(_normalize_scope(pages), difficulty)
+    scope = _scope_with_difficulty(_normalize_scope(pages), difficulty, language)
 
     row = (await db.execute(
         select(AIContent).where(
@@ -187,7 +193,9 @@ class GenerateRequest(BaseModel):
     exclude_questions: list[str] | None = None
     # 퀴즈 한정: 난이도(easy/medium/hard). 기본 easy. scope 에 인코딩돼 난이도별로 캐시 분리.
     difficulty: str | None = "easy"
-    # summary 한정: 출력 언어("en"=영어, 그 외=한국어). 노트 초안이 UI 언어를 넘긴다.
+    # 출력 언어("en"=영어, 그 외=한국어). 클라이언트가 UI 언어를 넘기면 summary/quiz/
+    # flashcard/mindmap/memorize/topics 의 자연어 출력이 그 언어로 생성된다.
+    # "en" 은 scope 에 '#en' 으로 인코딩돼 언어별 캐시가 분리된다(기본 ko 는 접미사 없음).
     language: str | None = None
 
 
@@ -218,7 +226,7 @@ async def study_generate_ai_content(
         raise HTTPException(status_code=400, detail="이 파일은 아직 텍스트 추출이 완료되지 않았어요.")
 
     req = body or GenerateRequest()
-    scope = _scope_with_difficulty(_normalize_scope(req.pages), req.difficulty)
+    scope = _scope_with_difficulty(_normalize_scope(req.pages), req.difficulty, req.language)
 
     # 캐시 확인 — 있으면 큐잉 없이 즉시 ready 반환.
     existing = (await db.execute(
@@ -292,9 +300,8 @@ async def study_generate_ai_content_stream(
         raise HTTPException(status_code=400, detail="이 파일은 아직 텍스트 추출이 완료되지 않았어요.")
 
     req = body or GenerateRequest()
-    scope = _scope_with_difficulty(_normalize_scope(req.pages), req.difficulty)
-    base_scope, _, _diff = scope.partition("#")
-    difficulty = _diff or "easy"
+    scope = _scope_with_difficulty(_normalize_scope(req.pages), req.difficulty, req.language)
+    base_scope, difficulty, _ = split_scope(scope)
 
     existing = (await db.execute(
         select(AIContent).where(
@@ -437,6 +444,8 @@ async def study_generate_ai_content_stream(
 class SelectionQuizRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=8000)
     difficulty: str | None = "easy"
+    # 출력 언어("en"=영어, 그 외=한국어). 캐시하지 않는 즉석 퀴즈라 scope 인코딩 불필요.
+    language: str | None = None
 
 
 @router.post("/files/{file_id}/ai-contents/quiz/from-selection")
@@ -467,6 +476,7 @@ async def study_quiz_from_selection(
     try:
         result = await generate_quiz(
             passage, filename=file_row.filename, difficulty=difficulty,
+            language=body.language,
         )
     except ContentGeneratorError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -620,6 +630,9 @@ async def set_flashcard_status(
 
 class FlashcardMoreRequest(BaseModel):
     pages: str | None = None
+    # 출력 언어("en"=영어, 그 외=한국어). 영어 덱은 scope '#en' 캐시에 저장돼 있으므로
+    # 같은 scope 를 조회·append 하도록 여기서도 언어를 받아 scope 에 반영한다.
+    language: str | None = None
 
 
 @router.post("/files/{file_id}/flashcards/more")
@@ -639,7 +652,7 @@ async def add_more_flashcards(
         raise HTTPException(status_code=400, detail="이 파일은 아직 텍스트 추출이 완료되지 않았어요.")
 
     req = body or FlashcardMoreRequest()
-    scope = _normalize_scope(req.pages)
+    scope = _scope_with_difficulty(_normalize_scope(req.pages), None, req.language)
 
     existing_row = (await db.execute(
         select(AIContent).where(
@@ -658,15 +671,17 @@ async def add_more_flashcards(
             existing_cards = [c for c in raw if isinstance(c, dict) and c.get("front")]
     exclude_fronts = [c["front"] for c in existing_cards]
 
+    # scope 는 언어 접미사가 붙을 수 있어("all#en") 페이지 부분만 떼어 슬라이싱한다.
+    base_scope, _, _ = split_scope(scope)
     text = slice_text_by_pages(
-        file_row.extracted_text, None if scope == "all" else scope
+        file_row.extracted_text, None if base_scope == "all" else base_scope
     )
     if not text.strip():
         raise HTTPException(status_code=400, detail="선택한 범위에 분석할 텍스트가 없어요.")
 
     # 분석본이 있으면 재사용 (file_tasks 와 동일한 캐시 패턴).
     analysis_payload: dict | None = None
-    if scope == "all":
+    if base_scope == "all":
         analysis_row = (await db.execute(
             select(AIContent).where(
                 AIContent.file_id == file_row.id,
@@ -679,7 +694,7 @@ async def add_more_flashcards(
     try:
         payload = await generate_flashcards(
             text, filename=file_row.filename, analysis=analysis_payload,
-            exclude_fronts=exclude_fronts,
+            exclude_fronts=exclude_fronts, language=req.language,
         )
     except ContentGeneratorError as exc:
         raise HTTPException(status_code=502, detail=f"AI 생성 실패: {exc}")
@@ -843,9 +858,11 @@ class TutorAskRequest(BaseModel):
     """튜터 질문 페이로드.
 
     `images`: 각 원소는 `"data:image/jpeg;base64,..."` 형식 data URL. 최대 4장.
+    `language`: 출력 언어("en"=영어, 그 외=한국어). UI 언어를 넘기면 답변 언어가 맞춰진다.
     """
     question: str = Field(..., min_length=1, max_length=4000)
     images: list[str] | None = None
+    language: str | None = None
 
 
 def _tutor_message_to_dict(m: TutorMessage) -> dict[str, Any]:
@@ -935,6 +952,7 @@ async def ask_tutor_endpoint(
             user_question=body.question,
             image_data_urls=images or None,
             user_notes=user_notes,
+            language=body.language,
         )
     except TutorError as exc:
         # 실패 시 사용자 메시지는 남기고 assistant 메시지는 안 만든다.
@@ -1037,6 +1055,7 @@ async def ask_tutor_stream_endpoint(
                 user_question=body.question,
                 image_data_urls=images or None,
                 user_notes=user_notes,
+                language=body.language,
             ):
                 chunks.append(delta)
                 yield pack({"type": "delta", "text": delta})

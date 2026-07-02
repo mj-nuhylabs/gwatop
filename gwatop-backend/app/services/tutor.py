@@ -89,8 +89,23 @@ def _build_system_prompt(
     filename: str | None,
     notes_block: str,
     has_images: bool,
+    language: str | None = None,
 ) -> str:
     file_text = _truncate_middle(file_text, MAX_CONTEXT_CHARS)
+    # 출력 언어 — UI 가 영어면 답변(헤더 포함)을 영어로. 기본은 한국어(하위호환).
+    is_en = (language or "").lower().startswith("en")
+    lang_role = (
+        "- Respond in **English** — ALL section headers and body text. The response "
+        "template below is written in Korean; translate its headers to natural English "
+        "(e.g. `## 1. Key point`, `## Self-check`). Keep LaTeX and technical terms as-is.\n"
+        if is_en
+        else "- 한국어 사용. 단, 전문 용어(영어 약어/수식 명칭)는 그대로 표기.\n"
+    )
+    lang_forbidden = (
+        "- Responding in Korean (the student's app language is English — answer in English)."
+        if is_en
+        else "- 영어로만 답하기 (반드시 한국어 위주)."
+    )
     notes_block_full = (
         "\n## 사용자가 작성한 노트 (질문 의도 파악에 우선 참고)\n"
         f"{notes_block}\n"
@@ -108,8 +123,7 @@ def _build_system_prompt(
 갖춰 응답하세요.
 
 ## 1. 역할 (Role)
-- 한국어 사용. 단, 전문 용어(영어 약어/수식 명칭)는 그대로 표기.
-- 학생이 시험을 잘 보고 개념을 정확히 이해하도록 돕는 것이 최우선 목표.
+{lang_role}- 학생이 시험을 잘 보고 개념을 정확히 이해하도록 돕는 것이 최우선 목표.
 - 답을 **그냥 던지지 말고**, "왜 그런지" 까지 짧게라도 설명. (학습용)
 - 모르는 건 모른다고 말하기 — 추측·환각 절대 금지.
 
@@ -166,7 +180,7 @@ def _build_system_prompt(
 - 평문 수식 (`x^2`, `∫f(x)dx`).
 - `\\frac` 대신 `/` 만 쓰기.
 - 한 줄 답변으로 끝내기 (구조 무시).
-- 영어로만 답하기 (반드시 한국어 위주).
+{lang_forbidden}
 - 학습과 무관한 잡담 / 의견 표명.
 
 ## 6. 자기 점검 (Self-check, 마지막 단계)
@@ -244,11 +258,13 @@ async def ask_tutor(
     user_question: str,
     image_data_urls: list[str] | None = None,
     user_notes: list[tuple[str | None, str]] | None = None,
+    language: str | None = None,
 ) -> tuple[str, int]:
     """튜터에게 한 번 질문하고 응답을 반환. (answer_body, tokens) 튜플.
 
     `image_data_urls`: 각 원소는 `"data:image/jpeg;base64,..."` 형식의 데이터 URL.
     `user_notes`: 사용자가 같은 파일에 작성한 노트 [(title, body), ...]. 최신순.
+    `language`: 출력 언어 힌트 — "en" 이면 답변을 영어로. 기본은 한국어.
     """
     history_list = list(history)[-MAX_HISTORY_TURNS:]
     notes_block = _format_notes(user_notes)
@@ -258,6 +274,7 @@ async def ask_tutor(
         filename=filename,
         notes_block=notes_block,
         has_images=bool(image_data_urls),
+        language=language,
     )
 
     messages = _build_messages(
@@ -296,11 +313,13 @@ async def ask_tutor_stream(
     user_question: str,
     image_data_urls: list[str] | None = None,
     user_notes: list[tuple[str | None, str]] | None = None,
+    language: str | None = None,
 ) -> AsyncIterator[str]:
     """튜터 응답을 토큰 단위로 yield. 각 yield 는 응답 텍스트 delta 청크.
 
     사용자가 응답을 기다리는 동안 "AI 가 생각 중" 으로만 표시하면 지루하므로
     SSE 로 흘려보내고 iOS 가 점진적으로 화면에 표시한다.
+    `language`: 출력 언어 힌트 — "en" 이면 답변을 영어로. 기본은 한국어.
     """
     history_list = list(history)[-MAX_HISTORY_TURNS:]
     notes_block = _format_notes(user_notes)
@@ -310,6 +329,7 @@ async def ask_tutor_stream(
         filename=filename,
         notes_block=notes_block,
         has_images=bool(image_data_urls),
+        language=language,
     )
 
     messages = _build_messages(
