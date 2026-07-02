@@ -22,6 +22,15 @@ class Settings(BaseSettings):
     # 유튜브 링크는 별도 resource_type 흐름(후속)으로 처리한다.
     ALLOWED_FILE_TYPES: str = "pdf,pptx,docx,image"
 
+    # --- 구독 (billing) ---
+    # free 플랜에서 허용하는 학습자료 업로드 총 횟수. pro 는 무제한.
+    # 강의계획서(syllabus) 업로드는 과목 세팅 과정이므로 카운트하지 않는다.
+    FREE_UPLOAD_LIMIT: int = 2
+    # Pro 플랜 가격 (KRW/월). 연간 결제는 월 환산가에 30% 할인.
+    PRO_MONTHLY_PRICE: int = 9900
+    PRO_MONTHLY_ORIGINAL_PRICE: int = 29900
+    PRO_YEARLY_DISCOUNT_RATE: float = 0.30
+
     # 유튜브 자막 추출용 선택적 프록시. EC2 IP 가 YouTube 에 차단될 때 .env 에
     # 프록시 URL(예: "http://user:pass@host:port")을 넣으면 youtube_extractor 가 우회한다.
     # 비어 있으면 직접 요청(데모/소량엔 충분, 대량/연속 요청 시 차단 가능).
