@@ -693,6 +693,7 @@ async def file_debug(
             "ai_confidence": file_row.ai_confidence,
             "classification_source": file_row.classification_source,
             "parse_error": file_row.parse_error,
+            "class_progress_page": file_row.class_progress_page,
             "extracted_text_length": len(text),
             "extracted_text_preview": text[:500].replace("\n", " "),
             "created_at": file_row.created_at.isoformat(),
@@ -808,6 +809,35 @@ async def set_file_week(
         file_row.status = "classified"
         file_row.ai_confidence = 1.0
 
+    await db.commit()
+    await db.refresh(file_row)
+    return FileResponse.model_validate(file_row)
+
+
+class ClassProgressRequest(BaseModel):
+    # 1-based 페이지. null 이면 마크 해제.
+    page: int | None = Field(None, ge=1, le=10000)
+
+
+@router.patch("/files/{file_id}/class-progress", response_model=FileResponse)
+async def set_class_progress(
+    file_id: uuid.UUID,
+    body: ClassProgressRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """"이번 수업 여기까지" 진도 마크 저장/해제.
+
+    뷰어에서 마크한 페이지를 저장해 두면, 다음에 같은 자료를 열 때 클라이언트가
+    이 페이지로 자동 스크롤한다. page=null 이면 마크 해제. page_count 를 알면
+    범위를 클램프한다 (추출 전 파일은 그대로 저장 — 표시는 클라이언트가 방어).
+    """
+    file_row, _ = await owned_file(file_id, current_user, db)
+
+    page = body.page
+    if page is not None and file_row.page_count:
+        page = min(page, file_row.page_count)
+    file_row.class_progress_page = page
     await db.commit()
     await db.refresh(file_row)
     return FileResponse.model_validate(file_row)

@@ -484,6 +484,76 @@ async def study_quiz_from_selection(
     return {"questions": result.get("questions", [])}
 
 
+# ---------- 선택 지문 번역 ----------
+
+
+class SelectionTranslateRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=8000)
+
+
+def _detect_translate_target(text: str) -> str:
+    """한글 비중으로 번역 방향 결정 — 한글이 유의미하게 섞여 있으면 영어로, 아니면 한국어로."""
+    hangul = sum(1 for ch in text if "가" <= ch <= "힣" or "ㄱ" <= ch <= "ㅣ")
+    letters = sum(1 for ch in text if ch.isalpha())
+    return "en" if letters and hangul / letters > 0.2 else "ko"
+
+
+@router.post("/files/{file_id}/translate")
+async def study_translate_selection(
+    file_id: uuid.UUID,
+    body: SelectionTranslateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """드래그한 지문 즉석 번역 (동기, 캐시 없음 — 선택은 일회성).
+
+    방향은 자동: 한국어 지문 → 영어, 그 외 → 한국어. 결과는 저장하지 않는다.
+    """
+    await owned_file(file_id, current_user, db)
+
+    passage = (body.text or "").strip()
+    if not passage:
+        raise HTTPException(status_code=400, detail="번역할 내용이 없어요.")
+
+    target = _detect_translate_target(passage)
+    target_label = "natural English" if target == "en" else "natural Korean"
+
+    from app.core.config import settings
+    from app.services.openai_client import get_async_openai
+    from openai import OpenAIError
+
+    if not settings.OPENAI_API_KEY:
+        raise HTTPException(status_code=502, detail="AI 설정이 아직 준비되지 않았어요.")
+
+    try:
+        resp = await get_async_openai().chat.completions.create(
+            model=settings.OPENAI_TUTOR_MODEL,
+            temperature=0.2,
+            # 대략 원문 길이에 비례 + 여유. 8000자 지문도 잘리지 않게 상한은 넉넉히.
+            max_tokens=min(4000, max(300, len(passage))),
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a precise translator for university lecture materials. "
+                        f"Translate the user's text into {target_label}. "
+                        "Preserve technical terms, numbers, LaTeX, and line breaks. "
+                        "Output ONLY the translation — no explanations, no quotes."
+                    ),
+                },
+                {"role": "user", "content": passage},
+            ],
+        )
+    except OpenAIError as exc:
+        logger.exception("selection translate failed")
+        raise HTTPException(status_code=502, detail=f"번역 실패: {exc}") from exc
+
+    translation = (resp.choices[0].message.content or "").strip()
+    if not translation:
+        raise HTTPException(status_code=502, detail="번역 결과가 비어 있어요.")
+    return {"translation": translation, "target": target}
+
+
 # ---------- Speculative prefetch ----------
 
 PREFETCH_TYPES = ("quiz", "flashcard", "mindmap", "memorize", "topics")

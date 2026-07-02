@@ -41,6 +41,8 @@ class FileResponse(BaseModel):
     external_url: str | None = None
     classification_source: str | None = None
     parse_error: str | None
+    # "이번 수업 여기까지" 진도 마크 — 뷰어가 다음 진입 시 이 페이지로 자동 스크롤.
+    class_progress_page: int | None = None
     created_at: datetime
     updated_at: datetime
 

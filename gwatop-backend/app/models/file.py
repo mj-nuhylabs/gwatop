@@ -34,6 +34,9 @@ class File(Base):
     parse_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     extract_error: Mapped[str | None] = mapped_column(String, nullable=True)
+    # "이번 수업 여기까지" 진도 마크 (1-based 페이지). 다음에 이 자료를 열면 뷰어가
+    # 이 페이지로 자동 스크롤한다. NULL = 마크 없음. 파일은 사용자 소유라 컬럼으로 충분.
+    class_progress_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Day 4: 어떤 경로로 주차가 정해졌는지 — "filename" | "embedding" | "manual" | null
     classification_source: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=kst_now_naive)
