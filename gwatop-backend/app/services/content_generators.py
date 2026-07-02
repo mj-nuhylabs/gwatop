@@ -199,6 +199,11 @@ QUIZ_SYSTEM = """당신은 한국 대학생을 위한 학습 퀴즈 출제자입
 4. 보기에는 답이 명확히 드러나는 표현 사용. "다음 중 옳은 것"보다 구체적인 질문.
 5. 모든 문제에 해설 추가. 왜 정답인지 + 다른 보기는 왜 틀렸는지 간단히.
 6. 자료에 명시되지 않은 내용은 출제 금지.
+6-1. **정답은 보기 중 정확히 1개** — 복수 정답, 정답 없음, 애매한 보기 금지.
+6-2. **질문이 묻는 형식과 보기 형식이 반드시 일치**해야 한다.
+   - 잘못: "el과 la는 각각 어떤 성별인가?" 에 보기가 ["남성", "여성", ...] (두 대상을 묻는데 보기는 하나만 답함 → 정답 불성립)
+   - 옳음: 보기를 "el은 남성, la는 여성" 처럼 질문 형식에 맞게 구성하거나, 질문을 하나의 대상만 묻게 바꾼다.
+6-3. answer_index 는 출제 후 스스로 재검산해서 실제 정답 보기를 가리키는지 확인.
 7. 문제 수: 객관식 4~5개 + 주관식 1~2개 (합 5~7개). 출력 짧게 유지.
 8. **수학 수식·기호는 반드시 LaTeX 로 작성하고 `$...$` 안에 넣어야 한다**.
    - 모든 필드 (`question`, `choices`, `answer`, `explanation`) 에 동일 적용.
@@ -297,6 +302,7 @@ _QUIZ_DIFFICULTY_BLOCK = {
 async def generate_quiz(
     text: str, *, filename: str | None, analysis: dict | None = None,
     exclude_questions: list[str] | None = None, difficulty: str = "easy",
+    instructions: str | None = None,
     on_delta: OnDelta = None,
 ) -> dict[str, Any]:
     exclusion_block = ""
@@ -317,10 +323,23 @@ async def generate_quiz(
                 f"{joined}\n\n"
             )
     diff_block = _QUIZ_DIFFICULTY_BLOCK.get(difficulty, _QUIZ_DIFFICULTY_BLOCK["easy"])
+    # 사용자 추가 지침 — 출제 유형/범위 요구(예: "단어 뜻 위주로", "문법 문제 빼줘")를
+    # 난이도 블록 뒤에 주입해 우선 반영시킨다. 자료 밖 출제 금지 등 기본 규칙은 유지.
+    instr = (instructions or "").strip()[:500]
+    instr_block = ""
+    if instr:
+        instr_block = (
+            "\n# 사용자 추가 지침 (최우선 반영)\n"
+            f"{instr}\n"
+            "- 위 지침을 문제 유형·주제 선택에 최우선으로 반영하라.\n"
+            "- 단, '자료에 명시되지 않은 내용 출제 금지' 등 시스템 기본 규칙은 유지한다.\n"
+        )
+    material = _build_input(text, analysis)
     user_prompt = (
         f"[파일명] {filename or '(미상)'}\n\n"
-        f"[자료]\n{_build_input(text, analysis)}\n\n"
+        f"[자료]\n{material}\n\n"
         f"{diff_block}"
+        f"{instr_block}"
         f"{exclusion_block}"
         "위 자료를 바탕으로 퀴즈를 JSON으로 출제하시오."
     )
@@ -349,7 +368,103 @@ async def generate_quiz(
             continue  # 잘못된 문제는 스킵
     if not validated:
         raise ContentGeneratorError("Quiz generation produced no valid questions")
+    # 오답/모호 문항 방지 — 두 번째 모델 패스로 각 문항을 자료와 대조 검증.
+    # 정답 인덱스만 틀린 문항은 교정, 질문-보기 불일치 등 결함 문항은 제거.
+    validated = await _verify_quiz_questions(material, validated)
     return {"questions": validated, "model": model, "tokens": tokens}
+
+
+# ---------- 1-b) Quiz 검증 (오답·모호 문항 방지) ----------
+
+QUIZ_VERIFY_SYSTEM = """당신은 퀴즈 검수자입니다. 학습 자료와 생성된 퀴즈 문항을 대조해 결함 문항을 걸러냅니다.
+
+각 문항을 다음 기준으로 검사하세요:
+1. 객관식: 보기 중 자료에 근거한 정답이 **정확히 1개**인가? answer_index 가 그 정답을 가리키는가?
+2. 질문-보기 일치: 질문이 묻는 형식과 보기 형식이 일치하는가?
+   (예: 두 대상을 각각 묻는데 보기는 하나만 답하는 형태 → 불일치 → drop)
+3. 자료 근거: 문항·정답이 자료 내용 및 일반 사실과 모순되지 않는가?
+4. 주관식: answer 가 자료에 근거해 옳은가?
+
+판정(status):
+- "ok": 문제 없음.
+- "fix_answer": 질문·보기는 온전하나 answer_index 만 잘못됨 — corrected_answer_index 에 올바른 인덱스(0부터) 명시.
+- "drop": 정답이 없거나 복수, 질문-보기 형식 불일치, 심한 모호함, 자료와 모순 — 문항 자체가 결함.
+
+reason 은 한 줄로 짧게. 확실한 결함만 drop — 확신이 없으면 "ok" 를 선택하세요(과잉 삭제 방지).
+출력은 JSON 객체 1개. 모든 문항에 대해 verdicts 항목을 index 순서대로 작성.
+"""
+
+
+class _QuizVerdict(BaseModel):
+    index: int = Field(..., ge=0)
+    status: Literal["ok", "fix_answer", "drop"]
+    corrected_answer_index: int | None = None
+    reason: str = ""
+
+
+class _QuizVerifyResponse(BaseModel):
+    verdicts: list[_QuizVerdict]
+
+
+async def _verify_quiz_questions(
+    material: str, questions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """생성된 문항을 자료와 대조 검증 — 정답 오류는 교정, 결함 문항은 제거.
+
+    검증 호출 실패 또는 전 문항 drop 시엔 원본을 그대로 반환한다(fail-open) —
+    검증은 품질 보강 장치이지 가용성을 깎는 관문이 아니다.
+    """
+    quiz_json = json.dumps({"questions": questions}, ensure_ascii=False)
+    user = (
+        f"[자료]\n{material}\n\n"
+        f"[생성된 퀴즈]\n{quiz_json}\n\n"
+        "위 퀴즈의 각 문항(index 0부터)을 검증해 verdicts 를 JSON 으로 출력하시오."
+    )
+    try:
+        payload, _model, _tokens = await _generate_json(
+            system=QUIZ_VERIFY_SYSTEM, user=user,
+            schema_model=_QuizVerifyResponse, schema_name="quiz_verify",
+            max_tokens=1000, temperature=0.0,
+        )
+    except ContentGeneratorError as exc:
+        logger.warning("quiz verify failed (fail-open): %s", exc)
+        return questions
+
+    verdicts: dict[int, _QuizVerdict] = {}
+    for v in payload.get("verdicts", []):
+        try:
+            item = _QuizVerdict.model_validate(v)
+        except ValidationError:
+            continue
+        verdicts[item.index] = item
+
+    kept: list[dict[str, Any]] = []
+    for i, q in enumerate(questions):
+        v = verdicts.get(i)
+        if v is None or v.status == "ok":
+            kept.append(q)
+            continue
+        if v.status == "drop":
+            logger.info("quiz verify: dropped q%d — %s", i, v.reason)
+            continue
+        # fix_answer — 교정 인덱스가 유효한 객관식일 때만 적용, 아니면 원본 유지.
+        if (
+            q.get("type") == "multiple_choice"
+            and isinstance(v.corrected_answer_index, int)
+            and 0 <= v.corrected_answer_index < len(q.get("choices") or [])
+        ):
+            logger.info(
+                "quiz verify: fixed q%d answer_index %s→%s — %s",
+                i, q.get("answer_index"), v.corrected_answer_index, v.reason,
+            )
+            kept.append({**q, "answer_index": v.corrected_answer_index})
+        else:
+            kept.append(q)
+
+    if not kept:
+        logger.warning("quiz verify dropped all %d questions — fail-open", len(questions))
+        return questions
+    return kept
 
 
 # ---------- 2) Flashcards ----------
@@ -833,19 +948,20 @@ async def generate_content(
     analysis: dict | None = None,
     exclude_questions: list[str] | None = None,
     difficulty: str = "easy",
+    instructions: str | None = None,
     on_delta: OnDelta = None,
     language: str | None = None,
 ) -> dict[str, Any]:
     fn = GENERATOR_REGISTRY.get(content_type)
     if fn is None:
         raise ContentGeneratorError(f"Unknown content_type: {content_type}")
-    # exclude_questions / difficulty 는 quiz, language 는 summary 만 사용. 다른 generator
-    # 시그니처를 건드리지 않기 위해 content_type 별로 분기한다.
+    # exclude_questions / difficulty / instructions 는 quiz, language 는 summary 만 사용.
+    # 다른 generator 시그니처를 건드리지 않기 위해 content_type 별로 분기한다.
     # on_delta 가 있으면 스트리밍(SSE 엔드포인트), 없으면 기존 비스트리밍(Celery 워커).
     if content_type == "quiz":
         return await fn(text, filename=filename, analysis=analysis,
                         exclude_questions=exclude_questions, difficulty=difficulty,
-                        on_delta=on_delta)
+                        instructions=instructions, on_delta=on_delta)
     if content_type == "summary":
         return await fn(text, filename=filename, analysis=analysis,
                         on_delta=on_delta, language=language)
