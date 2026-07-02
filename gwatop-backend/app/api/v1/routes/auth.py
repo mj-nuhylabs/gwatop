@@ -243,6 +243,21 @@ async def change_password(
     return None
 
 
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_me(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """회원 탈퇴 — 계정을 비활성화한다(soft delete).
+
+    is_active=False 면 get_current_user 가 401 을 반환하므로 즉시 모든 API 접근이 차단된다.
+    데이터(과목/파일)는 보존 — 복구 문의 대응 및 법정 보관 요건을 위해 하드 삭제하지 않는다.
+    """
+    current_user.is_active = False
+    await db.commit()
+    return None
+
+
 @router.post("/refresh")
 async def refresh_token(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
     try:

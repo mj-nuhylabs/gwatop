@@ -189,6 +189,7 @@ def generate_ai_content_task(
     force: bool = False,
     requested_by_user_id: str | None = None,
     exclude_questions: list[str] | None = None,
+    instructions: str | None = None,
 ) -> None:
     """학습 탭의 quiz/flashcard/mindmap/memorize/topics 생성 작업.
 
@@ -197,11 +198,12 @@ def generate_ai_content_task(
 
     `exclude_questions` 는 퀴즈 전용 — 이전에 사용자가 풀었던 문제 텍스트 리스트.
     있으면 force=True 처럼 동작하면서 GPT 에 '이 문제들과 다르게 출제' 를 지시한다.
+    `instructions` 도 퀴즈 전용 — 사용자 추가 지침. 있으면 캐시를 덮어쓰고 새로 만든다.
     """
     _run_with_fresh_engine(
         lambda Session: _run_generate_ai_content(
             file_id, content_type, scope, force, requested_by_user_id, Session,
-            exclude_questions=exclude_questions,
+            exclude_questions=exclude_questions, instructions=instructions,
         )
     )
 
@@ -1543,6 +1545,7 @@ async def _run_generate_ai_content(
     SessionLocal,
     *,
     exclude_questions: list[str] | None = None,
+    instructions: str | None = None,
 ) -> None:
     """Celery 워커에서 실행되는 학습 콘텐츠 생성. 결과는 ai_contents 에 저장."""
     from app.models.ai_content import AIContent
@@ -1566,8 +1569,9 @@ async def _run_generate_ai_content(
             )
             return
 
-        # 기존 결과 확인. force=False + exclude_questions 없음 일 때만 캐시 hit 으로 스킵.
-        # '다른 문제로' 옵션(exclude_questions) 은 같은 캐시를 덮어쓰고 새로 만들어야 한다.
+        # 기존 결과 확인. force=False + exclude_questions/instructions 없음 일 때만
+        # 캐시 hit 으로 스킵. '다른 문제로'(exclude_questions) 와 사용자 추가 지침
+        # (instructions) 은 같은 캐시를 덮어쓰고 새로 만들어야 한다.
         existing = (await session.execute(
             select(AIContent).where(
                 AIContent.file_id == file_row.id,
@@ -1575,7 +1579,7 @@ async def _run_generate_ai_content(
                 AIContent.scope == scope,
             ).order_by(AIContent.generated_at.desc())
         )).scalars().first()
-        should_regenerate = force or bool(exclude_questions)
+        should_regenerate = force or bool(exclude_questions) or bool(instructions)
         if existing is not None and not should_regenerate:
             logger.info(
                 "generate_ai_content: already exists file=%s type=%s scope=%s",
@@ -1659,6 +1663,7 @@ async def _run_generate_ai_content(
                 exclude_questions=exclude_questions,
                 difficulty=difficulty,
                 language=language,
+                instructions=instructions,
             )
         except ContentGeneratorError as exc:
             # 실패도 결과로 저장 — iOS 가 무한 폴링 안 하고 즉시 에러 화면 표시.

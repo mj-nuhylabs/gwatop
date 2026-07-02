@@ -24,6 +24,7 @@ from app.schemas.file import (
     YouTubeUploadRequest,
 )
 from app.services import s3
+from app.services import billing
 from app.tasks.file_tasks import (
     classify_file_task,
     dispatch_material_task,
@@ -103,6 +104,9 @@ async def get_presigned_url(
 ):
     await owned_course(course_id, current_user, db)
     _validate_upload(body)
+    # 강의계획서는 과목 세팅 과정이라 쿼터 미적용 — 일반 학습자료만 검사.
+    if not body.is_syllabus:
+        billing.ensure_upload_quota(current_user)
 
     storage_key = s3.build_storage_key(str(current_user.id), body.filename)
     content_type = CONTENT_TYPES.get(body.file_type, "application/octet-stream")
@@ -156,6 +160,10 @@ async def confirm_upload(
     #    영영 추출되지 않으니 둘 다 포함해야 한다.
     if file_record.status in ("pending", "uploading"):
         _verify_uploaded_object(file_record)
+        # 업로드 완료가 확정되는 시점에 쿼터 소진 (syllabus 는 미카운트).
+        if not file_record.is_syllabus:
+            billing.consume_upload(current_user)
+            await db.commit()
         extract_text_task.delay(str(file_id))
 
     return FileConfirmResponse(file=FileResponse.model_validate(file_record))
@@ -281,6 +289,9 @@ async def complete_multipart(
     # 기존 confirm 과 동일: 객체 검증 후 추출 큐잉(멱등 — pending/uploading 일 때만).
     if file_record.status in ("pending", "uploading"):
         _verify_uploaded_object(file_record)
+        if not file_record.is_syllabus:
+            billing.consume_upload(current_user)
+            await db.commit()
         extract_text_task.delay(str(file_id))
 
     return FileConfirmResponse(file=FileResponse.model_validate(file_record))
@@ -304,6 +315,7 @@ async def add_youtube_link(
     from app.services.youtube_extractor import parse_video_id, fetch_video_title
 
     await owned_course(course_id, current_user, db)
+    billing.ensure_upload_quota(current_user)
 
     url = (body.youtube_url or "").strip()
     if not parse_video_id(url):
@@ -327,6 +339,8 @@ async def add_youtube_link(
         status="pending",
     )
     db.add(file_record)
+    # confirm 단계가 없는 흐름이라 생성 시점에 쿼터 소진.
+    billing.consume_upload(current_user)
     await db.commit()
     await db.refresh(file_record)
 
@@ -434,6 +448,7 @@ async def get_auto_presigned_url(
     워커가 텍스트 보고 분류한 뒤 적절한 후속 파이프라인으로 디스패치한다.
     """
     _validate_upload(body)
+    billing.ensure_upload_quota(current_user)
 
     storage_key = s3.build_storage_key(str(current_user.id), body.filename)
     content_type = CONTENT_TYPES.get(body.file_type, "application/octet-stream")
@@ -487,6 +502,8 @@ async def confirm_auto_upload(
         )
     if file_record.status in ("pending", "uploading"):
         _verify_uploaded_object(file_record)
+        billing.consume_upload(current_user)
+        await db.commit()
         extract_text_task.delay(str(file_id))
     return FileConfirmResponse(file=FileResponse.model_validate(file_record))
 
@@ -509,6 +526,9 @@ async def confirm_auto_batch(
     각 파일은 미리 /files/auto/presigned-url 로 만들어진 auto_pending 파일이어야 한다.
     소유권/상태를 검증하고 S3 업로드 완료를 확인한 뒤, 단일 배치 태스크에 모두 넘긴다.
     """
+    # 배치 전체가 잔여 쿼터 안에 들어오는지 먼저 확인 — 일부만 처리되는 상황 방지.
+    billing.ensure_upload_quota(current_user, len(body.file_ids))
+
     valid_ids: list[str] = []
     for fid in body.file_ids:
         file_record, _ = await owned_file(fid, current_user, db)
@@ -522,6 +542,8 @@ async def confirm_auto_batch(
             valid_ids.append(str(fid))
 
     if valid_ids:
+        billing.consume_upload(current_user, len(valid_ids))
+        await db.commit()
         from app.tasks.file_tasks import process_auto_batch_task
         process_auto_batch_task.delay(valid_ids, str(current_user.id))
 

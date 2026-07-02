@@ -22,6 +22,27 @@ class Settings(BaseSettings):
     # 유튜브 링크는 별도 resource_type 흐름(후속)으로 처리한다.
     ALLOWED_FILE_TYPES: str = "pdf,pptx,docx,image"
 
+    # --- 구독 (billing) ---
+    # free 플랜에서 허용하는 학습자료 업로드 총 횟수. pro 는 무제한.
+    # 강의계획서(syllabus) 업로드는 과목 세팅 과정이므로 카운트하지 않는다.
+    FREE_UPLOAD_LIMIT: int = 2
+    # Pro 플랜 가격 (KRW/월). 연간 결제는 월 환산가에 30% 할인.
+    PRO_MONTHLY_PRICE: int = 5990
+    PRO_MONTHLY_ORIGINAL_PRICE: int = 29900
+    PRO_YEARLY_DISCOUNT_RATE: float = 0.30
+
+    # --- 결제 게이트웨이 (PG) ---
+    # 키가 비어 있으면 해당 PG 는 "미설정" — checkout 이 dev 모드(즉시 활성화)로 동작한다.
+    # 키를 채우는 순간 실결제 흐름(결제창 → 승인 → 활성화)으로 자동 전환된다.
+    # 토스페이먼츠: https://developers.tosspayments.com (클라이언트 키는 프론트 결제창용)
+    TOSS_CLIENT_KEY: str = ""
+    TOSS_SECRET_KEY: str = ""
+    # 카카오페이: https://developers.kakaopay.com (CID: 가맹점 코드, 테스트는 "TC0ONETIME")
+    KAKAOPAY_SECRET_KEY: str = ""
+    KAKAOPAY_CID: str = "TC0ONETIME"
+    # 결제 완료/취소 후 되돌아올 프론트 주소 (successUrl/approval_url 의 base).
+    FRONTEND_BASE_URL: str = "http://localhost:3000"
+
     # 유튜브 자막 추출용 선택적 프록시. EC2 IP 가 YouTube 에 차단될 때 .env 에
     # 프록시 URL(예: "http://user:pass@host:port")을 넣으면 youtube_extractor 가 우회한다.
     # 비어 있으면 직접 요청(데모/소량엔 충분, 대량/연속 요청 시 차단 가능).

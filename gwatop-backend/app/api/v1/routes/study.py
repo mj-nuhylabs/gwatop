@@ -193,6 +193,9 @@ class GenerateRequest(BaseModel):
     exclude_questions: list[str] | None = None
     # 퀴즈 한정: 난이도(easy/medium/hard). 기본 easy. scope 에 인코딩돼 난이도별로 캐시 분리.
     difficulty: str | None = "easy"
+    # 퀴즈 한정: 사용자 추가 지침 (예: "단어 뜻 위주로만"). 있으면 캐시를 우회해 항상
+    # 새로 생성한다 — 지침별로 캐시를 쪼개면 키가 폭발하므로 캐시 키에는 넣지 않는다.
+    instructions: str | None = Field(default=None, max_length=500)
     # 출력 언어("en"=영어, 그 외=한국어). 클라이언트가 UI 언어를 넘기면 summary/quiz/
     # flashcard/mindmap/memorize/topics 의 자연어 출력이 그 언어로 생성된다.
     # "en" 은 scope 에 '#en' 으로 인코딩돼 언어별 캐시가 분리된다(기본 ko 는 접미사 없음).
@@ -238,7 +241,8 @@ async def study_generate_ai_content(
             )
         ).order_by(AIContent.generated_at.desc())
     )).scalars().first()
-    if existing is not None and not req.force and not req.exclude_questions:
+    instructions = (req.instructions or "").strip() or None
+    if existing is not None and not req.force and not req.exclude_questions and not instructions:
         return {
             "file_id": str(file_id),
             "content_type": content_type,
@@ -250,13 +254,13 @@ async def study_generate_ai_content(
         }
 
     # Celery 워커로 큐잉. force 일 때 기존 row 는 워커가 안에서 지운다.
-    # exclude_questions 가 있으면 force 와 무관하게 새로 만들어야 함 — 사용자가
-    # 명시적으로 '다른 문제로' 를 눌렀기 때문. 캐시 단계에서 이미 통과해 여기까지 왔으므로
-    # req.force 가 False 라도 워커는 exclude 힌트를 받아 새 GPT 호출을 수행한다.
+    # exclude_questions / instructions 가 있으면 force 와 무관하게 새로 만들어야 함 —
+    # 사용자가 명시적으로 '다른 문제로' 또는 추가 지침을 줬기 때문. 캐시 단계에서 이미
+    # 통과해 여기까지 왔으므로 req.force 가 False 라도 워커는 새 GPT 호출을 수행한다.
     from app.tasks.file_tasks import generate_ai_content_task
     generate_ai_content_task.delay(
         str(file_id), content_type, scope, req.force, str(current_user.id),
-        req.exclude_questions,
+        req.exclude_questions, instructions,
     )
 
     return {
@@ -312,7 +316,11 @@ async def study_generate_ai_content_stream(
             )
         ).order_by(AIContent.generated_at.desc())
     )).scalars().first()
-    cached_hit = existing is not None and not req.force and not req.exclude_questions
+    instructions = (req.instructions or "").strip() or None
+    cached_hit = (
+        existing is not None and not req.force and not req.exclude_questions
+        and not instructions
+    )
 
     # 분석본(scope=all)이 있으면 재사용 — 워커 경로와 동일한 입력 최적화.
     analysis_payload: dict | None = None
@@ -339,6 +347,7 @@ async def study_generate_ai_content_stream(
     exclude_q = req.exclude_questions
     force = req.force
     language = req.language
+    instr = instructions
 
     async def event_stream():
         from app.core.database import AsyncSessionLocal as async_session_maker
@@ -366,7 +375,7 @@ async def study_generate_ai_content_stream(
         async def _save_result(payload: dict) -> None:
             """결과를 ai_contents 에 저장 — 새 세션으로 (Depends db 는 이미 닫힘)."""
             async with async_session_maker() as ndb:
-                if existing_id is not None and (force or exclude_q):
+                if existing_id is not None and (force or exclude_q or instr):
                     await ndb.execute(delete(AIContent).where(AIContent.id == existing_id))
                 ac = AIContent(
                     file_id=fid,
@@ -389,7 +398,8 @@ async def study_generate_ai_content_stream(
                 payload = await generate_content(
                     content_type, sliced_text, filename=filename,
                     analysis=analysis_payload, exclude_questions=exclude_q,
-                    difficulty=difficulty, on_delta=on_delta, language=language,
+                    difficulty=difficulty, instructions=instr,
+                    on_delta=on_delta, language=language,
                 )
                 await _save_result(payload)
                 await queue.put(("result", payload))
@@ -446,6 +456,8 @@ class SelectionQuizRequest(BaseModel):
     difficulty: str | None = "easy"
     # 출력 언어("en"=영어, 그 외=한국어). 캐시하지 않는 즉석 퀴즈라 scope 인코딩 불필요.
     language: str | None = None
+    # 사용자 추가 지침 (예: "단어 뜻 위주로만 내줘").
+    instructions: str | None = Field(default=None, max_length=500)
 
 
 @router.post("/files/{file_id}/ai-contents/quiz/from-selection")
@@ -477,6 +489,7 @@ async def study_quiz_from_selection(
         result = await generate_quiz(
             passage, filename=file_row.filename, difficulty=difficulty,
             language=body.language,
+            instructions=(body.instructions or "").strip() or None,
         )
     except ContentGeneratorError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
