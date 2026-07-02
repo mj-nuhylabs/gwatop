@@ -10,3 +10,4 @@ from app.models.note import UserNote
 from app.models.tutor_message import TutorMessage
 from app.models.flashcard_status import UserFlashcardStatus
 from app.models.syllabus_update_proposal import SyllabusUpdateProposal
+from app.models.payment_order import PaymentOrder
